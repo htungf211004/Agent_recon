@@ -16,6 +16,7 @@ from src.recon.models import (
     ToolResult,
 )
 from src.recon.policy import PolicyService
+from src.recon.web_models import HttpResponseMetadata
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,7 @@ class AdapterOutput:
     message: str = ""
     attack_surface: tuple[AttackSurfaceEntry, ...] = ()
     technologies: tuple[TechnologyObservation, ...] = ()
+    http_response: HttpResponseMetadata | None = None
 
 
 class Adapter(Protocol):
@@ -33,6 +35,8 @@ class Adapter(Protocol):
 
 class EvidenceWriter(Protocol):
     def save(self, request: CapabilityRequest, content: bytes) -> EvidenceArtifact: ...
+
+    def read(self, artifact_id: str) -> bytes | None: ...
 
 
 class ResultWriter(Protocol):
@@ -121,6 +125,7 @@ class ToolExecutionGateway:
                 evidence_id=evidence_id,
                 attack_surface=tuple(entry.model_copy(update={"evidence_id": evidence_id or ""}) for entry in output.attack_surface),
                 technologies=tuple(tech.model_copy(update={"evidence_id": evidence_id or ""}) for tech in output.technologies),
+                http_response=output.http_response,
                 started_at=started_at,
                 finished_at=datetime.now(UTC),
             )

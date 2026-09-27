@@ -1,0 +1,225 @@
+"""Bounded deterministic discovery rounds. Every fetch is dispatched by ReconService."""
+
+import base64
+import hashlib
+import json
+from collections import Counter
+from urllib.parse import parse_qsl, urlsplit
+from xml.etree.ElementTree import ParseError
+
+from yaml import YAMLError
+
+from src.recon.discovery_parsers import Candidate, parse_document
+from src.recon.endpoints import baseline_eligible, fuzz_ready
+from src.recon.models import Capability, ReconTask, ToolResult
+from src.recon.planner import ReconPlanner, scheme_for_port
+from src.recon.service import ReconService
+from src.recon.storage import ReconRepository
+from src.recon.urls import normalize_candidate, request_url
+from src.recon.web_models import (
+    BaselineRequest,
+    DiscoverySource,
+    EndpointLifecycle,
+    EndpointParameter,
+    EndpointProvenance,
+    ReconCoverage,
+    SourceStatus,
+    WebEndpointEntry,
+)
+
+
+class EndpointDiscovery:
+    def __init__(self, repository: ReconRepository, planner: ReconPlanner, service: ReconService):
+        self.repository = repository
+        self.planner = planner
+        self.service = service
+        self.limit_reason = "exhausted"
+
+    def run(self, task: ReconTask):
+        previous = self.repository.get_coverage(task.id)
+        self.limit_reason = previous.stop_reason if previous else "exhausted"
+        self._seed(task)
+        while True:
+            sources = self.repository.list_sources(task.id)
+            pending = tuple(source for source in sources if source.status == SourceStatus.PENDING)
+            if not pending:
+                break
+            resumed = tuple(source for source in pending if source.request_id is not None)
+            if resumed:
+                # Recover already persisted responses before applying network/round budgets.
+                for source in resumed:
+                    result = self.repository.get_tool_result(source.request_id)
+                    if result is None:
+                        self.repository.save_source(source.model_copy(update={
+                            "status": SourceStatus.ERROR, "message": "request already claimed or incomplete",
+                        }))
+                    else:
+                        self._process(task, source, result)
+                continue
+            rounds = self._round_count(task.id)
+            used = sum(source.request_id is not None for source in sources)
+            remaining = task.discovery_limits.max_requests - used
+            if rounds >= task.discovery_limits.max_rounds or remaining <= 0:
+                reason = "round_limit" if rounds >= task.discovery_limits.max_rounds else "request_limit"
+                self.limit_reason = reason
+                for source in pending:
+                    self.repository.save_source(source.model_copy(update={"status": SourceStatus.LIMITED, "message": reason}))
+                break
+            selected = []
+            for source in pending:
+                endpoint = self.repository.get_endpoint(source.id)
+                if endpoint is not None and not baseline_eligible(endpoint):
+                    self.repository.save_source(source.model_copy(update={
+                        "status": SourceStatus.BLOCKED, "message": "endpoint requires manual input",
+                    }))
+                elif len(selected) < min(remaining, 16):
+                    selected.append(source)
+            if not selected:
+                continue
+            plan = self.planner.fetch_plan(task, tuple(selected))
+            by_url = {(source.url, source.method): source for source in selected}
+            selected = []
+            for action in plan.actions:
+                params = action.request.parameters
+                url = request_url(action.request.target_ip, params.scheme, params.port, params.path, params.query)
+                source = by_url[(url, params.method)].model_copy(update={"request_id": action.request.id})
+                self.repository.save_source(source)
+                selected.append(source)
+            try:
+                self.service.run(plan)
+            except RuntimeError:
+                # Claimed but incomplete requests cannot be retried under a new ID.
+                pass
+            for source in selected:
+                result = self.repository.get_tool_result(source.request_id)
+                if result is None:
+                    self.repository.save_source(source.model_copy(update={
+                        "status": SourceStatus.ERROR, "message": "request already claimed or incomplete",
+                    }))
+                else:
+                    self._process(task, source, result)
+        self._coverage(task)
+        return self.service.snapshot(task.id)
+
+    def _seed(self, task):
+        defaults = ("/", "/robots.txt", "/sitemap.xml", "/openapi.json", "/swagger.json")
+        for target in sorted(set(task.scope.allowed_ips)):
+            for port in sorted(set(task.scope.allowed_ports)):
+                base = request_url(target, scheme_for_port(port), port, "/")
+                for value in task.discovery_seeds or defaults:
+                    url = normalize_candidate(value, base)
+                    if url:
+                        source = DiscoverySource(task_id=task.id, url=url)
+                        self._candidate(task, Candidate(url, relation="seed"), source, depth=0)
+
+    def _candidate(self, task, candidate, source, depth):
+        query_params = tuple(EndpointParameter(name=name, location="query", data_type="string")
+                             for name, _ in parse_qsl(urlsplit(candidate.url).query, keep_blank_values=True)
+                             if 0 < len(name) <= 256)
+        endpoint = WebEndpointEntry(
+            task_id=task.id, url=candidate.url, method=candidate.method,
+            parameters=tuple({(param.location, param.name): param for param in (*query_params, *candidate.parameters)}.values()),
+            provenance=(EndpointProvenance(source_id=source.id, kind=source.kind, relation=candidate.relation,
+                                           evidence_id=source.evidence_id),),
+            requires_manual_input=candidate.manual,
+        )
+        if self.repository.get_endpoint(endpoint.id) is None and len(self.repository.list_endpoints(task.id)) >= task.discovery_limits.max_endpoints:
+            self.limit_reason = "endpoint_limit"
+            return
+        endpoint = self.repository.save_endpoint(endpoint)
+        if not baseline_eligible(endpoint):
+            return
+        known = self.repository.list_sources(task.id)
+        if any(item.id == endpoint.id for item in known):
+            return
+        if len(known) >= task.discovery_limits.max_sources:
+            self.limit_reason = "source_limit"
+            return
+        status = SourceStatus.PENDING
+        if depth > task.discovery_limits.max_depth:
+            status = SourceStatus.LIMITED
+            self.limit_reason = "depth_limit"
+        self.repository.save_source(DiscoverySource(
+            task_id=task.id, url=endpoint.url, method=endpoint.method, kind=candidate.kind_hint,
+            depth=depth, status=status, message="depth_limit" if status == SourceStatus.LIMITED else "",
+        ))
+
+    def _observe(self, source: DiscoverySource, result: ToolResult):
+        endpoint = self.repository.get_endpoint(source.id)
+        if endpoint is None or result.http_response is None or result.evidence_id is None:
+            return
+        endpoint = endpoint.model_copy(update={
+            "lifecycle": EndpointLifecycle.OBSERVED,
+            "evidence_ids": tuple(sorted(set((*endpoint.evidence_ids, result.evidence_id)))),
+        })
+        response = result.http_response
+        if result.status == "success" and 200 <= response.status_code < 300 and not response.truncated and baseline_eligible(endpoint):
+            baseline = BaselineRequest(
+                task_id=source.task_id, endpoint_id=endpoint.id, request_id=result.request_id,
+                url=endpoint.url, method=source.method, evidence_id=result.evidence_id,
+                response=response, observed_at=result.finished_at,
+            )
+            self.repository.save_baseline(baseline)
+            endpoint = endpoint.model_copy(update={"baseline_id": baseline.id, "lifecycle": EndpointLifecycle.BASELINED})
+            if fuzz_ready(endpoint):
+                endpoint = endpoint.model_copy(update={"lifecycle": EndpointLifecycle.FUZZ_READY})
+        self.repository.save_endpoint(endpoint)
+
+    def _process(self, task, source, result):
+        source = source.model_copy(update={"evidence_id": result.evidence_id})
+        metadata = result.http_response
+        body = b""
+        if metadata and result.evidence_id:
+            try:
+                raw = self.service.gateway.evidence.read(result.evidence_id)
+                envelope = json.loads(raw)
+                body = base64.b64decode(envelope["body_base64"], validate=True)
+                if (hashlib.sha256(body).hexdigest() != metadata.body_sha256 or len(body) != metadata.body_size
+                        or envelope["url"] != source.url or envelope["method"] != source.method):
+                    raise ValueError("HTTP evidence mismatch")
+            except (ValueError, TypeError, KeyError, OSError) as exc:
+                self.repository.save_source(source.model_copy(update={
+                    "status": SourceStatus.ERROR, "message": f"evidence error: {type(exc).__name__}",
+                }))
+                return
+            self._observe(source, result)
+        if result.status == "denied":
+            status, message = SourceStatus.BLOCKED, result.message
+        elif metadata and metadata.truncated:
+            status, message = SourceStatus.LIMITED, result.message
+            self.limit_reason = "parser_limit"
+        elif result.status != "success" or metadata is None or not result.evidence_id:
+            status, message = SourceStatus.ERROR, result.message
+        elif not 200 <= metadata.status_code < 300:
+            status, message = SourceStatus.UNAVAILABLE, f"HTTP {metadata.status_code}; redirects are not followed"
+        else:
+            try:
+                parsed = parse_document(body.decode("utf-8", errors="replace"), source.url, metadata.content_type, source.kind)
+                source = source.model_copy(update={"kind": parsed.kind, "candidate_count": len(parsed.candidates)})
+                for candidate in parsed.candidates:
+                    self._candidate(task, candidate, source, source.depth + 1)
+                status = SourceStatus.LIMITED if parsed.limited else SourceStatus.PARSED
+                message = "parser_limit" if parsed.limited else ""
+                if parsed.limited:
+                    self.limit_reason = "parser_limit"
+            except (ValueError, TypeError, KeyError, RecursionError, OSError, ParseError, YAMLError) as exc:
+                status, message = SourceStatus.ERROR, f"parser/evidence error: {type(exc).__name__}"
+        self.repository.save_source(source.model_copy(update={"status": status, "message": message}))
+
+    def _round_count(self, task_id):
+        return sum(any(action.request.capability == Capability.HTTP_FETCH for action in plan.actions)
+                   for plan in self.repository.list_plans(task_id))
+
+    def _coverage(self, task):
+        sources = self.repository.list_sources(task.id)
+        endpoints = self.repository.list_endpoints(task.id)
+        counts = dict(Counter(source.status for source in sources))
+        converged = self.limit_reason == "exhausted" and not counts.get(SourceStatus.PENDING, 0)
+        self.repository.save_coverage(ReconCoverage(
+            task_id=task.id, rounds=self._round_count(task.id), requests=sum(source.request_id is not None for source in sources),
+            sources=len(sources), source_statuses=counts, endpoints=len(endpoints),
+            lifecycle_counts=dict(Counter(endpoint.lifecycle for endpoint in endpoints)),
+            converged=converged,
+            complete=converged and not any(counts.get(status, 0) for status in (SourceStatus.ERROR, SourceStatus.BLOCKED, SourceStatus.LIMITED)),
+            stop_reason=self.limit_reason,
+        ))

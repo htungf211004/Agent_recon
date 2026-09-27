@@ -9,7 +9,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from src.recon.models import CapabilityRequest, EvidenceArtifact, PolicyDecision, ReconResult, ReconTask, ToolResult
+from src.recon.endpoints import merge_endpoints
+from src.recon.models import (
+    CapabilityRequest,
+    EvidenceArtifact,
+    PolicyDecision,
+    ReconPlan,
+    ReconResult,
+    ReconTask,
+    ToolResult,
+)
+from src.recon.web_models import BaselineRequest, DiscoverySource, ReconCoverage, WebEndpointEntry
 
 MAX_EVIDENCE_BYTES = 262_144
 
@@ -41,6 +51,21 @@ class ReconRepository:
                     request_id TEXT NOT NULL, payload TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS recon_results (
+                    task_id TEXT PRIMARY KEY, payload TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS recon_plans (
+                    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, payload TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS web_endpoints (
+                    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, payload TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS discovery_sources (
+                    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, payload TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS baseline_requests (
+                    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, payload TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS recon_coverage (
                     task_id TEXT PRIMARY KEY, payload TEXT NOT NULL
                 );
             """)
@@ -89,6 +114,21 @@ class ReconRepository:
             row = connection.execute("SELECT payload FROM tool_results WHERE request_id = ?", (request_id,)).fetchone()
         return ToolResult.model_validate_json(row[0]) if row else None
 
+    def list_tool_results(self, task_id: str) -> tuple[ToolResult, ...]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT payload FROM tool_results WHERE task_id = ? ORDER BY rowid", (task_id,))
+            return tuple(ToolResult.model_validate_json(row[0]) for row in rows)
+
+    def save_plan(self, plan: ReconPlan) -> None:
+        with self._connect() as connection:
+            connection.execute("INSERT OR IGNORE INTO recon_plans VALUES (?, ?, ?)",
+                               (plan.id, plan.task_id, plan.model_dump_json()))
+
+    def list_plans(self, task_id: str) -> tuple[ReconPlan, ...]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT payload FROM recon_plans WHERE task_id = ? ORDER BY rowid", (task_id,))
+            return tuple(ReconPlan.model_validate_json(row[0]) for row in rows)
+
     def save_evidence(self, artifact: EvidenceArtifact) -> None:
         with self._connect() as connection:
             connection.execute(
@@ -104,7 +144,8 @@ class ReconRepository:
     def save_recon_result(self, result: ReconResult) -> None:
         with self._connect() as connection:
             connection.execute(
-                "INSERT INTO recon_results (task_id, payload) VALUES (?, ?)",
+                "INSERT INTO recon_results (task_id, payload) VALUES (?, ?) "
+                "ON CONFLICT(task_id) DO UPDATE SET payload=excluded.payload",
                 (result.task_id, result.model_dump_json()),
             )
 
@@ -112,6 +153,58 @@ class ReconRepository:
         with self._connect() as connection:
             row = connection.execute("SELECT payload FROM recon_results WHERE task_id = ?", (task_id,)).fetchone()
         return ReconResult.model_validate_json(row[0]) if row else None
+
+    def save_endpoint(self, endpoint: WebEndpointEntry) -> WebEndpointEntry:
+        endpoint = WebEndpointEntry.model_validate_json(endpoint.model_dump_json())
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload FROM web_endpoints WHERE id = ?", (endpoint.id,)).fetchone()
+            if row:
+                endpoint = merge_endpoints(WebEndpointEntry.model_validate_json(row[0]), endpoint)
+            connection.execute("INSERT INTO web_endpoints VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
+                               (endpoint.id, endpoint.task_id, endpoint.model_dump_json()))
+        return endpoint
+
+    def get_endpoint(self, endpoint_id: str) -> WebEndpointEntry | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM web_endpoints WHERE id = ?", (endpoint_id,)).fetchone()
+        return WebEndpointEntry.model_validate_json(row[0]) if row else None
+
+    def list_endpoints(self, task_id: str) -> tuple[WebEndpointEntry, ...]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT payload FROM web_endpoints WHERE task_id = ? ORDER BY id", (task_id,))
+            return tuple(WebEndpointEntry.model_validate_json(row[0]) for row in rows)
+
+    def save_source(self, source: DiscoverySource) -> None:
+        source = DiscoverySource.model_validate_json(source.model_dump_json())
+        with self._connect() as connection:
+            connection.execute("INSERT INTO discovery_sources VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
+                               (source.id, source.task_id, source.model_dump_json()))
+
+    def list_sources(self, task_id: str) -> tuple[DiscoverySource, ...]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT payload FROM discovery_sources WHERE task_id = ? ORDER BY rowid", (task_id,))
+            return tuple(DiscoverySource.model_validate_json(row[0]) for row in rows)
+
+    def save_baseline(self, baseline: BaselineRequest) -> None:
+        with self._connect() as connection:
+            connection.execute("INSERT OR IGNORE INTO baseline_requests VALUES (?, ?, ?)",
+                               (baseline.id, baseline.task_id, baseline.model_dump_json()))
+
+    def get_baseline(self, baseline_id: str) -> BaselineRequest | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM baseline_requests WHERE id = ?", (baseline_id,)).fetchone()
+        return BaselineRequest.model_validate_json(row[0]) if row else None
+
+    def save_coverage(self, coverage: ReconCoverage) -> None:
+        with self._connect() as connection:
+            connection.execute("INSERT INTO recon_coverage VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET payload=excluded.payload",
+                               (coverage.task_id, coverage.model_dump_json()))
+
+    def get_coverage(self, task_id: str) -> ReconCoverage | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM recon_coverage WHERE task_id = ?", (task_id,)).fetchone()
+        return ReconCoverage.model_validate_json(row[0]) if row else None
 
 
 class EvidenceStore:

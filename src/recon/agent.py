@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from src.recon.models import ReconResult
+from src.recon.discovery import EndpointDiscovery
+from src.recon.models import Capability, ReconResult
 from src.recon.planner import ReconPlanner
 from src.recon.service import ReconService
 from src.recon.storage import ReconRepository
@@ -24,4 +25,10 @@ class ReconAgent:
         if task is None:
             raise ValueError("unknown Recon task")
         plan = self.planner.initial_plan(task)
-        return self.service.run(plan)
+        if plan.actions:
+            result = self.service.run(plan)
+        else:
+            result = self.service.snapshot(task.id)
+        if Capability.HTTP_FETCH in task.scope.capabilities:
+            return EndpointDiscovery(self.repository, self.planner, self.service).run(task)
+        return result

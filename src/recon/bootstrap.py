@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.recon.adapters import HttpProbeAdapter, NmapAdapter, WhatWebAdapter
+from src.recon.adapters import HttpFetchAdapter, HttpProbeAdapter, NmapAdapter, WhatWebAdapter
 from src.recon.agent import ReconAgent
 from src.recon.gateway import CapabilityRegistry, ToolExecutionGateway
 from src.recon.models import Capability
@@ -21,6 +21,7 @@ def create_recon_service(database_path: Path | str, evidence_dir: Path | str) ->
     registry.register(Capability.HTTP_PROBE, HttpProbeAdapter())
     registry.register(Capability.NMAP_SCAN, NmapAdapter())
     registry.register(Capability.WHATWEB, WhatWebAdapter())
+    registry.register(Capability.HTTP_FETCH, HttpFetchAdapter())
     gateway = ToolExecutionGateway(
         policy=PolicyService(repository),
         registry=registry,

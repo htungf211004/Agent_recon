@@ -18,7 +18,7 @@ Toàn bộ hồ sơ Gate 1 nằm tại:
 
 ## Trạng thái hiện tại
 
-Recon Day 1 đã có luồng thực thi từ task đến kết quả và bằng chứng. FastAPI/LangGraph starter vẫn nằm trong repo; workflow nhiều agent, frontend, phân quyền, HITL và report thuộc thiết kế mục tiêu.
+Recon Day 1 đã có luồng thực thi từ task đến kết quả và bằng chứng; Day 2 bổ sung nền tảng discovery endpoint qua nhiều vòng xác định. FastAPI/LangGraph starter vẫn nằm trong repo; workflow nhiều agent, frontend, phân quyền, HITL và report thuộc thiết kế mục tiêu.
 
 **Recon Day-1 backbone đã triển khai:**
 
@@ -31,7 +31,15 @@ Recon Day 1 đã có luồng thực thi từ task đến kết quả và bằng 
 - `ReconPlanner` tạo plan xác định từ scope; `ReconAgent` chạy trực tiếp từ `task_id`.
 - Test đầu cuối HTTP trên `127.0.0.1` đi qua Agent, Policy, Gateway, adapter, Evidence và Repository.
 
-Kiểm tra cục bộ gần nhất: **25 test pass**, Ruff pass. Xem [kiến trúc Day 1](ARCHITECTURE.md).
+**Recon Day 2 đã triển khai:**
+
+- Nhiều `ReconPlan` trong cùng task, giữ claim và idempotency theo từng request.
+- `HTTP_FETCH` chỉ GET/HEAD, kiểm tra path/method scope, không theo redirect, có timeout và giới hạn body.
+- Parser HTML, robots, sitemap/index, OpenAPI 3/Swagger 2 và JavaScript đơn giản; gộp endpoint và provenance theo quy tắc xác định.
+- Lưu endpoint, parameters, discovery source, baseline và lifecycle `DISCOVERED → OBSERVED → BASELINED → FUZZ_READY`.
+- Coverage, source status và điểm dừng theo giới hạn; test localhost nhiều nguồn kiểm tra cả replay và evidence.
+
+Xem [kiến trúc hiện tại](ARCHITECTURE.md) và [cách chạy, giới hạn Day 2](docs/day2-endpoint-discovery.md). Bộ kiểm tra gồm toàn bộ test Day 1 và các test Day 2; chạy bằng lệnh trong mục **Kiểm tra**.
 
 ## Vai trò
 
@@ -109,7 +117,7 @@ Không commit `.env` hoặc `.ai-log/*.jsonl`. Hướng dẫn và checklist cho 
 
 ```text
 docs/gate-1/       Hồ sơ Gate 1
-src/recon/         Recon Agent Day 1, policy, gateway, adapter và storage
+src/recon/         Recon Day 1/2, discovery, policy, gateway, adapter và storage
 src/               FastAPI và LangGraph starter
 tests/             Unit test và HTTP localhost E2E
 scripts/           AI log hooks và utilities

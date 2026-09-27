@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import urlsplit
 from uuid import NAMESPACE_URL, uuid5
 
 from src.recon.models import (
     Capability,
     CapabilityRequest,
+    HttpFetchParams,
     HttpProbeParams,
     NmapScanParams,
     ReconAction,
@@ -15,6 +17,7 @@ from src.recon.models import (
     ReconTask,
     WhatWebParams,
 )
+from src.recon.web_models import DiscoverySource
 
 
 def scheme_for_port(port: int) -> str:
@@ -22,6 +25,15 @@ def scheme_for_port(port: int) -> str:
 
 
 class ReconPlanner:
+    def fetch_plan(self, task: ReconTask, sources: tuple[DiscoverySource, ...]) -> ReconPlan:
+        actions = []
+        for source in sorted(sources, key=lambda item: (item.depth, item.url, item.method)):
+            url = urlsplit(source.url)
+            actions.append(self._action(task, url.hostname, Capability.HTTP_FETCH, HttpFetchParams(
+                port=url.port, scheme=url.scheme, path=url.path, query=url.query, method=source.method,
+            )))
+        return ReconPlan(task_id=task.id, actions=tuple(actions))
+
     def initial_plan(self, task: ReconTask) -> ReconPlan:
         actions: list[ReconAction] = []
         ports = tuple(sorted(set(task.scope.allowed_ports)))

@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Protocol
 
-from src.recon.models import CapabilityRequest, PolicyDecision, ReconTask
+from src.recon.models import CapabilityRequest, HttpFetchParams, PolicyDecision, ReconTask
+from src.recon.urls import path_allowed
 
 
 class TaskReader(Protocol):
@@ -35,4 +36,9 @@ class PolicyService:
         requested_ports = params.ports if hasattr(params, "ports") else (params.port,)
         if any(port not in task.scope.allowed_ports for port in requested_ports):
             return "port not allowed"
+        if isinstance(params, HttpFetchParams):
+            if params.method not in task.scope.allowed_methods:
+                return "method not allowed"
+            if not path_allowed(params.path, task.scope.allowed_paths):
+                return "path not allowed"
         return None

@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from src.recon.urls import validate_path, validate_query
+from src.recon.web_models import DiscoveryLimits, HttpResponseMetadata, ReconCoverage, WebEndpointEntry
 
 
 class StrictModel(BaseModel):
@@ -18,12 +23,20 @@ class Capability(StrEnum):
     HTTP_PROBE = "http_probe"
     NMAP_SCAN = "nmap_scan"
     WHATWEB = "whatweb"
+    HTTP_FETCH = "http_fetch"
 
 
 class Scope(StrictModel):
     allowed_ips: tuple[str, ...] = Field(min_length=1)
     allowed_ports: tuple[int, ...] = Field(min_length=1)
     capabilities: tuple[Capability, ...] = Field(min_length=1)
+    allowed_paths: tuple[str, ...] = ()
+    allowed_methods: tuple[Literal["GET", "HEAD"], ...] = ("GET", "HEAD")
+
+    @field_validator("allowed_paths")
+    @classmethod
+    def valid_paths(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(validate_path(value) for value in values)
 
     @field_validator("allowed_ips")
     @classmethod
@@ -43,6 +56,20 @@ class ReconTask(StrictModel):
     run_id: str = Field(min_length=1)
     scope: Scope
     expires_at: datetime
+    discovery_limits: DiscoveryLimits = Field(default_factory=DiscoveryLimits)
+    discovery_seeds: tuple[str, ...] = Field(default=(), max_length=32)
+
+    @field_validator("discovery_seeds")
+    @classmethod
+    def valid_seeds(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        for value in values:
+            parts = urlsplit(value)
+            if (parts.scheme or parts.netloc or parts.fragment or len(value) > 4096
+                    or any(ord(char) <= 32 or char in "{}" for char in value)):
+                raise ValueError("discovery seeds must be concrete local paths with optional query")
+            validate_path(parts.path)
+            validate_query(parts.query)
+        return values
 
 
 class HttpProbeParams(StrictModel):
@@ -69,7 +96,28 @@ class WhatWebParams(StrictModel):
     scheme: Literal["http", "https"] = "http"
 
 
-Parameters = HttpProbeParams | NmapScanParams | WhatWebParams
+class HttpFetchParams(StrictModel):
+    kind: Literal["http_fetch"] = "http_fetch"
+    port: int = Field(ge=1, le=65535)
+    scheme: Literal["http", "https"] = "http"
+    method: Literal["GET", "HEAD"] = "GET"
+    path: str = "/"
+    query: str = ""
+    timeout_seconds: float = Field(default=5.0, gt=0, le=10)
+    max_body_bytes: int = Field(default=131072, ge=1, le=131072)
+
+    @field_validator("path")
+    @classmethod
+    def local_path(cls, value: str) -> str:
+        validate_path(value)
+        if any(c in value for c in "{}"):
+            raise ValueError("unresolved path template")
+        return value
+
+    _query = field_validator("query")(validate_query)
+
+
+Parameters = HttpProbeParams | NmapScanParams | WhatWebParams | HttpFetchParams
 
 
 class CapabilityRequest(StrictModel):
@@ -98,7 +146,11 @@ class ReconAction(StrictModel):
 
 class ReconPlan(StrictModel):
     task_id: str = Field(min_length=1)
-    actions: tuple[ReconAction, ...] = Field(min_length=1)
+    actions: tuple[ReconAction, ...] = ()
+
+    @property
+    def id(self) -> str:
+        return hashlib.sha256(self.model_dump_json().encode()).hexdigest()
 
     @model_validator(mode="after")
     def same_task(self) -> ReconPlan:
@@ -154,6 +206,7 @@ class ToolResult(StrictModel):
     evidence_id: str | None = None
     attack_surface: tuple[AttackSurfaceEntry, ...] = ()
     technologies: tuple[TechnologyObservation, ...] = ()
+    http_response: HttpResponseMetadata | None = None
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     finished_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -165,3 +218,5 @@ class ReconResult(StrictModel):
     attack_surface: tuple[AttackSurfaceEntry, ...]
     technologies: tuple[TechnologyObservation, ...]
     evidence_ids: tuple[str, ...]
+    endpoints: tuple[WebEndpointEntry, ...] = ()
+    coverage: ReconCoverage | None = None

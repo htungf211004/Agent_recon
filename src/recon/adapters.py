@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import subprocess
 import tempfile
+import time
 from urllib.parse import urlunsplit
 
 import httpx
@@ -13,14 +17,69 @@ from src.recon.models import (
     AttackSurfaceEntry,
     Capability,
     CapabilityRequest,
+    HttpFetchParams,
     HttpProbeParams,
     NmapScanParams,
     TechnologyObservation,
     WhatWebParams,
 )
 from src.recon.parsers import parse_nmap, parse_whatweb
+from src.recon.urls import request_url
+from src.recon.web_models import HttpResponseMetadata
 
 MAX_OUTPUT_BYTES = 262_144
+
+
+class HttpFetchAdapter:
+    """Read a bounded response from the literal IP authorized by the gateway."""
+
+    def __init__(self, transport: httpx.BaseTransport | None = None) -> None:
+        self.transport = transport
+
+    def execute(self, request: CapabilityRequest) -> AdapterOutput:
+        params = request.parameters
+        if not isinstance(params, HttpFetchParams):
+            raise TypeError("HTTP fetch parameters required")
+        url = request_url(request.target_ip, params.scheme, params.port, params.path, params.query)
+        deadline = time.monotonic() + params.timeout_seconds
+        body = bytearray()
+        truncated = False
+        message = ""
+        try:
+            with httpx.Client(transport=self.transport, follow_redirects=False, trust_env=False,
+                              timeout=params.timeout_seconds, headers={"Accept-Encoding": "identity"}) as client:
+                with client.stream(params.method, url) as response:
+                    if response.headers.get("content-encoding", "identity").lower() not in {"", "identity"}:
+                        truncated = True
+                        message = "encoded response body not supported"
+                    elif params.method == "GET":
+                        for chunk in response.iter_raw():
+                            if time.monotonic() > deadline:
+                                raise httpx.ReadTimeout("total HTTP fetch deadline exceeded")
+                            remaining = params.max_body_bytes - len(body)
+                            body.extend(chunk[:remaining])
+                            if len(chunk) > remaining:
+                                truncated = True
+                                message = "HTTP body size limit reached"
+                                break
+                    metadata = HttpResponseMetadata(
+                        status_code=response.status_code,
+                        content_type=response.headers.get("content-type", "")[:512],
+                        body_size=len(body), body_sha256=hashlib.sha256(body).hexdigest(), truncated=truncated,
+                    )
+                    envelope = {
+                        "url": url, "method": params.method, "response": metadata.model_dump(),
+                        "body_base64": base64.b64encode(body).decode("ascii"),
+                        "location": response.headers.get("location", "")[:2048],
+                    }
+                    return AdapterOutput(
+                        status="error" if truncated else "success",
+                        message=message or f"HTTP {response.status_code}",
+                        raw_output=json.dumps(envelope, separators=(",", ":")).encode(),
+                        http_response=metadata,
+                    )
+        except httpx.HTTPError as exc:
+            return AdapterOutput(status="error", message=f"HTTP fetch failed: {type(exc).__name__}")
 
 
 def _url(target_ip: str, scheme: str, port: int) -> str:
