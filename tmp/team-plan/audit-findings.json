@@ -1,0 +1,182 @@
+[
+  [
+    "HT01",
+    "Nền API",
+    "Đã chạy nội bộ",
+    "FastAPI có /health, /api/v1/status và /api/v1/chat. Health/status/chat trả 200 trong kiểm tra nội bộ.",
+    "src/main.py; src/api/routes.py; audit-runtime.json",
+    "Tận dụng nền API; viết thêm API run/approval/report.",
+    "D101, D202, D204",
+    "Không xác nhận URL online từ kiểm tra này."
+  ],
+  [
+    "HT02",
+    "Agent/LLM",
+    "Mã mẫu đã xác nhận",
+    "Graph chỉ có analyze/respond; chat ghép chuỗi, get_llm_calls = 0. Có hàm ChatOpenAI nhưng chưa được node dùng.",
+    "src/agents/graph.py:18–19; nodes/example_node.py; services/llm.py",
+    "Nối LLM thật có đầu ra cấu trúc, kiểm thử lỗi và giữ giới hạn.",
+    "D101–D103",
+    "Không coi chat 200 là agent dùng LLM."
+  ],
+  [
+    "HT03",
+    "Cấu hình của nhóm",
+    "Có sửa đổi cục bộ",
+    "config.py thêm openai_base_url; llm.py truyền base_url vào ChatOpenAI. Hai thay đổi chưa commit tại lúc rà.",
+    "git diff; src/config.py:25; src/services/llm.py:11",
+    "Giữ và kiểm tra lại khi nối LLM; không ghi đè về template.",
+    "D101, D216",
+    "Không đọc giá trị bí mật trong .env."
+  ],
+  [
+    "HT04",
+    "Supervisor/3 agent",
+    "Chưa triển khai",
+    "Không có Supervisor, Recon, Fuzzing hoặc Exploit trong mã hiện tại.",
+    "src/agents/graph.py; src/agents/nodes/",
+    "Bổ sung điều phối và từng agent trên phạm vi lab nhỏ.",
+    "D102–D109",
+    "Đây là chức năng cần làm mới."
+  ],
+  [
+    "HT05",
+    "Tool use",
+    "Công cụ ví dụ",
+    "search_knowledge trả chuỗi mẫu, calculate là công cụ tính toán; graph không gọi hai tool này.",
+    "src/agents/tools/example_tool.py; graph.py",
+    "Tạo công cụ lab hữu hạn, phân quyền và gắn vào graph.",
+    "D103, D105, D107",
+    "Không có hoạt động khảo sát/pentest thật trong đợt audit."
+  ],
+  [
+    "HT06",
+    "DB/lưu trạng thái",
+    "Chưa triển khai",
+    "Chỉ có database_url; schema là ChatRequest/ChatResponse. graph.compile() không có lưu bền.",
+    "src/config.py:30; models/schemas.py; graph.py:26",
+    "Làm DB, schema run/step/evidence/approval và phục hồi.",
+    "BA02, D102, D104, D202, D204",
+    "Có chuỗi cấu hình không có nghĩa DB đã vận hành."
+  ],
+  [
+    "HT07",
+    "UI và hai vai trò",
+    "Chưa triển khai",
+    "Không thấy mã frontend/package.json hay login/role endpoint trong phạm vi repo đã rà.",
+    "src/api/routes.py; danh sách file repo",
+    "Tạo UI và xác thực/phân quyền tại server.",
+    "D202–D207",
+    "Sơ đồ có frontend chỉ là tài liệu mẫu."
+  ],
+  [
+    "HT08",
+    "HITL/Slack/Teams",
+    "Chưa triển khai",
+    "Chưa có approval schema/API, cổng thực thi hay tích hợp kênh phê duyệt.",
+    "src/models/; src/api/; src/agents/",
+    "Thiết kế chờ/duyệt/từ chối/hết hạn; khóa thực thi theo quyết định hợp lệ.",
+    "BA07, D108–D109, D207–D209",
+    "Áp dụng mọi hành động rủi ro, không chỉ Exploit."
+  ],
+  [
+    "HT09",
+    "Bằng chứng/báo cáo",
+    "Chưa triển khai",
+    "Chưa có finding/evidence/report và chức năng xuất báo cáo pentest.",
+    "src/models/schemas.py; src/api/routes.py",
+    "Tạo bằng chứng từ công cụ và báo cáo có mức xác minh.",
+    "BA10, D110, D210",
+    "analysis của chat không thay cho bằng chứng kiểm thử."
+  ],
+  [
+    "HT10",
+    "Kiểm thử và lint",
+    "Đã chạy đạt",
+    "pytest: 5 passed in 0.09s. Ruff: All checks passed. 3 test API nền và 2 test cấu trúc agent.",
+    "tests/test_api/test_routes.py; tests/test_agents/test_graph.py; lệnh chạy local ngày 18/09/2026",
+    "Giữ test nền, bổ sung quyền, HITL, trạng thái, lỗi, bằng chứng và luồng tích hợp.",
+    "D106, D109, D114, D206, BA05–BA15",
+    "Chưa đo coverage; 5 test không chứng minh chất lượng pentest."
+  ],
+  [
+    "HT11",
+    "Lỗi API",
+    "Hành vi đã tái hiện",
+    "Khi agent ném lỗi giả lập, API 500 trả nguyên AUDIT_SYNTHETIC_ERROR; code dùng detail=str(e).",
+    "src/api/routes.py:19; audit-runtime.json",
+    "Trả mã/thông báo an toàn, lưu chi tiết ở log có kiểm soát; bỏ analysis nội bộ khỏi API sản phẩm.",
+    "D202, D211",
+    "Chỉ dùng lỗi giả lập, không dùng bí mật thật."
+  ],
+  [
+    "HT12",
+    "Docker",
+    "Cần kiểm chứng",
+    "Dockerfile cài/copy thư viện vào /root/.local nhưng chạy appuser. Không tìm thấy Docker trong PATH ở phiên rà.",
+    "Dockerfile:7,15–16,27; Get-Command docker không có kết quả",
+    "Kiểm chứng build/run non-root, sửa đường cài nếu lỗi và lưu bằng chứng trước deploy.",
+    "D201, D203",
+    "Đây là nguy cơ từ đọc mã; chưa kết luận container đã chạy lỗi."
+  ],
+  [
+    "HT13",
+    "CI và triển khai",
+    "Có CI mẫu",
+    "ci.yml có cài dependencies, ruff và pytest. Chưa có job build container hoặc triển khai. Không có live URL xác minh được trong hồ sơ.",
+    ".github/workflows/ci.yml; README.md",
+    "Tận dụng CI, thêm build và quy trình deploy; xác minh URL từ thiết bị khác.",
+    "D206, D212, D215",
+    "Chưa kiểm tra lịch sử GitHub Actions/cloud; không khẳng định CI từ xa đang xanh."
+  ],
+  [
+    "HT14",
+    "Đánh giá AI",
+    "Tài liệu mẫu",
+    "eval/results/report.md chỉ có target >80%, <3s… và Actual trống. Chưa thấy dataset/runner đánh giá.",
+    "eval/results/report.md; danh sách file eval/",
+    "Tạo tập có nhãn, runner và số đo phù hợp bài pentest.",
+    "BA04, BA12, D112",
+    "Target mẫu không phải cam kết hay kết quả thực tế của nhóm."
+  ],
+  [
+    "HT15",
+    "Hồ sơ dự án",
+    "Chủ yếu placeholder",
+    "README là hướng dẫn AI20K; kiến trúc, journal, worklog và presentation còn là mẫu. Boilerplate có [x] chưa có bằng chứng dự án.",
+    "README.md; ARCHITECTURE.md; docs/architecture_diagram.md; JOURNAL.md; WORKLOG.md; presentation/README.md",
+    "Viết tài liệu PentestSyndicate thực tế, cập nhật đều trong quá trình làm.",
+    "PM03, PM16–PM18, BA16–BA18, D115, D216",
+    "Không tính tài liệu mẫu là deliverable đã hoàn thành."
+  ],
+  [
+    "HT16",
+    "Hạn nộp/quy định",
+    "Cần nhóm/BTC xác nhận",
+    "Repo có lộ trình học 6 tuần, chưa thấy ngày nộp thật. Chương 9 yêu cầu PDF trong khi presentation nhắc PPTX; ảnh đề có ràng buộc riêng.",
+    "docs/guide/chapter-01.md; chapter-09.md; presentation/README.md; ảnh đề tài",
+    "Chốt ngày thật và định dạng; ưu tiên yêu cầu BTC đã xác nhận, ghi rõ phần gợi ý.",
+    "PM01, PM02, PM05",
+    "Không tự coi 30/10/2026 là deadline BTC."
+  ],
+  [
+    "HT17",
+    "Khả năng tái lập",
+    "Cần hoàn thiện",
+    "requirements.txt dùng >=; môi trường hiện tại chạy test nhưng chưa có bản khóa dependency được chứng minh cài sạch.",
+    "requirements.txt; .venv đang có",
+    "Ghi/pin bộ phiên bản đã thử; kiểm tra cài lại và build.",
+    "D201, D216",
+    "Không nâng/hạ dependencies trong lần lập kế hoạch này."
+  ],
+  [
+    "HT18",
+    "Log AI/vận hành",
+    "Chưa có bằng chứng sản phẩm",
+    "Có hooks và .ai-log cho công cụ phát triển; main.py chỉ print khởi động. Chưa có trace run pentest/latency/cost thực tế.",
+    "src/main.py; thư mục hooks/.ai-log chỉ kiểm kê tên",
+    "Phân biệt nhật ký dùng AI viết code với trace sản phẩm; bổ sung đo theo run.",
+    "D112, D212, BG04",
+    "Không đọc nội dung log cá nhân hoặc gửi log ra ngoài."
+  ]
+]

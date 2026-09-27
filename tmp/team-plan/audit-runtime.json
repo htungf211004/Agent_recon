@@ -1,0 +1,39 @@
+{
+  "/health": {
+    "status": 200,
+    "body": {
+      "status": "ok",
+      "env": "test"
+    }
+  },
+  "/api/v1/status": {
+    "status": 200,
+    "body": {
+      "status": "ready",
+      "agent": "LangGraph Agent v1.0"
+    }
+  },
+  "chat": {
+    "status": 200,
+    "body": {
+      "response": "Kết quả dựa trên phân tích: Phân tích: audit local demo",
+      "analysis": "Phân tích: audit local demo"
+    },
+    "get_llm_calls": 0
+  },
+  "empty_chat": {
+    "status": 422
+  },
+  "synthetic_failure": {
+    "status": 500,
+    "body": {
+      "detail": "AUDIT_SYNTHETIC_ERROR"
+    }
+  },
+  "business_routes": [
+    "/api/v1/chat",
+    "/api/v1/status",
+    "/health"
+  ],
+  "method": "In-process ASGI requests only; no external LLM or pentest targets called."
+}

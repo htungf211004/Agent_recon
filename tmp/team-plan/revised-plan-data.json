@@ -1,0 +1,1072 @@
+{
+  "tasks": {
+    "PM": [
+      [
+        "PM01",
+        1,
+        0,
+        0,
+        2,
+        "Xác nhận tên, giờ có thể làm, ngày bắt đầu và hạn nộp thật. Thống nhất cách dùng Google Sheet và đọc tab Hiện trạng trước khi nhận việc.",
+        "Có người nhận từng vai trò, giờ/tuần và hạn nộp do nhóm xác nhận. Sáu tuần trong kế hoạch vẫn là giả định cho tới khi chốt.",
+        "Không",
+        "Cả nhóm"
+      ],
+      [
+        "PM02",
+        1,
+        1,
+        2,
+        4,
+        "Chốt MVP nhỏ theo VSOC-04: một lab, phép thử hữu hạn và 4 agent. Đối chiếu quy định ảnh với tài liệu mẫu; chốt kênh HITL, chỉ số và ngân sách.",
+        "Must và phần hoãn được cả nhóm xác nhận. Ghi rõ yêu cầu chính thức, gợi ý và điểm cần hỏi BTC; không áp dụng chỉ tiêu mẫu như kết quả dự án.",
+        "PM01, BA01",
+        "BA"
+      ],
+      [
+        "PM03",
+        1,
+        3,
+        4,
+        4,
+        "Rà kế hoạch từ tab Hiện trạng. Chốt tiêu chuẩn nghiệm thu mã do AI hỗ trợ viết. Kiểm tra G0 và điều chỉnh công sức theo tốc độ tuần đầu.",
+        "Có ước lượng đã rà lại sau G0, sổ rủi ro và quyết định. Không đánh dấu hoàn thành chỉ vì README_boilerplate có ô [x].",
+        "PM02, BA02",
+        "BA; 2 Dev"
+      ],
+      [
+        "PM04",
+        2,
+        5,
+        6,
+        3,
+        "Kiểm tra kế hoạch tuần và bản giao diện. Giải quyết câu hỏi nghiệp vụ trong một ngày làm việc. Chốt tài khoản dùng cho demo.",
+        "Không còn quyết định về phạm vi, vai trò hoặc màn hình cản hai dev. Yêu cầu thay đổi được ghi rõ tác động.",
+        "PM03",
+        "BA"
+      ],
+      [
+        "PM05",
+        2,
+        7,
+        8,
+        3,
+        "Chọn một kênh Slack/Teams, xác nhận quyền tích hợp và cách người duyệt trả quyết định. Cùng BA chốt định dạng slide/PDF, nhật ký và cách nộp theo BTC.",
+        "Có tài khoản/kênh thử, người sở hữu và cách duyệt được xác thực. Mâu thuẫn hướng dẫn nộp được ghi quyết định, không sửa docs/guide để giải quyết.",
+        "PM04",
+        "BA; Dev2"
+      ],
+      [
+        "PM06",
+        2,
+        9,
+        9,
+        3,
+        "Chủ trì G1. Thử tạo đợt trên lab, xem Recon và bằng chứng thật. So sánh việc hoàn thành với tiêu chí đã chốt.",
+        "Có biên bản G1 và 3 việc ưu tiên tuần 3. Dữ liệu mô phỏng được gắn nhãn, không tính thành kết quả AI thực tế.",
+        "PM05",
+        "BA; 2 Dev"
+      ],
+      [
+        "PM07",
+        3,
+        10,
+        11,
+        3,
+        "Duyệt nội dung yêu cầu phê duyệt. Chốt ai duyệt, thời hạn, hành động và mục tiêu được phép. Duyệt giới hạn lượt chạy/chi phí.",
+        "Không có phê duyệt chung cho mọi hành động. Quy tắc đổi tham số, hết hạn, từ chối và dừng đợt được BA ghi rõ.",
+        "PM06, BA03",
+        "BA; Dev1"
+      ],
+      [
+        "PM08",
+        3,
+        12,
+        13,
+        3,
+        "Theo dõi tích hợp HITL. Gỡ vướng giữa hai dev và BA. Ưu tiên lỗi làm vượt quyền hoặc mất trạng thái.",
+        "Mọi lỗi chặn có người xử lý, hạn khắc phục và tác động. Không thêm tính năng nâng cao khi HITL chưa chạy đúng.",
+        "PM07",
+        "BA"
+      ],
+      [
+        "PM09",
+        3,
+        14,
+        14,
+        3,
+        "Chủ trì G2. Đóng vai Operator để BA thử Approver. Xem cả duyệt, từ chối, hết hạn và mất kết nối.",
+        "Chỉ chấp nhận G2 khi hành động bị chặn đúng tại lớp thực thi. Ghi kết quả thật và việc chưa đạt.",
+        "PM08",
+        "BA; 2 Dev"
+      ],
+      [
+        "PM10",
+        4,
+        15,
+        16,
+        3,
+        "Rà báo cáo dưới góc nhìn người nhận. Kiểm tra mục tiêu, kết quả, bằng chứng, ảnh hưởng và giới hạn có dễ hiểu không.",
+        "Báo cáo phân biệt đã xác minh, nghi vấn và không kiểm chứng được. Không dùng lời khẳng định vượt bằng chứng.",
+        "PM09, BA09",
+        "BA"
+      ],
+      [
+        "PM11",
+        4,
+        17,
+        18,
+        3,
+        "Khóa phạm vi tính năng. Bỏ Could và hoãn Should chưa cần thiết. Kiểm tra chi phí, thời gian và năng lực còn lại.",
+        "Có danh sách tính năng khóa, việc hoãn và lý do. Tuần 5 chỉ hoàn thiện Must, sửa lỗi và đánh giá.",
+        "PM10",
+        "Cả nhóm"
+      ],
+      [
+        "PM12",
+        4,
+        19,
+        19,
+        3,
+        "Chủ trì G3 sau baseline. Cùng BA chốt ngưỡng chất lượng AI trước khi mở tập đánh giá giữ riêng.",
+        "Có kết quả đo trên tập phát triển và tiêu chí nghiệm thu AI đã ghi ngày/phiên bản. Không đặt lại ngưỡng để chạy theo kết quả holdout.",
+        "PM11",
+        "BA; 2 Dev"
+      ],
+      [
+        "PM13",
+        5,
+        20,
+        21,
+        3,
+        "Điều phối sửa lỗi. Ưu tiên lỗi an toàn, sai kết luận, mất dữ liệu, không chạy được luồng chính. Kiểm soát yêu cầu mới.",
+        "Mỗi lỗi có mức độ, người sửa và người kiểm lại. Lỗi chặn không bị đổi tên thành hạn chế để thông qua.",
+        "PM12",
+        "BA"
+      ],
+      [
+        "PM14",
+        5,
+        22,
+        23,
+        3,
+        "Tham gia UAT: kiểm thử nghiệm thu dưới vai Operator. Kiểm tra báo cáo và luồng dùng thực tế.",
+        "Hoàn thành các bước theo kịch bản BA; ghi rõ đạt/chưa đạt, phiên bản và bằng chứng. BA giữ vai Approver khi kiểm thử tách quyền.",
+        "PM13, BA13",
+        "BA"
+      ],
+      [
+        "PM15",
+        5,
+        24,
+        24,
+        3,
+        "Chủ trì G4 và quyết định bản ứng viên bàn giao. Chốt phần có thể trình diễn và các giới hạn phải công bố.",
+        "Không còn lỗi nghiêm trọng ảnh hưởng an toàn, luồng chính hoặc bằng chứng. Mọi Must có kết quả nghiệm thu; lưu quyết định phát hành.",
+        "PM14",
+        "BA; 2 Dev"
+      ],
+      [
+        "PM16",
+        6,
+        25,
+        26,
+        4,
+        "Làm slide khoảng 10 trang và lời thuyết trình. Dùng số đo thật, nêu rõ giới hạn. Cùng BA hoàn thiện README mang tên dự án và thành viên.",
+        "Slide có căn cứ từ eval, không lấy số mẫu >80%, <3 giây làm thành tích. Lợi ích ước tính phải có giả định; xuất định dạng đã xác nhận.",
+        "PM15",
+        "BA"
+      ],
+      [
+        "PM17",
+        6,
+        27,
+        28,
+        3,
+        "Tổ chức hai lượt kiểm thử demo và ít nhất ba lượt tập trình bày. Kiểm tra video 3–5 phút, phương án dự phòng và hồ sơ.",
+        "Bốn người nói được phần của mình. Video ghi đúng bản chạy; slide/video không mô tả tính năng chưa được kiểm chứng.",
+        "PM16",
+        "Cả nhóm"
+      ],
+      [
+        "PM18",
+        6,
+        29,
+        29,
+        3,
+        "Chủ trì G5. Rà đủ hồ sơ, URL và quyền truy cập của người nhận. Phân công người nộp và người xác nhận nộp.",
+        "Có checklist ký xác nhận, bản mã nguồn tương ứng, đường dẫn bàn giao và bằng chứng nộp khi nhóm thực hiện nộp.",
+        "PM17",
+        "BA; 2 Dev"
+      ]
+    ],
+    "BA": [
+      [
+        "BA01",
+        1,
+        0,
+        1,
+        4,
+        "Đọc ảnh đề tài, quy định và tab Hiện trạng. Soạn bài toán/người dùng/AS-IS cho PentestSyndicate vì repo hiện chỉ có tài liệu mẫu.",
+        "Bản yêu cầu phân biệt dữ kiện và giả định; có phạm vi lab và nhu cầu Operator/Approver. Không coi nội dung sách hướng dẫn là nghiên cứu người dùng.",
+        "PM01",
+        "PM"
+      ],
+      [
+        "BA02",
+        1,
+        2,
+        2,
+        4,
+        "Vẽ TO-BE và danh sách trạng thái run/step/approval. Xác định dữ liệu target, finding, evidence và quy tắc quyền để bổ sung schema chat đang có.",
+        "Bao phủ tạo/chạy/chờ/duyệt/từ chối/hết hạn/dừng/lỗi/kết thúc. Rủi ro được xét cho mọi agent có hành động thay đổi trạng thái.",
+        "BA01",
+        "PM; 2 Dev"
+      ],
+      [
+        "BA03",
+        1,
+        3,
+        4,
+        5,
+        "Viết user story và Given–When–Then cho Must; phác 3 màn hình tạo đợt, tiến trình/phê duyệt và báo cáo. Lập ma trận nguồn yêu cầu.",
+        "Mỗi Must có test được, người làm và bằng chứng cần nộp. Phân biệt tài liệu dự án cần viết với docs/guide là tài liệu tham khảo.",
+        "BA02",
+        "PM; 2 Dev"
+      ],
+      [
+        "BA04",
+        2,
+        5,
+        6,
+        5,
+        "Tạo tập dữ liệu eval vì eval/results/report.md hiện chỉ là mẫu. Đề xuất 24 ca có nhãn: 8 phát hiện, 4 sạch, 6 quyền/HITL, 4 lỗi và 2 chỉ dẫn độc hại.",
+        "Lưu dữ liệu/đáp án trong eval/, tách 16 ca phát triển và 8 ca giữ riêng có phân bố phù hợp. Đáp án kỹ thuật được Dev1 kiểm tra trên lab.",
+        "BA03",
+        "PM; Dev1"
+      ],
+      [
+        "BA05",
+        2,
+        7,
+        8,
+        4,
+        "Kiểm thử đăng nhập, tách vai trò, nhập phạm vi và tạo đợt. Kiểm tra màn hình với tiêu chí và dữ liệu hợp lệ/không hợp lệ.",
+        "Lỗi có bước tái hiện, kỳ vọng, thực tế, mức độ và bằng chứng. Thử gọi API trực tiếp cho quyền, không chỉ nhìn nút trên UI.",
+        "BA04, D204",
+        "Dev2; PM"
+      ],
+      [
+        "BA06",
+        2,
+        9,
+        9,
+        3,
+        "Kiểm thử luồng Recon tích hợp tại G1. Đối chiếu đầu vào, trạng thái và bằng chứng trên lab.",
+        "Ghi rõ thành phần nào dùng công cụ thật, phần nào còn mô phỏng. Xác nhận mục tiêu ngoài phạm vi bị chặn.",
+        "BA05, D105, D205",
+        "PM; Dev1"
+      ],
+      [
+        "BA07",
+        3,
+        10,
+        11,
+        4,
+        "Chuẩn bị ma trận HITL: chờ, duyệt, từ chối, hết hạn, sai vai trò, đổi tham số, thao tác lặp và hệ thống khởi động lại.",
+        "Từng ca có điều kiện trước, thao tác, kỳ vọng và dữ liệu thử. Nội dung Approver nhìn thấy đủ để quyết định đúng hành động.",
+        "BA06",
+        "PM; 2 Dev"
+      ],
+      [
+        "BA08",
+        3,
+        12,
+        13,
+        4,
+        "Chạy tập phát triển phù hợp với Recon/Fuzzing. Phân loại phát hiện đúng, sai, bỏ sót và thiếu bằng chứng.",
+        "Kết quả gắn với mã ca, phiên bản và evidence ID. Trường hợp chưa rõ chuyển dev xác minh, không tự gán là lỗ hổng thật.",
+        "BA07, D107",
+        "Dev1; PM"
+      ],
+      [
+        "BA09",
+        3,
+        14,
+        14,
+        5,
+        "Kiểm thử HITL xuyên suốt với hai tài khoản và kênh đã chọn. Kiểm tra dừng khi thông báo hoặc phê duyệt lỗi.",
+        "Có bằng chứng cho các nhánh của G2. Hệ thống không thực thi khi không có phê duyệt hợp lệ; không thực thi hai lần vì thao tác lặp.",
+        "BA08, D108, D208",
+        "PM; 2 Dev"
+      ],
+      [
+        "BA10",
+        4,
+        15,
+        16,
+        4,
+        "Chốt mẫu báo cáo thực tế: mục tiêu, phạm vi, finding, evidence, ảnh hưởng và mức xác minh. Đối chiếu từng nội dung với trường dữ liệu backend.",
+        "Mẫu gắn được evidence ID; không dùng trường analysis của chatbot để thay cho bằng chứng. Kết luận thiếu căn cứ phải ghi chưa xác minh.",
+        "BA09",
+        "PM; Dev1"
+      ],
+      [
+        "BA11",
+        4,
+        17,
+        18,
+        5,
+        "Chạy kiểm thử hệ thống: lỗi agent/tool, dừng đợt, dữ liệu độc hại, vượt phạm vi, báo cáo rỗng hoặc thiếu một phần.",
+        "Test log tách lỗi ứng dụng với lỗi chất lượng AI. Báo cáo giữ kết quả đã có và ghi bước chưa hoàn thành.",
+        "BA10, D110, D210",
+        "2 Dev; PM"
+      ],
+      [
+        "BA12",
+        4,
+        19,
+        19,
+        4,
+        "Thay nội dung mẫu trong eval/results/report.md bằng kết quả 16 ca phát triển, độ trễ/chi phí, lỗi và cải tiến. Chốt cách tính trước holdout.",
+        "Không coi 5 test khung đạt là chất lượng pentest. Ghi mẫu số và phiên bản; PM chốt ngưỡng thực tế trước đánh giá giữ riêng.",
+        "BA11",
+        "PM; Dev1"
+      ],
+      [
+        "BA13",
+        5,
+        20,
+        21,
+        5,
+        "Đánh giá 8 ca giữ riêng trên phiên bản đã ghi nhận. So đáp án và phân tích sai. Duy trì bộ ca riêng để sửa lỗi nếu cần.",
+        "Lưu từng lần chạy. Nếu dùng holdout để chỉnh hệ thống, công bố tập đã được dùng và giới hạn đánh giá; không gọi đó là đánh giá độc lập mới.",
+        "BA12, PM12",
+        "PM; Dev1"
+      ],
+      [
+        "BA14",
+        5,
+        22,
+        23,
+        4,
+        "Điều phối UAT với PM làm Operator. BA làm Approver; chạy luồng chính, thay thế và lỗi theo checklist.",
+        "Mỗi Must có người xác nhận và bằng chứng. Dev giải thích vấn đề kỹ thuật; BA xác nhận hành vi nghiệp vụ thay vì tự duyệt mã nguồn.",
+        "BA13",
+        "PM; 2 Dev"
+      ],
+      [
+        "BA15",
+        5,
+        24,
+        24,
+        4,
+        "Kiểm thử hồi quy các lỗi đã sửa. Hoàn thiện ma trận yêu cầu → test → kết quả → bằng chứng.",
+        "G4 có danh sách lỗi còn mở và kết luận đạt/chưa đạt. Không để ô chưa chạy nhưng ghi đạt.",
+        "BA14",
+        "PM"
+      ],
+      [
+        "BA16",
+        6,
+        25,
+        26,
+        4,
+        "Viết hướng dẫn Operator/Approver theo giao diện đã chạy. Cùng PM cập nhật README, API thật, tài khoản demo và giới hạn; không sao chép nguyên boilerplate.",
+        "Người khác làm theo được. README không liệt kê /analyze nếu chưa có API, không có checkbox hoàn thành thiếu bằng chứng.",
+        "BA15",
+        "PM; Dev2"
+      ],
+      [
+        "BA17",
+        6,
+        27,
+        28,
+        4,
+        "Chốt kịch bản demo, eval, ma trận truy vết và danh mục hồ sơ. Rà slide/video/README/kiến trúc có cùng phiên bản sản phẩm.",
+        "Số liệu có kết quả lưu; sơ đồ phản ánh đúng luồng đã triển khai. Nhật ký và worklog có nội dung thật thay placeholder.",
+        "BA16",
+        "PM; 2 Dev"
+      ],
+      [
+        "BA18",
+        6,
+        29,
+        29,
+        3,
+        "Chạy kiểm tra nhanh bản bàn giao. Kiểm tra hai vai trò, approve/reject, xuất báo cáo và quyền xem tài liệu.",
+        "G5 có kết quả kiểm tra cuối. Tài liệu liệt kê rõ các hạn chế và ca chưa hỗ trợ.",
+        "BA17",
+        "PM"
+      ]
+    ],
+    "Dev1": [
+      [
+        "D101",
+        1,
+        0,
+        1,
+        4,
+        "Giữ nền FastAPI/LangGraph đã chạy và sửa đổi openai_base_url của nhóm. Nối get_llm vào một node thử với đầu ra có cấu trúc; không ghép chuỗi như mẫu.",
+        "5 test nền vẫn đạt. Có test giả lập thành công/lỗi của LLM và một lượt thử thật có ngân sách khi có cấu hình; ghi rõ nếu lượt thật chưa thực hiện.",
+        "PM01",
+        "Dev2"
+      ],
+      [
+        "D102",
+        1,
+        2,
+        3,
+        5,
+        "Mở rộng graph.py/state.py từ analyze/respond thành Supervisor/Recon/Fuzzing/Exploit. Thống nhất schema run, step, finding, evidence và approval với Dev2.",
+        "API dùng chung, trạng thái và dữ liệu có kiểu rõ. BA duyệt nghĩa nghiệp vụ. Kết quả mô phỏng phải được gắn nhãn riêng.",
+        "D101, BA01",
+        "Dev2; BA"
+      ],
+      [
+        "D103",
+        1,
+        4,
+        4,
+        4,
+        "Lắp luồng 4 agent mô phỏng có một tool vô hại và trace. Bổ sung kiểm thử thứ tự, dữ liệu ra và lỗi thay vì chỉ kiểm tra có response.",
+        "Dev2 chạy lại được G0. Có tool-call thật trên dữ liệu mô phỏng, không nhận công cụ chưa gắn vào graph là đã hoàn thành.",
+        "D102",
+        "Dev2"
+      ],
+      [
+        "D104",
+        2,
+        5,
+        6,
+        5,
+        "Làm Supervisor có lưu trạng thái/checkpoint vào kho dữ liệu đã chốt; tiếp tục run theo trạng thái. Tách quyền công cụ và giới hạn số bước/thời gian.",
+        "Không dùng graph.compile() mặc định như bằng chứng lưu bền. Có test phục hồi và từ chối công cụ ngoài quyền, dùng dữ liệu D204 bàn giao.",
+        "D103",
+        "Dev2"
+      ],
+      [
+        "D105",
+        2,
+        7,
+        8,
+        5,
+        "Thay công cụ ví dụ bằng Recon chỉ đọc trên lab D201. Lưu mục tiêu, điểm khảo sát, thời gian và evidence ID; chặn đường ra ngoài phạm vi.",
+        "Kết quả do công cụ trên lab tạo ra, có thể đối chiếu. Chặn URL/redirect ngoài phạm vi trước khi gửi yêu cầu; graph thực sự gọi Recon tool.",
+        "D104, D204",
+        "Dev2; BA"
+      ],
+      [
+        "D106",
+        2,
+        9,
+        9,
+        3,
+        "Tích hợp Recon với API/UI; thêm ca kiểm thử phạm vi, timeout, lỗi công cụ, bằng chứng và schema. Giữ 5 test nền và mở rộng ý nghĩa kiểm thử.",
+        "G1 có công cụ thật, dữ liệu lưu được và test vượt phạm vi bị chặn. Chạy ruff/pytest; không dùng test chỉ kiểm tra khóa response để chứng minh tính năng.",
+        "D105, D205",
+        "Dev2; BA"
+      ],
+      [
+        "D107",
+        3,
+        10,
+        11,
+        5,
+        "Làm Fuzzing với nhóm phép thử hữu hạn đã duyệt. Giới hạn số yêu cầu và thời gian. Liên kết kết quả với điểm Recon.",
+        "Có kết quả lặp lại được trên lab mẫu. Hành động có thể thay đổi trạng thái phải qua cùng cổng phê duyệt, kể cả từ Fuzzing.",
+        "D106, BA04",
+        "Dev2"
+      ],
+      [
+        "D108",
+        3,
+        12,
+        13,
+        5,
+        "Làm Exploit đề xuất bước kiểm chứng có cấu trúc. Bảo vệ lớp gọi công cụ bằng phạm vi và phê duyệt còn hiệu lực.",
+        "Không chạy khi thiếu/sai/hết hạn phê duyệt. Phê duyệt gắn đúng run, hành động, mục tiêu, tham số và người duyệt. Đổi tham số phải duyệt lại.",
+        "D107, D207",
+        "Dev2"
+      ],
+      [
+        "D109",
+        3,
+        14,
+        14,
+        3,
+        "Tích hợp chờ duyệt, tiếp tục và bỏ qua. Kiểm tra sự kiện lặp, dừng đợt và khởi động lại khi đang chờ.",
+        "Hành động chỉ thực hiện một lần. Từ chối/hết hạn không tự chuyển thành được duyệt; có test bằng chứng tại lớp thực thi.",
+        "D108, D208",
+        "Dev2; BA"
+      ],
+      [
+        "D110",
+        4,
+        15,
+        16,
+        5,
+        "Làm tổng hợp findings/evidence và mức xác minh. Xử lý trùng/mâu thuẫn; sinh nội dung báo cáo có nguồn, không xuất suy luận nội bộ thô.",
+        "Mỗi kết luận đã xác minh trỏ được tới bằng chứng. Mâu thuẫn hoặc thiếu chứng cứ được ghi rõ; dữ liệu khớp hợp đồng báo cáo Dev2.",
+        "D109, BA09",
+        "Dev2; BA"
+      ],
+      [
+        "D111",
+        4,
+        17,
+        18,
+        4,
+        "Hoàn thiện timeout, retry giới hạn và chống chỉ dẫn độc hại từ mục tiêu. Giữ bằng chứng khi một agent thất bại.",
+        "Nội dung mục tiêu không thay đổi quyền/công cụ. Retry không lặp lại hành động rủi ro đã thực thi; báo cáo ghi bước thiếu.",
+        "D110",
+        "Dev2"
+      ],
+      [
+        "D112",
+        4,
+        19,
+        19,
+        4,
+        "Thêm log có cấu trúc theo run/agent/tool; đo thời gian và số lần gọi LLM/công cụ, token/chi phí khi có dữ liệu. Hỗ trợ baseline bằng runner đánh giá.",
+        "Có trace dự án thật và kết quả eval chạy lại được. Thư mục .ai-log của công cụ phát triển không được coi là trace chạy agent.",
+        "D111",
+        "Dev2; BA"
+      ],
+      [
+        "D113",
+        5,
+        20,
+        21,
+        5,
+        "Sửa lỗi agent và bằng chứng từ bộ phát triển/kiểm thử. Ưu tiên vượt quyền, sai trạng thái, sai kết luận và thiếu nguồn.",
+        "Mỗi lỗi có test tái hiện, bản sửa và kiểm tra chéo. Không dùng sửa prompt để thay cho kiểm soát quyền ở lớp thực thi.",
+        "D112, BA12",
+        "Dev2"
+      ],
+      [
+        "D114",
+        5,
+        22,
+        23,
+        5,
+        "Kiểm thử kỹ thuật cổng thực thi: phê duyệt lặp, đổi mục tiêu, thu hồi, khởi động lại và quyền riêng từng agent. Tối ưu trên tập phát triển.",
+        "Toàn bộ test an toàn bắt buộc đạt. Ghi ảnh hưởng của chỉnh cấu hình tới chi phí/độ trễ; báo BA nếu thay phiên bản sau đánh giá.",
+        "D113",
+        "Dev2"
+      ],
+      [
+        "D115",
+        5,
+        24,
+        24,
+        3,
+        "Cố định bản agent và cấu hình đánh giá. Cập nhật ARCHITECTURE.md và docs/architecture_diagram.md để khớp mã, gồm dữ liệu, quyền, HITL và công cụ.",
+        "Sơ đồ không còn phần RAG/DB/UI chỉ được vẽ nhưng chưa có. Dev2 chạy lại test và eval từ đúng phiên bản.",
+        "D114",
+        "Dev2; BA"
+      ],
+      [
+        "D116",
+        6,
+        25,
+        26,
+        4,
+        "Hoàn thiện hướng dẫn cấu hình backend, công cụ, quyền và khôi phục trạng thái. Hỗ trợ kiểm tra cài lại.",
+        "Người khác chạy được từ tài liệu và dữ liệu mẫu. Không cần dùng khóa/tài khoản cá nhân của tác giả để hiểu hướng dẫn.",
+        "D115",
+        "Dev2"
+      ],
+      [
+        "D117",
+        6,
+        27,
+        28,
+        4,
+        "Chạy agent trong hai lượt diễn tập. Sửa lỗi nhỏ phát sinh và kiểm tra lại phần bị tác động.",
+        "Luồng chính và tình huống lỗi có trace đầy đủ. Mọi thay đổi sau bản ứng viên được ghi nhận và BA kiểm lại.",
+        "D116",
+        "Dev2; BA"
+      ],
+      [
+        "D118",
+        6,
+        29,
+        29,
+        3,
+        "Kiểm tra backend cuối: quyền công cụ, phiên chờ, giới hạn chạy và dữ liệu mẫu. Bàn giao mã/test/log tương ứng.",
+        "Backend phản hồi ổn định, có người khác biết cách dừng và chạy lại. G5 lưu đúng phiên bản triển khai.",
+        "D117",
+        "Dev2; BA"
+      ]
+    ],
+    "Dev2": [
+      [
+        "D201",
+        1,
+        0,
+        1,
+        5,
+        "Dựng lab tách biệt với dữ liệu giả/cách reset. Tận dụng Docker/CI hiện có; kiểm tra lỗi quyền /root/.local khi chạy appuser và chốt dependency đã thử.",
+        "Lab có phạm vi rõ. Có môi trường chạy Docker hoặc người hỗ trợ; bản cài lặp lại được. Sửa Docker nếu xác nhận lỗi, không coi có Dockerfile là đã deploy.",
+        "PM01",
+        "Dev1"
+      ],
+      [
+        "D202",
+        1,
+        2,
+        3,
+        5,
+        "Thiết kế kho dữ liệu và API cho run, step, approval, finding, evidence, tài khoản. Chốt UI đơn giản. Loại bỏ việc trả analysis nội bộ và lỗi thô trong API sản phẩm.",
+        "Hợp đồng API được BA/Dev1 thống nhất; DB có bảng và cách cập nhật schema. API lỗi có mã/thông báo phù hợp, không trả detail=str(e) cho người dùng.",
+        "D201, BA01",
+        "Dev1; BA"
+      ],
+      [
+        "D203",
+        1,
+        4,
+        4,
+        3,
+        "Dựng giao diện đầu tiên vì repo chưa có frontend. Build/chạy backend bằng user không phải root; triển khai URL thử tối thiểu và kiểm tra /health.",
+        "Dev1 mở được URL từ máy khác; container khởi động được. Nếu chưa có Docker tại máy, ghi rõ môi trường kiểm chứng đã dùng.",
+        "D202",
+        "Dev1"
+      ],
+      [
+        "D204",
+        2,
+        5,
+        6,
+        5,
+        "Triển khai DB và lớp truy cập dữ liệu, đăng nhập, Operator/Approver, mục tiêu được phép và API tạo run. Bàn giao schema lưu trạng thái sớm cho Dev1.",
+        "Dữ liệu được ghi/đọc thật; khởi động lại còn run. Quyền kiểm tra ở server; sai phạm vi hoặc tự duyệt bị từ chối. database_url đơn lẻ không được tính là DB.",
+        "D203, BA03",
+        "Dev1; BA"
+      ],
+      [
+        "D205",
+        2,
+        7,
+        8,
+        5,
+        "Làm màn hình tiến trình đọc trạng thái thật của Supervisor. Hiển thị run, bước, lỗi và liên kết bằng chứng Recon.",
+        "Tải lại trang không mất phiên. Hiển thị đang chạy/đã lỗi/đã dừng đúng với backend, không dùng tiến trình giả.",
+        "D204, D104",
+        "Dev1"
+      ],
+      [
+        "D206",
+        2,
+        9,
+        9,
+        3,
+        "Mở rộng CI sẵn có bằng kiểm tra tích hợp và build container. Tích hợp login, run, trạng thái, bằng chứng trên URL thử; xác nhận cách triển khai bản mới.",
+        "Có bằng chứng build/chạy phiên bản hiện tại. Phân biệt CI kiểm tra mã với tự động triển khai; không tuyên bố CD khi chưa cấu hình.",
+        "D205, D105",
+        "Dev1; BA"
+      ],
+      [
+        "D207",
+        3,
+        10,
+        11,
+        5,
+        "Làm yêu cầu phê duyệt và màn hình Approver. Hiển thị lý do, ảnh hưởng, mục tiêu, hành động, tham số và hạn hiệu lực.",
+        "Approve/reject được server xác thực đúng người và trạng thái. Lưu người duyệt, thời điểm, nội dung đã duyệt; thiếu dữ kiện thì giữ chờ.",
+        "D206, BA03",
+        "Dev1; BA"
+      ],
+      [
+        "D208",
+        3,
+        12,
+        12,
+        4,
+        "Tích hợp một kênh Slack hoặc Teams. Gửi yêu cầu và liên kết/quy trình Approve/Reject đã được nhóm xác nhận.",
+        "Thông báo gắn đúng run; danh tính người duyệt được xác thực. Kênh lỗi không làm agent tự tiếp tục. Hình thức tích hợp được PM/BA xác nhận phù hợp đề.",
+        "D207, PM05",
+        "Dev1; BA"
+      ],
+      [
+        "D209",
+        3,
+        13,
+        14,
+        4,
+        "Kết nối quyết định với Supervisor. Chống gửi lặp, hiển thị hết hạn/từ chối và giữ nhật ký sau tải lại.",
+        "G2 có cả duyệt và từ chối. Yêu cầu trùng không tạo hai lần thực thi; callback cũ không mở quyền cho hành động mới.",
+        "D208",
+        "Dev1; BA"
+      ],
+      [
+        "D210",
+        4,
+        15,
+        16,
+        5,
+        "Làm trang báo cáo và tải HTML/JSON từ findings/evidence đã lưu. Hiển thị phạm vi, mức xác minh, ảnh hưởng và bước chưa kiểm tra.",
+        "Báo cáo thật từ run, không phải chat response. Quyền đọc dữ liệu đúng vai trò; không kết luận an toàn chỉ vì kết quả rỗng.",
+        "D209, BA09",
+        "Dev1; BA"
+      ],
+      [
+        "D211",
+        4,
+        17,
+        18,
+        4,
+        "Hoàn thiện thông báo lỗi, dừng đợt, retry hợp lệ và quyền xem báo cáo/log. Rà dữ liệu nhạy cảm trong UI/log.",
+        "Không lộ khóa hoặc dữ liệu không thuộc quyền người xem. Tải lại trang và truy cập báo cáo đúng vai trò đều được kiểm tra.",
+        "D210",
+        "Dev1; BA"
+      ],
+      [
+        "D212",
+        4,
+        19,
+        19,
+        4,
+        "Hoàn thiện cấu hình triển khai và giám sát. Rà đường kết nối UI/API/agent/DB, healthcheck, quyền công cụ/mạng và log lỗi theo run.",
+        "G3 có live URL và dữ liệu lab. Kiểm tra config thực tế, không dùng sơ đồ kiến trúc mẫu để xác nhận thành phần đã vận hành.",
+        "D211",
+        "Dev1"
+      ],
+      [
+        "D213",
+        5,
+        20,
+        21,
+        5,
+        "Sửa lỗi UI, API và quyền theo kết quả BA. Thêm kiểm thử hồi quy cho từng lỗi nghiêm trọng.",
+        "Lỗi có bước tái hiện, bản sửa, test và người kiểm lại. Lỗi quyền được thử bằng API trực tiếp.",
+        "D212, BA11",
+        "Dev1; BA"
+      ],
+      [
+        "D214",
+        5,
+        22,
+        23,
+        5,
+        "Triển khai bản ứng viên. Thử sao lưu, khôi phục dữ liệu và khởi động lại khi có run chờ duyệt.",
+        "Dữ liệu và quyết định còn nguyên sau khôi phục. Chạy lại không lặp hành động đã thực hiện; có hướng dẫn phục hồi thực tế.",
+        "D213",
+        "Dev1"
+      ],
+      [
+        "D215",
+        5,
+        24,
+        24,
+        3,
+        "Kiểm tra URL, tài khoản demo, healthcheck, log và phiên bản. Chuẩn bị gói dữ liệu mẫu và cấu hình không chứa khóa.",
+        "G4 có bản online dùng được và bản có thể cài lại. BA nhận được hướng dẫn truy cập đúng vai trò.",
+        "D214",
+        "Dev1; BA"
+      ],
+      [
+        "D216",
+        6,
+        25,
+        26,
+        4,
+        "Hoàn thiện README vận hành: cài bằng dependency đã chốt, cấu hình base URL, DB, Docker, triển khai, log, sao lưu/khôi phục và tài khoản demo.",
+        "Dev1 chạy lại theo tài liệu. Không sửa docs/guide để làm tài liệu dự án; giữ phần hướng dẫn và khóa riêng tách khỏi hồ sơ công khai.",
+        "D215",
+        "Dev1"
+      ],
+      [
+        "D217",
+        6,
+        27,
+        28,
+        4,
+        "Hỗ trợ quay video, diễn tập và chuẩn bị dữ liệu reset demo. Kiểm tra giao diện trên thiết bị trình chiếu.",
+        "Video mở được; mẫu dữ liệu reset không làm mất bằng chứng cần bàn giao. Có phương án demo dự phòng đã thử.",
+        "D216",
+        "PM; BA"
+      ],
+      [
+        "D218",
+        6,
+        29,
+        29,
+        3,
+        "Kiểm tra URL cuối và tài khoản bằng phiên trình duyệt mới. Rà quyền tải hồ sơ và cách dừng dịch vụ.",
+        "G5 có URL, tài khoản demo và hướng dẫn dùng được. Không dùng liên kết chỉ mở được trên máy của Dev2.",
+        "D217",
+        "Dev1; BA"
+      ]
+    ]
+  },
+  "gates": [
+    [
+      "G0",
+      4,
+      "Chốt phạm vi và chạy khung",
+      "Một lab, nhóm phép thử hữu hạn, backlog Must, API chung và luồng 4 agent mô phỏng có nhãn. Hai dev giải thích được mã và chạy lại phần của nhau.",
+      "PM",
+      "Nếu chưa chạy/hiểu được khung: giảm công nghệ, thu nhỏ phép thử và tìm hỗ trợ kỹ thuật; chưa hứa toàn bộ tính năng."
+    ],
+    [
+      "G1",
+      9,
+      "Operator → Recon → bằng chứng",
+      "URL thử có hai vai trò. Tạo run đúng phạm vi, Recon dùng công cụ thật, lưu trạng thái/bằng chứng. Ngoài phạm vi bị chặn.",
+      "PM + BA",
+      "Nếu tích hợp trễ: ưu tiên nối một luồng hoàn chỉnh; hoãn dashboard đẹp và tính năng phụ."
+    ],
+    [
+      "G2",
+      14,
+      "Fuzzing, Exploit và HITL",
+      "Approve/reject/hết hạn/sai quyền/đổi tham số được thử. Agent không vượt cổng thực thi. Một kênh Slack/Teams đã kết nối theo phạm vi được xác nhận.",
+      "BA + 2 Dev",
+      "Nếu kiểm soát an toàn lỗi: khóa thực thi bước rủi ro, sửa trước khi mở lại; không bỏ cổng để kịp demo."
+    ],
+    [
+      "G3",
+      19,
+      "MVP đủ luồng và baseline",
+      "Có báo cáo gắn bằng chứng, xử lý lỗi và số liệu 16 ca phát triển. Chốt ngưỡng AI trước holdout. Khóa tính năng.",
+      "PM + BA",
+      "Cắt toàn bộ Could; ưu tiên Must còn thiếu. Công bố giới hạn và chốt lại lịch nếu Must không thể hoàn thành."
+    ],
+    [
+      "G4",
+      24,
+      "Ứng viên bàn giao",
+      "8 ca giữ riêng được đo có phiên bản. UAT và kiểm thử hồi quy đạt; không còn lỗi an toàn/luồng chính/bằng chứng nghiêm trọng. Thử khôi phục thành công.",
+      "PM + BA",
+      "Không phát hành như bản đạt khi lỗi chặn còn mở. Dùng dự phòng tuần 6, cập nhật phạm vi hoặc hạn với nhóm."
+    ],
+    [
+      "G5",
+      29,
+      "Demo và bàn giao",
+      "Hai lượt diễn tập, luồng chính và lỗi, URL dùng được, đủ 10 đầu ra theo README và yêu cầu BTC đã xác nhận. Mã nguồn, eval, video cùng phiên bản.",
+      "PM",
+      "Nếu live lỗi: dùng bản quay đã ghi nhãn; nói rõ trạng thái thực tế, khắc phục và thông báo người nhận."
+    ]
+  ],
+  "deliveries": [
+    [
+      "BG01",
+      29,
+      "Mã nguồn và dữ liệu mẫu",
+      "Có bản cố định, test và dữ liệu lab không nhạy cảm; người khác tải và chạy lại được.",
+      "Dev1 + Dev2"
+    ],
+    [
+      "BG02",
+      28,
+      "README và hướng dẫn vận hành",
+      "Cài đặt, cấu hình, tài khoản demo, deploy, xem log và khôi phục.",
+      "Dev2"
+    ],
+    [
+      "BG03",
+      28,
+      "Sơ đồ kiến trúc",
+      "Luồng dữ liệu, agent, công cụ, quyền, trạng thái, HITL và lưu bằng chứng.",
+      "Dev1"
+    ],
+    [
+      "BG04",
+      29,
+      "AI logs và trace",
+      "Dấu vết sử dụng AI/agent theo quy định BTC, không chứa khóa; nhóm tự xác nhận cách nộp hợp lệ.",
+      "Cả nhóm"
+    ],
+    [
+      "BG05",
+      29,
+      "URL chạy thật",
+      "Mở từ thiết bị khác, đăng nhập hai vai trò, chạy luồng được hỗ trợ.",
+      "Dev2"
+    ],
+    [
+      "BG06",
+      28,
+      "Video demo",
+      "Luồng chính và một lỗi; cùng phiên bản sản phẩm bàn giao.",
+      "Dev2 + PM"
+    ],
+    [
+      "BG07",
+      28,
+      "Slide thuyết trình",
+      "Vấn đề, người dùng, giá trị, phạm vi, kiến trúc, kết quả đo và giới hạn.",
+      "PM"
+    ],
+    [
+      "BG08",
+      29,
+      "Nhật ký quyết định",
+      "Lý do chọn phạm vi/công nghệ, thay đổi quan trọng và bài học.",
+      "PM"
+    ],
+    [
+      "BG09",
+      29,
+      "Worklog nhóm",
+      "Ai làm gì, thời gian thực tế, kết quả và liên kết bằng chứng.",
+      "Cả nhóm"
+    ],
+    [
+      "BG10",
+      28,
+      "Bằng chứng đánh giá",
+      "Bộ ca, đáp án, phiên bản, kết quả từng ca, chỉ số, lỗi và cải tiến; có truy vết yêu cầu.",
+      "BA + Dev1"
+    ]
+  ],
+  "acceptance": [
+    [
+      "AC01",
+      "Quyền",
+      "Có tài khoản Operator và Approver",
+      "Operator gọi API phê duyệt hoặc tự duyệt run của mình",
+      "Server từ chối; không có thực thi và có nhật ký.",
+      "BA + Dev2"
+    ],
+    [
+      "AC02",
+      "Phạm vi",
+      "Chỉ lab đã đăng ký được phép",
+      "Nhập mục tiêu ngoài phạm vi hoặc công cụ gặp redirect ngoài phạm vi",
+      "Chặn trước khi gửi yêu cầu tới mục tiêu ngoài phạm vi.",
+      "Dev1 + Dev2"
+    ],
+    [
+      "AC03",
+      "Luồng chính",
+      "Lab sẵn sàng, phạm vi hợp lệ",
+      "Operator khởi tạo run",
+      "Supervisor gọi đúng agent; UI và kho dữ liệu cùng trạng thái.",
+      "BA"
+    ],
+    [
+      "AC04",
+      "Bằng chứng",
+      "Recon/Fuzzing có kết quả từ công cụ",
+      "Xem một phát hiện",
+      "Có run ID, nguồn, thời gian, mục tiêu và evidence ID đối chiếu được.",
+      "BA + Dev1"
+    ],
+    [
+      "AC05",
+      "HITL chờ",
+      "Bước có rủi ro vừa được đề xuất",
+      "Chưa có phê duyệt hợp lệ",
+      "Run/bước chờ; không gọi công cụ rủi ro. Kiểm tra tại lớp thực thi.",
+      "Dev1 + BA"
+    ],
+    [
+      "AC06",
+      "HITL duyệt",
+      "Approver đúng quyền và yêu cầu còn hiệu lực",
+      "Duyệt đúng hành động và tham số",
+      "Chỉ hành động đó tiếp tục trong phạm vi; lưu người và thời điểm duyệt.",
+      "BA"
+    ],
+    [
+      "AC07",
+      "Từ chối/hết hạn",
+      "Một yêu cầu đang chờ",
+      "Bị từ chối hoặc hết thời hạn",
+      "Không thực thi; bỏ qua/dừng theo quy tắc; báo cáo nêu bước chưa kiểm chứng.",
+      "BA"
+    ],
+    [
+      "AC08",
+      "Thay đổi/lặp",
+      "Hành động đã được duyệt",
+      "Đổi mục tiêu/tham số hoặc nhận callback lặp",
+      "Thay đổi cần duyệt lại; sự kiện lặp không làm thực thi hai lần.",
+      "Dev1 + Dev2"
+    ],
+    [
+      "AC09",
+      "Lỗi kênh",
+      "Đang gửi yêu cầu tới Slack/Teams",
+      "Kênh lỗi hoặc trả kết quả không xác thực được",
+      "Giữ chờ/thất bại rõ; không coi lỗi gửi là được duyệt.",
+      "BA + Dev2"
+    ],
+    [
+      "AC10",
+      "Khôi phục",
+      "Run đang chờ duyệt hoặc đã chạy một bước",
+      "Khởi động lại/khôi phục dữ liệu",
+      "Giữ trạng thái và bằng chứng; không tự bỏ qua cổng hoặc lặp bước rủi ro.",
+      "2 Dev"
+    ],
+    [
+      "AC11",
+      "Agent/tool lỗi",
+      "Một agent đang chạy",
+      "Công cụ timeout hoặc dịch vụ lỗi",
+      "Retry trong giới hạn nếu được phép; kết thúc một phần/thất bại rõ, giữ bằng chứng đã có.",
+      "BA + Dev1"
+    ],
+    [
+      "AC12",
+      "Dữ liệu độc hại",
+      "Mục tiêu trả nội dung cố ra lệnh cho AI",
+      "Agent đọc nội dung đó",
+      "Nội dung không tăng quyền, đổi mục tiêu hay vượt bước phê duyệt.",
+      "Dev1 + BA"
+    ],
+    [
+      "AC13",
+      "Kết luận",
+      "Hai agent mâu thuẫn hoặc bằng chứng thiếu",
+      "Hệ thống tổng hợp báo cáo",
+      "Đánh dấu chưa xác minh/mâu thuẫn; không khẳng định lỗ hổng không có bằng chứng.",
+      "BA"
+    ],
+    [
+      "AC14",
+      "Không phát hiện",
+      "Run không có phát hiện hoặc bị gián đoạn",
+      "Xuất báo cáo",
+      "Nêu phạm vi đã kiểm tra và giới hạn; không kết luận hệ thống hoàn toàn an toàn.",
+      "BA + PM"
+    ],
+    [
+      "AC15",
+      "Giới hạn/dừng",
+      "Run gần hạn số bước/thời gian hoặc bị hủy",
+      "Chạm hạn hoặc Operator dừng",
+      "Không phát sinh thêm hành động không được phép; trạng thái cuối và lý do được lưu.",
+      "2 Dev + BA"
+    ],
+    [
+      "AC16",
+      "Báo cáo",
+      "Run có kết quả và bằng chứng",
+      "Người được phép xem/tải báo cáo",
+      "Nội dung tải khớp run; người không có quyền bị từ chối; không lộ khóa.",
+      "BA + Dev2"
+    ],
+    [
+      "AC17",
+      "Đánh giá AI",
+      "Bộ ca có nhãn và phiên bản cấu hình cố định",
+      "Chạy đánh giá",
+      "Lưu từng kết quả, số ca, mẫu số và thất bại. Không trình bày dữ liệu mô phỏng như thành tích kiểm thử thực tế.",
+      "BA + Dev1"
+    ],
+    [
+      "AC18",
+      "Bàn giao",
+      "Bản ứng viên đã nghiệm thu",
+      "Thành viên khác mở URL và làm theo hướng dẫn",
+      "Đăng nhập hai vai trò, chạy ca được hỗ trợ và mở báo cáo; biết cách dừng/khôi phục.",
+      "PM + BA"
+    ]
+  ]
+}
