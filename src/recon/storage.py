@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from src.recon.models import CapabilityRequest, EvidenceArtifact, ReconResult, ReconTask, ToolResult
+from src.recon.models import CapabilityRequest, EvidenceArtifact, PolicyDecision, ReconResult, ReconTask, ToolResult
 
 MAX_EVIDENCE_BYTES = 262_144
 
@@ -26,6 +26,15 @@ class ReconRepository:
                 CREATE TABLE IF NOT EXISTS tool_results (
                     request_id TEXT PRIMARY KEY, task_id TEXT NOT NULL,
                     status TEXT NOT NULL, payload TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS execution_claims (
+                    request_id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL,
+                    claimed_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS policy_decisions (
+                    request_id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS evidence_artifacts (
                     id TEXT PRIMARY KEY, task_id TEXT NOT NULL,
@@ -47,6 +56,26 @@ class ReconRepository:
         with self._connect() as connection:
             row = connection.execute("SELECT payload FROM recon_tasks WHERE id = ?", (task_id,)).fetchone()
         return ReconTask.model_validate_json(row[0]) if row else None
+
+    def claim_request(self, request: CapabilityRequest) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "INSERT OR IGNORE INTO execution_claims (request_id, task_id, claimed_at) VALUES (?, ?, ?)",
+                (request.id, request.task_id, datetime.now(UTC).isoformat()),
+            )
+        return cursor.rowcount == 1
+
+    def save_policy_decision(self, decision: PolicyDecision) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO policy_decisions (request_id, payload) VALUES (?, ?)",
+                (decision.request_id, decision.model_dump_json()),
+            )
+
+    def get_policy_decision(self, request_id: str) -> PolicyDecision | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM policy_decisions WHERE request_id = ?", (request_id,)).fetchone()
+        return PolicyDecision.model_validate_json(row[0]) if row else None
 
     def save_tool_result(self, result: ToolResult) -> None:
         with self._connect() as connection:

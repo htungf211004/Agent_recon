@@ -1,4 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from threading import Event
 
 import pytest
 
@@ -19,7 +21,11 @@ from src.recon.storage import EvidenceStore, ReconRepository
 
 
 class FakeNmap:
+    def __init__(self):
+        self.calls = 0
+
     def execute(self, request):
+        self.calls += 1
         return AdapterOutput(
             status="success", raw_output=b"21/tcp open ftp vsftpd 2.3.4\n",
             attack_surface=(AttackSurfaceEntry(target_ip=request.target_ip, port=21, service="ftp", version="vsftpd 2.3.4"),),
@@ -65,7 +71,8 @@ def test_denial_is_persisted_without_evidence(tmp_path):
     )
     repository.save_task(task)
     registry = CapabilityRegistry()
-    registry.register(Capability.NMAP_SCAN, FakeNmap())
+    adapter = FakeNmap()
+    registry.register(Capability.NMAP_SCAN, adapter)
     gateway = ToolExecutionGateway(PolicyService(repository), registry, EvidenceStore(tmp_path / "evidence", repository), repository)
     request = CapabilityRequest(
         id="outside", task_id=task.id, capability=Capability.NMAP_SCAN,
@@ -75,3 +82,102 @@ def test_denial_is_persisted_without_evidence(tmp_path):
     assert result.status == "denied"
     assert repository.get_tool_result("outside") == result
     assert result.evidence_id is None
+    decision = repository.get_policy_decision(request.id)
+    assert decision is not None
+    assert decision.request_id == request.id
+    assert decision.allowed is False
+    assert adapter.calls == 0
+
+
+def test_duplicate_request_executes_exactly_once(tmp_path):
+    repository = ReconRepository(tmp_path / "recon.db")
+    task = ReconTask(
+        id="task-1", run_id="run-1",
+        scope=Scope(allowed_ips=("127.0.0.1",), allowed_ports=(21,), capabilities=(Capability.NMAP_SCAN,)),
+        expires_at=datetime.now(UTC) + timedelta(minutes=5),
+    )
+    repository.save_task(task)
+    adapter = FakeNmap()
+    registry = CapabilityRegistry()
+    registry.register(Capability.NMAP_SCAN, adapter)
+    gateway = ToolExecutionGateway(
+        PolicyService(repository), registry, EvidenceStore(tmp_path / "evidence", repository), repository,
+    )
+    request = CapabilityRequest(
+        id="request-1", task_id=task.id, capability=Capability.NMAP_SCAN,
+        target_ip="127.0.0.1", parameters=NmapScanParams(ports=(21,)),
+    )
+    first = gateway.execute(request)
+    second = gateway.execute(request)
+    assert adapter.calls == 1
+    assert first == second
+    decision = repository.get_policy_decision(request.id)
+    assert decision is not None
+    assert decision.request_id == request.id
+    assert decision.allowed is True
+    assert decision.reason == "in scope"
+
+
+def test_claimed_request_without_result_does_not_dispatch(tmp_path):
+    repository = ReconRepository(tmp_path / "recon.db")
+    task = ReconTask(
+        id="task-1", run_id="run-1",
+        scope=Scope(allowed_ips=("127.0.0.1",), allowed_ports=(21,), capabilities=(Capability.NMAP_SCAN,)),
+        expires_at=datetime.now(UTC) + timedelta(minutes=5),
+    )
+    repository.save_task(task)
+    adapter = FakeNmap()
+    registry = CapabilityRegistry()
+    registry.register(Capability.NMAP_SCAN, adapter)
+    request = CapabilityRequest(
+        id="request-1", task_id=task.id, capability=Capability.NMAP_SCAN,
+        target_ip="127.0.0.1", parameters=NmapScanParams(ports=(21,)),
+    )
+    assert repository.claim_request(request) is True
+    gateway = ToolExecutionGateway(
+        PolicyService(repository), registry, EvidenceStore(tmp_path / "evidence", repository), repository,
+    )
+    result = gateway.execute(request)
+    assert result.status == "error"
+    assert result.message == "request already claimed or incomplete"
+    assert adapter.calls == 0
+    assert repository.get_policy_decision(request.id) is None
+
+
+def test_concurrent_duplicate_cannot_enter_adapter_twice(tmp_path):
+    repository = ReconRepository(tmp_path / "recon.db")
+    task = ReconTask(
+        id="task-1", run_id="run-1",
+        scope=Scope(allowed_ips=("127.0.0.1",), allowed_ports=(21,), capabilities=(Capability.NMAP_SCAN,)),
+        expires_at=datetime.now(UTC) + timedelta(minutes=5),
+    )
+    repository.save_task(task)
+    entered = Event()
+    release = Event()
+
+    class BlockingNmap(FakeNmap):
+        def execute(self, request):
+            entered.set()
+            assert release.wait(5)
+            return super().execute(request)
+
+    adapter = BlockingNmap()
+    registry = CapabilityRegistry()
+    registry.register(Capability.NMAP_SCAN, adapter)
+    gateway = ToolExecutionGateway(
+        PolicyService(repository), registry, EvidenceStore(tmp_path / "evidence", repository), repository,
+    )
+    request = CapabilityRequest(
+        id="request-1", task_id=task.id, capability=Capability.NMAP_SCAN,
+        target_ip="127.0.0.1", parameters=NmapScanParams(ports=(21,)),
+    )
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first_future = pool.submit(gateway.execute, request)
+        assert entered.wait(5)
+        pending = pool.submit(gateway.execute, request).result(timeout=5)
+        assert pending.status == "error"
+        assert pending.message == "request already claimed or incomplete"
+        release.set()
+        first = first_future.result(timeout=5)
+    assert adapter.calls == 1
+    assert gateway.execute(request) == first

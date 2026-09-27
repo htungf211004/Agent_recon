@@ -5,8 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.recon.adapters import HttpProbeAdapter, NmapAdapter, WhatWebAdapter
+from src.recon.agent import ReconAgent
 from src.recon.gateway import CapabilityRegistry, ToolExecutionGateway
 from src.recon.models import Capability
+from src.recon.planner import ReconPlanner
 from src.recon.policy import PolicyService
 from src.recon.service import ReconService
 from src.recon.storage import EvidenceStore, ReconRepository
@@ -26,3 +28,8 @@ def create_recon_service(database_path: Path | str, evidence_dir: Path | str) ->
         results=repository,
     )
     return repository, ReconService(repository, gateway)
+
+
+def create_recon_agent(database_path: Path | str, evidence_dir: Path | str) -> tuple[ReconRepository, ReconAgent]:
+    repository, service = create_recon_service(database_path, evidence_dir)
+    return repository, ReconAgent(repository, ReconPlanner(), service)

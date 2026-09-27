@@ -16,6 +16,9 @@ class ReconService:
         task = self.repository.get_task(plan.task_id)
         if task is None:
             raise ValueError("unknown Recon task")
+        existing = self.repository.get_recon_result(plan.task_id)
+        if existing is not None:
+            return existing
         results = tuple(self.gateway.execute(action.request) for action in plan.actions)
         result = ReconResult(
             task_id=task.id,

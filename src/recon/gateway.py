@@ -11,6 +11,7 @@ from src.recon.models import (
     Capability,
     CapabilityRequest,
     EvidenceArtifact,
+    PolicyDecision,
     TechnologyObservation,
     ToolResult,
 )
@@ -35,6 +36,12 @@ class EvidenceWriter(Protocol):
 
 
 class ResultWriter(Protocol):
+    def get_tool_result(self, request_id: str) -> ToolResult | None: ...
+
+    def claim_request(self, request: CapabilityRequest) -> bool: ...
+
+    def save_policy_decision(self, decision: PolicyDecision) -> None: ...
+
     def save_tool_result(self, result: ToolResult) -> None: ...
 
 
@@ -65,8 +72,25 @@ class ToolExecutionGateway:
         self.results = results
 
     def execute(self, request: CapabilityRequest) -> ToolResult:
+        existing = self.results.get_tool_result(request.id)
+        if existing is not None:
+            return existing
+        if not self.results.claim_request(request):
+            existing = self.results.get_tool_result(request.id)
+            if existing is not None:
+                return existing
+            return ToolResult(
+                request_id=request.id,
+                task_id=request.task_id,
+                capability=request.capability,
+                target_ip=request.target_ip,
+                status="error",
+                message="request already claimed or incomplete",
+            )
+
         started_at = datetime.now(UTC)
         decision = self.policy.decide(request)
+        self.results.save_policy_decision(decision)
         adapter = self.registry.get(request.capability)
         if not decision.allowed or adapter is None:
             result = ToolResult(

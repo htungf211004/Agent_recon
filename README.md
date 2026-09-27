@@ -18,13 +18,20 @@ Toàn bộ hồ sơ Gate 1 nằm tại:
 
 ## Trạng thái hiện tại
 
-Đây là giai đoạn Gate 1. Repo hiện có starter template FastAPI/LangGraph, Docker, CI, test và AI usage logging. Workflow PentestSyndicate, frontend, phân quyền, HITL, evidence và report vẫn là thiết kế TO-BE và chưa được triển khai.
+Recon Day 1 đã có luồng thực thi từ task đến kết quả và bằng chứng. FastAPI/LangGraph starter vẫn nằm trong repo; workflow nhiều agent, frontend, phân quyền, HITL và report thuộc thiết kế mục tiêu.
 
-Kết quả kiểm tra tại thời điểm lập Gate 1:
+**Recon Day-1 backbone đã triển khai:**
 
-- Ruff pass.
-- Pytest: 5/5 test mẫu pass.
-- Các test hiện tại chỉ kiểm tra API/graph mẫu; không phải bằng chứng MVP đã hoàn thành.
+- Hợp đồng dữ liệu có kiểu cho `ReconTask`, `ReconPlan` và `CapabilityRequest`.
+- `PolicyService` từ chối mặc định các IP, cổng và capability ngoài scope.
+- `ToolExecutionGateway` là điểm điều phối thực thi; `request_id` được claim nguyên tử trước policy và adapter để tránh chạy tool hai lần.
+- Adapter HTTP probe, Nmap và WhatWeb với tham số cố định, giới hạn thực thi; parser Nmap/WhatWeb xác định.
+- SQLite lưu task, execution claim, policy decision, tool result, metadata evidence và Recon result.
+- `EvidenceStore` giới hạn kích thước và kiểm tra toàn vẹn SHA-256 khi đọc.
+- `ReconPlanner` tạo plan xác định từ scope; `ReconAgent` chạy trực tiếp từ `task_id`.
+- Test đầu cuối HTTP trên `127.0.0.1` đi qua Agent, Policy, Gateway, adapter, Evidence và Repository.
+
+Kiểm tra cục bộ gần nhất: **25 test pass**, Ruff pass. Xem [kiến trúc Day 1](ARCHITECTURE.md).
 
 ## Vai trò
 
@@ -66,7 +73,7 @@ flowchart LR
 - Finding phải có evidence và verification status.
 - Không đưa dữ liệu cá nhân, secret hoặc dữ liệu nhạy cảm thật vào hệ thống.
 
-## Chạy starter backend hiện tại
+## Chạy backend starter hiện tại
 
 Yêu cầu: Python 3.11.
 
@@ -102,8 +109,9 @@ Không commit `.env` hoặc `.ai-log/*.jsonl`. Hướng dẫn và checklist cho 
 
 ```text
 docs/gate-1/       Hồ sơ Gate 1
+src/recon/         Recon Agent Day 1, policy, gateway, adapter và storage
 src/               FastAPI và LangGraph starter
-tests/             Test hiện tại
+tests/             Unit test và HTTP localhost E2E
 scripts/           AI log hooks và utilities
 eval/              Nơi lưu bằng chứng evaluation
 presentation/      Slide và video demo
