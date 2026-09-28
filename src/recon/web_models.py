@@ -238,6 +238,15 @@ class ReconCoverage(WebModel):
     lifecycle_counts: dict[EndpointLifecycle, int] = Field(default_factory=dict)
     converged: bool = False
     complete: bool = False
+    # Static values remain separate when aggregate completion includes Browser.
+    static_converged: bool | None = None
+    static_complete: bool | None = None
+    browser_configured: bool = False
+    browser_available: bool = False
+    browser_runs: int = Field(default=0, ge=0)
+    browser_complete: bool = False
+    browser_stop_reasons: tuple[str, ...] = ()
+    limitations: tuple[str, ...] = ()
     stop_reason: Literal["exhausted", "round_limit", "request_limit", "source_limit", "endpoint_limit", "depth_limit", "parser_limit"] = "exhausted"
 
     @model_validator(mode="after")

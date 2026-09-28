@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 
 from src.recon.gateway import ToolExecutionGateway
 from src.recon.handoff import build_inventory
-from src.recon.models import ReconPlan, ReconResult
+from src.recon.models import Capability, ReconPlan, ReconResult
 from src.recon.storage import ReconRepository
-from src.recon.web_models import EndpointLifecycle, SourceStatus
+from src.recon.web_models import EndpointLifecycle, ReconCoverage, SourceStatus
 
 
 class ReconService:
@@ -38,8 +39,12 @@ class ReconService:
         inventory = build_inventory(task, self.repository, self.gateway.evidence)
         endpoints = self.repository.list_endpoints(task_id)
         coverage = self.repository.get_coverage(task_id)
-        if coverage:
+        if coverage is None and Capability.BROWSER_EXPLORE in task.scope.capabilities:
+            static_enabled = Capability.HTTP_FETCH in task.scope.capabilities
+            coverage = ReconCoverage(task_id=task_id, converged=not static_enabled, complete=not static_enabled)
+        if coverage is not None:
             coverage = coverage.model_copy(update={
+                **self._browser_coverage(task, coverage, results),
                 "route_count": len(endpoints), "endpoints": len(endpoints),
                 "observation_count": len(self.repository.list_observations(task_id)),
                 "baseline_count": sum(entry.baseline_verified for entry in endpoints),
@@ -62,3 +67,50 @@ class ReconService:
         )
         self.repository.save_recon_result(result)
         return result
+
+    def _browser_coverage(self, task, coverage, results) -> dict:
+        available = self.gateway.registry.get(Capability.BROWSER_EXPLORE) is not None
+        requested = Capability.BROWSER_EXPLORE in task.scope.capabilities
+        requests = {action.request.id for plan in self.repository.list_plans(task.id) for action in plan.actions
+                    if action.request.capability == Capability.BROWSER_EXPLORE}
+        parents = {item.request_id: item for item in results if item.capability == Capability.BROWSER_EXPLORE}
+        requests.update(parents)
+        configured = bool(requests) or (requested and available)
+        reasons = set()
+        for request_id in sorted(requests):
+            result = parents.get(request_id)
+            if result is None:
+                reasons.add("incomplete")
+                continue
+            if result.status != "success":
+                reasons.add(result.status)
+            if result.evidence_id:
+                try:
+                    payload = json.loads(self.gateway.evidence.read(result.evidence_id))
+                    reason = payload["stop_reason"]
+                    if payload["parent_request_id"] != request_id or not isinstance(reason, str) or not reason or len(reason) > 256:
+                        raise ValueError("invalid browser summary")
+                    reasons.add(reason)
+                except (ValueError, OSError, TypeError, KeyError):
+                    reasons.add("invalid_evidence")
+            elif result.status == "success":
+                reasons.add("missing_evidence")
+        if configured and not requests:
+            reasons.add("not_started")
+        complete = configured and bool(requests) and reasons == {"converged"}
+        static_converged = coverage.converged if coverage.static_converged is None else coverage.static_converged
+        static_complete = coverage.complete if coverage.static_complete is None else coverage.static_complete
+        limitations = {f"browser:{reason}" for reason in reasons if reason != "converged"}
+        if requested and not available and not requests:
+            limitations.add("browser:unavailable")
+        if not static_complete:
+            limitations.add(f"static:{coverage.stop_reason}" if not static_converged else "static:source_errors")
+        return {
+            "static_converged": static_converged, "static_complete": static_complete,
+            "browser_available": available, "browser_configured": configured,
+            "browser_runs": sum(self.repository.get_tool_run(key) is not None for key in requests),
+            "browser_complete": complete, "browser_stop_reasons": tuple(sorted(reasons)),
+            "limitations": tuple(sorted(limitations)),
+            "converged": static_converged and (not configured or complete),
+            "complete": static_complete and (not configured or complete),
+        }

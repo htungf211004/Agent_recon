@@ -30,6 +30,9 @@ def validate_query(query: str) -> str:
 
 def path_allowed(path: str, prefixes: tuple[str, ...]) -> bool:
     validate_path(path)
+    # Empty means the whole path space on the already authorized target.
+    if not prefixes:
+        return True
     decoded = unquote(path)
     return any(prefix == "/" or decoded == unquote(prefix).rstrip("/") or
                decoded.startswith(unquote(prefix).rstrip("/") + "/") for prefix in prefixes)

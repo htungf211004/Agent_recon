@@ -29,7 +29,8 @@ def child_request(parent: CapabilityRequest, url: str, method: str, resource_typ
     params = parent.parameters
     if not isinstance(params, BrowserExploreParams):
         raise TypeError("browser explore parameters required")
-    identity = stable_id(parent.id, method, normalized, *([str(page_sequence)] if page_sequence else []))
+    # A versioned execution identity; persisted older IDs still replay through Gateway.
+    identity = stable_id("browser-child-v3", parent.id, str(page_sequence), method, normalized, resource_type)
     return CapabilityRequest(
         id=f"browser-{identity}", task_id=parent.task_id, run_id=parent.run_id,
         scope_version=parent.scope_version, capability=Capability.BROWSER_REQUEST,
@@ -79,9 +80,11 @@ class BrowserExploreAdapter:
             return max(1, int((deadline - time.monotonic()) * 1000))
 
         def on_route(route) -> None:
-            nonlocal blocked, seen
+            nonlocal blocked, seen, stop_reason
             request = route.request
             try:
+                if seen >= limits.max_requests:
+                    stop_reason = "request_limit"
                 if not running() or byte_budget.stop_reason or seen >= limits.max_requests:
                     raise ValueError("browser parent cancelled or resource limit reached")
                 method = request.method.upper()
@@ -147,9 +150,10 @@ class BrowserExploreAdapter:
                 if result.status == "success" and result.evidence_id and result.http_response:
                     project_browser_response(repository, permit.request, result, json.loads(output.raw_output))
 
-        def lookup(method, url):
+        def lookup(method, url, resource_type):
             return next((permit for request, permit in pending.items()
-                         if request.method == method and canonical_url(request.url) == url), None)
+                         if request.method == method and canonical_url(request.url) == url
+                         and request.resource_type == resource_type), None)
 
         factory = self.playwright_factory
         if factory is None:

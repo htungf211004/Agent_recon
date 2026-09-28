@@ -73,7 +73,22 @@ def browser_server(forbidden_sink):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             calls.append(("GET", self.path))
-            if self.path.startswith("/crawl"):
+            if self.path == "/hardening":
+                body = (b"<html><head><link rel='stylesheet' href='/hardening.css'></head><body>font test"
+                        b"<img src='/logo.png'><script src='/shared-data'></script>"
+                        b"<script>fetch('/shared-data');const x=new XMLHttpRequest();"
+                        b"x.open('GET','/api/profile');x.send();</script></body></html>")
+                content_type = "text/html"
+            elif self.path == "/shared-data":
+                body, content_type = b"window.dataLoaded=true;", "application/javascript"
+            elif self.path == "/hardening.css":
+                body = b"@font-face{font-family:test;src:url('/font.woff2')}body{font-family:test}"
+                content_type = "text/css"
+            elif self.path in {"/logo.png", "/font.woff2"}:
+                body, content_type = b"fixture-asset", "application/octet-stream"
+            elif self.path == "/api/profile":
+                body, content_type = b'{"profile":true}', "application/json"
+            elif self.path.startswith("/crawl"):
                 links = {
                     "/crawl": "<a href='/crawl/b'>b</a><a href='/crawl/a'>a</a><a href='/crawl/a#again'>a</a>",
                     "/crawl/a": "<a href='/crawl/deep'>deep</a><a href='/crawl'>cycle</a>",
@@ -124,6 +139,7 @@ def browser_server(forbidden_sink):
                 body, content_type = b"not found", "text/plain"
             self.send_response(200 if self.path.startswith("/crawl") or self.path in {
                 "/", "/app.js", "/style.css", "/api", "/shared.js", "/users/7",
+                "/hardening", "/shared-data", "/hardening.css", "/logo.png", "/font.woff2", "/api/profile",
             } else 404)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
@@ -181,11 +197,41 @@ def test_real_chromium_intercepts_each_local_request_once(tmp_path, browser_serv
     assert len(children) >= 4
     assert all(repository.get_policy_decision(child.request_id).allowed for child in children)
     assert all(evidence.read(repository.get_tool_result(child.request_id).evidence_id) for child in children)
-    assert len(repository.list_endpoints(task.id)) >= 4
+    endpoint_paths = {item.canonical_path for item in repository.list_endpoints(task.id)}
+    assert {"/", "/api"} <= endpoint_paths
+    assert not endpoint_paths & {"/app.js", "/style.css"}
     reopened = ReconRepository(tmp_path / "browser.db")
     assert len(reopened.list_child_runs(request.id)) == len(children)
     assert gateway.execute(request) == result
     assert Counter(calls) == paths
+    assert forbidden_sink[1] == []
+
+
+def test_real_static_assets_and_same_url_resource_identity(tmp_path, browser_server, forbidden_sink, chromium_gate):
+    port, calls = browser_server
+    repository, gateway, agent, task = browser_agent(tmp_path, port, BrowserLimits())
+    request = CapabilityRequest(id="asset-parent", task_id=task.id, capability=Capability.BROWSER_EXPLORE,
+                                target_ip="127.0.0.1", parameters=BrowserExploreParams(port=port, path="/hardening"))
+    result = gateway.execute(request)
+    assert result.status == "success", result.message
+    counts = Counter(calls)
+    assert counts[("GET", "/shared-data")] == 2
+    for path in ("/hardening", "/hardening.css", "/logo.png", "/font.woff2", "/api/profile"):
+        assert counts[("GET", path)] == 1
+    children = [CapabilityRequest.model_validate_json(run.request_payload)
+                for run in repository.list_child_runs(request.id)]
+    shared = [child for child in children if child.parameters.path == "/shared-data"]
+    assert {child.parameters.resource_type for child in shared} == {"script", "fetch"}
+    assert len({child.id for child in shared}) == len({child.action_fingerprint for child in shared}) == 2
+    for child in children:
+        proof = repository.get_tool_result(child.id)
+        assert repository.get_policy_decision(child.id).allowed
+        assert gateway.evidence.read(proof.evidence_id)
+    snapshot = agent.service.snapshot(task.id)
+    routes = {item.canonical_path for item in snapshot.attack_surface_inventory.entries}
+    assert routes == {"/hardening", "/shared-data", "/api/profile"}
+    assert {item.canonical_path for item in snapshot.endpoints} == routes
+    assert len(snapshot.observations) == 3
     assert forbidden_sink[1] == []
 
 
@@ -279,6 +325,10 @@ def test_real_browser_bfs_bounds(tmp_path, browser_server, chromium_gate, limits
     assert len(calls) <= max_requests
     assert summary["admitted_body_bytes"] <= limits.max_total_bytes
     assert summary["stop_reason"] == reason
+    assert result.coverage.browser_configured
+    assert not result.coverage.browser_complete and not result.coverage.complete
+    assert reason in result.coverage.browser_stop_reasons
+    assert f"browser:{reason}" in result.coverage.limitations
 
 
 def test_browser_preserves_day2_verified_baseline(tmp_path, browser_server, chromium_gate):

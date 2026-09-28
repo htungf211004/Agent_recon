@@ -24,7 +24,7 @@ class BrowserDiscovery:
         plans = tuple(plan for plan in self.repository.list_plans(task.id)
                       if any(action.id.startswith("browser-discovery-") for action in plan.actions))
         if not plans:
-            candidates = sorted(task.discovery_seeds) or sorted(task.scope.allowed_paths)
+            candidates = sorted(task.discovery_seeds) or sorted(task.scope.allowed_paths) or ["/"]
             roots = [root for root in candidates if path_allowed(urlsplit(root).path, task.scope.allowed_paths)]
             if not roots:
                 return self.service.snapshot(task.id)

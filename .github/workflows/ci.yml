@@ -38,3 +38,27 @@ jobs:
           APP_ENV: test
           OPENAI_API_KEY: test-key
           RECON_REQUIRE_CHROMIUM: "1"
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build pinned Chromium runtime
+        run: docker build -t agent-recon-final .
+      - name: Require Chromium as non-root container user
+        run: |
+          docker run --rm agent-recon-final python -c "import os; assert os.getuid() != 0"
+          docker run --rm agent-recon-final python -m src.recon.browser_runtime --probe
+      - name: Check default FastAPI startup
+        run: |
+          docker run --detach --name recon-final-smoke -e APP_ENV=test agent-recon-final
+          trap 'docker rm -f recon-final-smoke' EXIT
+          for attempt in $(seq 1 30); do
+            if docker exec recon-final-smoke python -c "import json, urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2))['status'] == 'ok'"; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs recon-final-smoke
+          exit 1

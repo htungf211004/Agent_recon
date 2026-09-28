@@ -15,6 +15,8 @@ from src.recon.web_models import (
     stable_id,
 )
 
+INVENTORY_RESOURCE_TYPES = frozenset({"document", "xhr", "fetch"})
+
 # Runs in a fresh isolated world: page code cannot replace these DOM accessors.
 # No caller supplied expression, field values, clicks or form submissions.
 DOM_EXPRESSION = """(() => {
@@ -50,6 +52,8 @@ def project_browser_response(repository, request: CapabilityRequest, result: Too
     if result.status != "success" or not result.evidence_id or not result.http_response:
         return
     params = request.parameters
+    if params.resource_type not in INVENTORY_RESOURCE_TYPES:
+        return
     url = request_url(request.target_ip, params.scheme, params.port, params.path, params.query)
     if envelope.get("url") != url or envelope.get("method") != params.method:
         raise ValueError("browser evidence identity mismatch")

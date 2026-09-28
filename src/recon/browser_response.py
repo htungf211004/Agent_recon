@@ -40,16 +40,26 @@ class BrowserResponseGuard:
     def __init__(self, session, budget: BrowserByteBudget, lookup, record, live):
         self.session, self.budget = session, budget
         self.lookup, self.record, self.live = lookup, record, live
+        self.resource_types = {}
 
     def install(self):
+        self.session.on("Network.requestWillBeSent", self.on_request)
+        self.session.send("Network.enable")
         self.session.on("Fetch.requestPaused", self.on_response)
         self.session.send("Fetch.enable", {"patterns": [{"urlPattern": "*", "requestStage": "Response"}]})
+
+    def on_request(self, event):
+        # Fetch.requestPaused labels fetch() as XHR on Chromium. Network's type
+        # is the same source Playwright uses and networkId correlates the events.
+        if len(self.resource_types) < 256:
+            self.resource_types[event["requestId"]] = event.get("type", "").lower()
 
     def on_response(self, event):
         request_id = event["requestId"]
         try:
             request = event["request"]
-            permit = self.lookup(request["method"], canonical_url(request["url"]))
+            resource_type = self.resource_types.pop(event.get("networkId"), "")
+            permit = self.lookup(request["method"], canonical_url(request["url"]), resource_type)
             if permit is None or not self.live() or "responseStatusCode" not in event:
                 # Aborted navigation/POST can still produce a CDP error pause.
                 # Reject it without stopping unrelated, already authorized responses.

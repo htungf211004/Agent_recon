@@ -105,7 +105,7 @@ Swagger UI: <http://localhost:8000/docs>
 
 ## Kiểm tra
 
-Kết quả local Day 03 Ver02: **138 tests passed, không skip, gồm Chromium thật; Ruff PASS**. CI có gate Chromium bắt buộc bên cạnh toàn bộ test Day 1/2. Trạng thái GitHub Actions cần được xác nhận sau khi push.
+Kết quả local sau final hardening: **221 tests passed, không skip, gồm Chromium thật; Ruff PASS**. Docker build, Chromium probe dưới user non-root và FastAPI health smoke đều PASS. CI có gate Chromium và Docker bắt buộc; kết quả GitHub Actions cho bản sửa mới cần được xác nhận sau khi push.
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m ruff check --no-cache src tests
@@ -128,6 +128,17 @@ $env:RECON_REQUIRE_CHROMIUM = "1"
 ```
 
 CI installs Chromium and system dependencies, probes launch availability, and fails if browser tests cannot run. Local skipping is allowed only without the mandatory flag. The real E2E first proves a forbidden sink is reachable, then checks zero off-scope dispatch, BFS, evidence, baseline preservation, cancellation and restart. See the [Day 03 guide](docs/day3-browser-discovery.md), [browser architecture](ARCHITECTURE.md#day-03-ver02-passive-browser-discovery) and [ADR 0003](docs/adr/0003-browser-execution-boundary.md) for configuration and response-admission limits.
+
+## Recon final hardening
+
+- Browser inventory only projects `document`, `xhr`, `fetch`; assets retain policy, ToolRun and evidence.
+- Child execution identity includes resource type; persisted Ver01/Ver02 runs remain replayable.
+- Browser root falls back to `/`; empty path prefixes mean no extra path restriction on the authorized target.
+- ReconCoverage exposes browser completion, stop reasons and limitations separately from static discovery.
+- Playwright is pinned to **1.63.0**. Docker installs matching Chromium and runs as non-root; CI includes container probe and FastAPI smoke checks.
+- AST tests reject Playwright imports/browser operations in Agent/planning/business logic and unapproved process execution.
+
+See [final hardening verification](docs/recon-final-hardening.md) and [container instructions](docs/day3-browser-discovery.md#container-gate).
 
 ## AI usage logging
 

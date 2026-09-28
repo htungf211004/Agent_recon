@@ -83,9 +83,14 @@ class FakeRoute:
         if self.after_continue:
             self.after_continue()
         response = FakeResponse(self.request)
-        self.page.context.session.handler({
+        self.page.context.session.handlers["Network.requestWillBeSent"]({
+            "requestId": self.request.url, "type": self.request.resource_type.title(),
+        })
+        self.page.context.session.handlers["Fetch.requestPaused"]({
             "requestId": self.request.url,
+            "networkId": self.request.url,
             "request": {"method": self.request.method, "url": self.request.url},
+            "resourceType": self.request.resource_type.title(),
             "responseStatusCode": response.status,
             "responseHeaders": [{"name": k, "value": v} for k, v in response.headers.items()],
         })
@@ -124,8 +129,11 @@ class FakePage:
 
 
 class FakeCDP:
+    def __init__(self):
+        self.handlers = {}
+
     def on(self, _event, handler):
-        self.handler = handler
+        self.handlers[_event] = handler
 
     def send(self, method, _params=None):
         if method == "Page.getFrameTree":

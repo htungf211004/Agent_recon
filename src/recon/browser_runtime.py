@@ -10,7 +10,7 @@ def chromium_available() -> bool:
     try:
         result = subprocess.run(
             [sys.executable, str(Path(__file__).resolve()), "--probe"],
-            capture_output=True, timeout=15, check=False,
+            capture_output=True, timeout=15, check=False, shell=False,
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
         return result.returncode == 0

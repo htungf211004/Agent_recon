@@ -1,6 +1,6 @@
 # Recon Day 03 Ver02
 
-Passive browser discovery extends the existing ReconAgent and shared AttackSurfaceInventory v1.0. Python remains 3.11.
+Passive browser discovery extends the existing ReconAgent and shared AttackSurfaceInventory v1.0. Python remains 3.11; Playwright is pinned to the verified **1.63.0** release in requirements.txt, CI and Docker.
 
 ## Run and verify
 
@@ -32,7 +32,7 @@ inventory = result.attack_surface_inventory
 
 ## Deterministic planning and limits
 
-The first sorted in-scope discovery seed (or allowed path) is used as the root for each sorted IP/port origin. Scheme uses the existing port heuristic. The whole phase plan is persisted before execution. Restarts reuse that plan even if caller defaults change. Each parent's browser context is fresh; each page closes before the next one begins.
+The first sorted in-scope discovery seed (or allowed path, otherwise `/`) is used as the root for each sorted IP/port origin. Empty path prefixes mean all validated paths on the authorized target; explicit prefixes still restrict paths. Scheme uses the existing port heuristic. The whole phase plan is persisted before execution. Restarts reuse that plan even if caller defaults change. Each parent's browser context is fresh; each page closes before the next one begins.
 
 | Limit | BrowserDiscovery default | Hard maximum |
 |---|---:|---:|
@@ -62,7 +62,7 @@ flowchart TD
     Finish --> Inventory[EndpointObservation / template reconciliation / AttackSurfaceInventory v1.0]
 ```
 
-Child identity includes parent, method, normalized URL and stable page sequence. Repeated resources across pages have distinct request IDs/fingerprints; duplicate requests within a page cannot acquire another continuation. No HTTP_FETCH is issued for a browser interception.
+New child identities include parent, method, normalized URL, stable page sequence and resource type, with a versioned hash. Script and fetch requests for the same URL on the same page get separate IDs/fingerprints; identical requests with the same resource type cannot acquire another continuation. Stored Ver01/Ver02 IDs and payloads are not rewritten, and completed/uncertain parents do not redispatch. Route identity still excludes query values and browser resource type. No HTTP_FETCH is issued for a browser interception.
 
 The response guard rejects redirects before Chromium can follow them. It admits only body lengths known from an explicit Content-Length, with identity encoding and no Transfer-Encoding. Each admitted body is charged against the response/total budget before continuation. HEAD/204/205 have no body charge. Unknown lengths, compression, oversized bodies and attachments fail closed. This bounds admitted response bodies, not TCP bytes or headers already buffered by Chromium.
 
@@ -70,6 +70,27 @@ Every child response envelope is `http_exchange` evidence with parent/resource/p
 
 Observed responses and discovered links/forms use the existing endpoint models. Provenance is merged and declared templates reconciled. Browser observations preserve earlier HTTP baseline proof; newly observed routes do not automatically become BASELINED or FUZZ_READY. Projection is idempotent and can be repaired from child evidence after a crash.
 
-Cancellation is terminal and durable. Every route/navigation checks parent state and deadline. Late completion cannot overwrite a CANCELLED child or create replacement evidence. Restart replays stored results; expired leases become failures with no automatic redispatch. Coverage remains the existing Recon coverage, with updated inventory counts; browser stop details are in parent evidence and do not imply exhaustive application coverage.
+Only `document`, `xhr` and `fetch` responses project into endpoint observations and inventory. Script/CSS/image/font/manifest traffic keeps its ToolRun, policy and evidence. The filter is applied again on evidence replay. CDP `Network.requestWillBeSent` and the Fetch pause's `networkId` correlate response resource semantics; URL alone is insufficient when a script and fetch share a URL.
+
+Cancellation is terminal and durable. Every route/navigation checks parent state and deadline. Late completion cannot overwrite a CANCELLED child or create replacement evidence. Restart replays stored results; expired leases become failures with no automatic redispatch.
+
+## Coverage and limitations
+
+ReconCoverage retains static convergence separately and exposes browser availability/configuration, run count, completion, stop reasons and limitations. All configured parents must succeed with verified `converged` summaries for `browser_complete=True`. Request/depth/page/byte/DOM/runtime limits or errors make browser and aggregate completion false even after static discovery converges. Repeated snapshots and restarts preserve those limitations. No new persisted RunStatus is introduced.
+
+If browser was not requested, it contributes no failure. If requested but unavailable with no prior run, it is not configured and `browser:unavailable` records the omitted phase; static completeness is preserved. Consumers should inspect `limitations` as well as aggregate completion. Convergence describes the bounded supported discovery queue, not exhaustive application coverage.
+
+## Container gate
+
+```powershell
+docker build -t agent-recon-final .
+docker run --rm agent-recon-final python -m src.recon.browser_runtime --probe
+docker run --rm agent-recon-final python -c "import os; assert os.getuid() != 0"
+docker run --detach --rm --name recon-final-smoke -e APP_ENV=test agent-recon-final
+docker exec recon-final-smoke python -c "import json, urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5))['status'] == 'ok'"
+docker stop recon-final-smoke
+```
+
+The image executes as `appuser`. `/opt/venv` avoids inaccessible root-only Python packages; `/ms-playwright` contains the browser revision selected by the pinned package. CI also builds the image, runs the probe as non-root, and checks the default FastAPI command's health endpoint.
 
 The localhost gate tests real forbidden-sink reachability followed by zero off-scope dispatch, redirects, writes, BFS bounds, repeated resources, DOM provenance, template merging, Day 2 baseline preservation, cancellation and restart. Browser-Use, CVE/RAG, Fuzzing, Validation, Approval and Finding logic are outside this implementation.
