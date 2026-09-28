@@ -165,13 +165,13 @@ def test_conservative_identity_and_provenance_merge(tmp_path):
     assert repository.save_endpoint(first) == merged
     assert merged.lifecycle == EndpointLifecycle.DISCOVERED
     assert first.id != first.model_copy(update={"method": "POST"}).id
-    assert first.id != first.model_copy(update={"url": base + "?q=1"}).id
+    assert first.id == first.model_copy(update={"url": base + "?q=1"}).id
     with pytest.raises(ValidationError):
         WebEndpointEntry(task_id="day2", url=base, lifecycle=EndpointLifecycle.FUZZ_READY)
 
 
 @pytest.mark.parametrize("body,content_type,expected_status,lifecycle", [
-    (b"{" * 10, "application/json", SourceStatus.ERROR, EndpointLifecycle.BASELINED),
+    (b"{" * 10, "application/json", SourceStatus.ERROR, EndpointLifecycle.FUZZ_READY),
     (b"x" * 131073, "application/json", SourceStatus.LIMITED, EndpointLifecycle.OBSERVED),
 ], ids=["malformed", "truncated"])
 def test_failed_or_truncated_discovery_source_cannot_claim_complete_coverage(tmp_path, body, content_type, expected_status, lifecycle):

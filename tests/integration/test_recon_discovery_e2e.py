@@ -21,6 +21,7 @@ def discovery_server():
             calls.append(("GET", self.path))
             documents = {
                 "/": ("text/html", '''<html><a href="/shared">shared</a><a href="/query?q=one">query</a>
+                    <a href="/query?q=two">query two</a><a href="/profile">profile</a>
                     <a href="/missing">missing</a><a href="/redirect">redirect</a>
                     <a href="http://127.0.0.2/outside">outside</a><script src="/app.js"></script>
                     <form method="post" action="/mutate"><input name="value" required></form>
@@ -39,6 +40,8 @@ def discovery_server():
                 "/app.js": ("application/javascript", "fetch('/shared'); fetch('/from-js'); fetch('/mutate', {method:'POST'});"),
                 "/shared": ("text/plain", "shared response"),
                 "/query?q=one": ("application/json", '{"q":"one"}'),
+                "/query?q=two": ("application/json", '{"q":"two"}'),
+                "/profile": ("text/plain", "profile without query parameters"),
                 "/from-js": ("text/plain", "JavaScript candidate"),
                 "/from-sitemap": ("text/plain", "sitemap candidate"),
             }
@@ -98,8 +101,12 @@ def test_local_multisource_discovery_merge_lifecycle_evidence_and_replay(tmp_pat
     assert {p.kind for p in shared.provenance} >= {
         DiscoveryKind.HTML, DiscoveryKind.ROBOTS, DiscoveryKind.SITEMAP, DiscoveryKind.OPENAPI, DiscoveryKind.JAVASCRIPT,
     }
-    assert shared.lifecycle == EndpointLifecycle.BASELINED
-    assert endpoints[("/query?q=one", "GET")].lifecycle == EndpointLifecycle.FUZZ_READY
+    assert shared.lifecycle == EndpointLifecycle.FUZZ_READY
+    query = endpoints[("/query", "GET")]
+    assert query.lifecycle == EndpointLifecycle.FUZZ_READY
+    observations = [item for item in result.observations if item.endpoint_id == query.id]
+    assert {item.url for item in observations} == {origin + "/query?q=one", origin + "/query?q=two"}
+    assert endpoints[("/profile", "GET")].lifecycle == EndpointLifecycle.FUZZ_READY
     assert endpoints[("/missing", "GET")].lifecycle == EndpointLifecycle.OBSERVED
     assert endpoints[("/redirect", "GET")].lifecycle == EndpointLifecycle.OBSERVED
     assert endpoints[("/mutate", "POST")].lifecycle == EndpointLifecycle.DISCOVERED
@@ -107,8 +114,8 @@ def test_local_multisource_discovery_merge_lifecycle_evidence_and_replay(tmp_pat
     assert endpoints[("/api/{id}", "GET")].lifecycle == EndpointLifecycle.DISCOVERED
     assert endpoints[("/required", "GET")].lifecycle == EndpointLifecycle.DISCOVERED
     assert endpoints[("/logout", "GET")].requires_manual_input is True
-    assert endpoints[("/from-js", "GET")].lifecycle == EndpointLifecycle.BASELINED
-    assert endpoints[("/from-sitemap", "GET")].lifecycle == EndpointLifecycle.BASELINED
+    assert endpoints[("/from-js", "GET")].lifecycle == EndpointLifecycle.FUZZ_READY
+    assert endpoints[("/from-sitemap", "GET")].lifecycle == EndpointLifecycle.FUZZ_READY
     assert not any(path in {"/should-not-follow", "/mutate", "/logout", "/required", "/api/{id}"} for _, path in calls)
     assert all(method == "GET" for method, _ in calls)
     assert all(count == 1 for count in Counter(calls).values())
@@ -116,6 +123,10 @@ def test_local_multisource_discovery_merge_lifecycle_evidence_and_replay(tmp_pat
     assert result.coverage.complete is True
     assert result.coverage.rounds >= 3
     assert result.coverage.requests == len(calls)
+    assert result.coverage.route_count == len(result.endpoints)
+    assert result.coverage.observation_count == len(result.observations) == len(result.endpoints) + 1
+    assert result.coverage.runtime_attempts == len(calls)
+    assert result.coverage.fuzz_ready_count == sum(item.lifecycle == EndpointLifecycle.FUZZ_READY for item in result.endpoints)
     evidence = EvidenceStore(tmp_path / "evidence", repository)
     for endpoint in result.endpoints:
         for provenance in endpoint.provenance:
@@ -127,10 +138,21 @@ def test_local_multisource_discovery_merge_lifecycle_evidence_and_replay(tmp_pat
             assert baseline.evidence_id in endpoint.evidence_ids
             assert repository.get_policy_decision(baseline.request_id).allowed is True
             assert evidence.read(baseline.evidence_id)
+    for entry in result.attack_surface_inventory.entries:
+        ids = {item.id for item in entry.observations}
+        for provenance in entry.provenance:
+            assert provenance.observation_ref in ids
+            tool_result = repository.get_tool_result(provenance.request_ref)
+            assert tool_result.evidence_id == provenance.evidence_ref
+            assert evidence.read(provenance.evidence_ref)
+        if entry.status == EndpointLifecycle.FUZZ_READY:
+            assert entry.baseline_observation_ref in ids
+            assert repository.get_baseline(entry.baseline_ref).observation_id == entry.baseline_observation_ref
     assert any(source.kind == DiscoveryKind.SITEMAP_INDEX for source in repository.list_sources(task.id))
     assert ReconRepository(repository.database_path).get_coverage(task.id) == result.coverage
     call_count = len(calls)
-    assert agent.run(task.id) == result
+    _, restarted_agent = create_recon_agent(repository.database_path, tmp_path / "evidence")
+    assert restarted_agent.run(task.id) == result
     assert len(calls) == call_count
 
 

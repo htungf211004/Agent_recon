@@ -31,6 +31,8 @@ class ReconPlanner:
             url = urlsplit(source.url)
             actions.append(self._action(task, url.hostname, Capability.HTTP_FETCH, HttpFetchParams(
                 port=url.port, scheme=url.scheme, path=url.path, query=url.query, method=source.method,
+                timeout_seconds=min(5.0, task.execution_budget.max_timeout_seconds),
+                max_body_bytes=task.execution_budget.max_body_bytes,
             )))
         return ReconPlan(task_id=task.id, actions=tuple(actions))
 

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from collections import Counter
+
 from src.recon.gateway import ToolExecutionGateway
+from src.recon.handoff import build_inventory
 from src.recon.models import ReconPlan, ReconResult
 from src.recon.storage import ReconRepository
+from src.recon.web_models import EndpointLifecycle
 
 
 class ReconService:
@@ -29,6 +33,19 @@ class ReconService:
         if task is None:
             raise ValueError("unknown Recon task")
         results = self.repository.list_tool_results(task_id)
+        inventory = build_inventory(task, self.repository, self.gateway.evidence)
+        endpoints = self.repository.list_endpoints(task_id)
+        coverage = self.repository.get_coverage(task_id)
+        if coverage:
+            coverage = coverage.model_copy(update={
+                "route_count": len(endpoints), "endpoints": len(endpoints),
+                "observation_count": len(self.repository.list_observations(task_id)),
+                "baseline_count": sum(entry.baseline_verified for entry in endpoints),
+                "fuzz_ready_count": sum(entry.lifecycle == EndpointLifecycle.FUZZ_READY for entry in endpoints),
+                "lifecycle_counts": dict(Counter(entry.lifecycle for entry in endpoints)),
+                "runtime_attempts": self.repository.budget_usage(task_id),
+            })
+            self.repository.save_coverage(coverage)
         result = ReconResult(
             task_id=task.id,
             run_id=task.run_id,
@@ -36,8 +53,10 @@ class ReconService:
             attack_surface=tuple(entry for item in results for entry in item.attack_surface),
             technologies=tuple(tech for item in results for tech in item.technologies),
             evidence_ids=tuple(item.evidence_id for item in results if item.evidence_id),
-            endpoints=self.repository.list_endpoints(task_id),
-            coverage=self.repository.get_coverage(task_id),
+            endpoints=endpoints,
+            coverage=coverage,
+            observations=self.repository.list_observations(task_id),
+            attack_surface_inventory=inventory,
         )
         self.repository.save_recon_result(result)
         return result

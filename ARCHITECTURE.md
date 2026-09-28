@@ -1,75 +1,91 @@
-# Kiến trúc Recon Day 1/2
+# Recon Day 1/2 architecture — frozen v1
 
-## Tổng quan
+Runtime: **Python 3.11**, consistent with CI and Docker. Recon uses deterministic plans and parsers. The existing FastAPI/LangGraph starter is separate from the implemented Recon engine.
 
-Recon Day 1 nhận một `ReconTask` đã được lưu với danh sách IP, cổng, capability và thời hạn. `ReconAgent` dùng `ReconPlanner` xác định để tạo `ReconPlan`, rồi `ReconService` đưa từng `CapabilityRequest` qua `ToolExecutionGateway`. Gateway claim request trước khi kiểm tra policy hoặc gọi adapter; policy decision, tool result và evidence được lưu để truy vết theo `request_id`.
-
-Day 2 mở rộng task thành nhiều vòng plan, lưu inventory endpoint và baseline. FastAPI và LangGraph trong repo là starter riêng; Recon dùng planner và parser xác định.
-
-## Luồng thực thi
+## Execution boundary
 
 ```mermaid
 flowchart TD
-    Task[ReconTask trong ReconRepository] --> Agent[ReconAgent]
+    Task[Trusted ReconTask] --> Agent[ReconAgent]
     Agent --> Planner[ReconPlanner]
     Planner --> Plan[ReconPlan]
     Plan --> Service[ReconService]
     Service --> Gateway[ToolExecutionGateway]
-    Gateway -->|kết quả đã lưu| Repository
-    Gateway --> Claim[(execution_claims)]
-    Claim --> Policy[PolicyService]
-    Policy --> Decision[(policy_decisions)]
-    Decision -->|allowed| Registry[CapabilityRegistry]
-    Registry --> Adapter[HTTP / Nmap / WhatWeb adapter]
-    Adapter --> Tool[HTTP hoặc công cụ cố định]
-    Tool --> Evidence[EvidenceStore]
+    Gateway --> Existing{Stored ToolResult?}
+    Existing -->|yes| Result[ReconResult]
+    Existing -->|no| Claim[Atomic ToolRun claim and lease]
+    Claim --> Policy[PolicyService: scope, method, expiry, budget]
+    Policy --> Reserve[Atomic budget reservation and persisted PolicyDecision]
+    Reserve -->|ALLOW| Registry[CapabilityRegistry]
+    Reserve -->|DENY| Denied[Durable DENIED result]
+    Registry --> Adapter[HTTP probe / HTTP fetch / Nmap / WhatWeb]
+    Adapter --> Tool[Bounded HTTP or fixed tool invocation]
+    Tool --> Evidence[EvidenceStore: SHA-256 and manifest]
     Evidence --> Repository[(ReconRepository / SQLite)]
-    Repository --> Result[ReconResult]
-    Decision -->|denied| Repository
-    Claim -->|đã claim, chưa có result| Incomplete[Trả lỗi incomplete, không gọi adapter]
+    Repository --> Result
+    Denied --> Repository
 ```
 
-Gateway gọi `PolicyService` sau khi claim thành công và lưu `PolicyDecision` **trước** khi dispatch adapter. Kết quả trùng `request_id` được đọc từ repository; nếu một request đã claim nhưng chưa có result, Gateway trả lỗi `request already claimed or incomplete` và không gọi tool thêm lần nữa.
+Policy runs **inside the Gateway after the atomic claim**, and its final decision is committed before any adapter executes. Agents propose typed `CapabilityRequest` objects. Parsers have no network access. There is no arbitrary shell command, HTTP header, Host override, write method or redirect-following field.
 
-## Thành phần Day 1
+`HTTP_PROBE` and `HTTP_FETCH` are available in the standard Python runner. Nmap and WhatWeb are registered only when `shutil.which` finds their binaries. `CapabilityRegistry.available_capabilities()` exposes the usable registry; an unavailable capability is denied before dispatch.
 
-| Thành phần | Trách nhiệm |
+## Route, observation, baseline
+
+| Record | Identity and responsibility |
 |---|---|
-| `ReconTask`, `ReconPlan`, `CapabilityRequest` | Hợp đồng Pydantic chặt chẽ cho scope, hành động và tham số có kiểu; không nhận lệnh shell thô. |
-| `ReconAgent`, `ReconPlanner` | Tải task theo ID, tạo plan xác định từ IP, cổng và capability được phép. Mỗi IP có tối đa một Nmap action cho 32 cổng đầu; mỗi cổng có HTTP probe và WhatWeb nếu được cấp capability. |
-| `ReconService` | Chạy các action qua Gateway, tổng hợp `ToolResult`, attack surface, technology và evidence thành `ReconResult`. |
-| `PolicyService` | Từ chối mặc định task thiếu/hết hạn, IP, cổng hoặc capability ngoài scope. |
-| `ToolExecutionGateway`, `CapabilityRegistry` | Claim request nguyên tử, lưu policy decision, chọn adapter đã đăng ký và ghi tool result. |
-| HTTP, Nmap, WhatWeb adapters | Tạo thao tác cố định, bounded; HTTP dùng HEAD và không theo redirect. Nmap/WhatWeb dùng subprocess với timeout và giới hạn output. |
-| Parsers | Trích xuất attack surface và technology từ output Nmap/WhatWeb theo quy tắc xác định. |
-| `EvidenceStore`, `ReconRepository` | Lưu evidence tối đa 256 KiB với SHA-256, metadata và các bảng SQLite cho task, claim, decision, tool result, evidence, recon result. |
+| `WebEndpointEntry` | Task + method + canonical origin/path. Parameter schema and merged provenance. Query values never participate in the route ID. |
+| `EndpointObservation` | Task + method + full canonical URL. Retains query order, repeated keys and values; discovered references can exist without fetching the endpoint. Holds its own request/response/evidence when fetched. |
+| `BaselineRequest` | Route + request. Refers to the exact observation, concrete URL, complete 2xx response and evidence. |
+| Shared `AttackSurfaceEntry` | Stable product handoff in `src/contracts/attack_surface.py`, with no import from Recon. Includes origin, parameters, observations, provenance, baseline/evidence refs and readiness. |
 
-## Discovery Day 2
+`/search?q=a` and `/search?q=b` produce one GET route and two observations. Different methods, origins, case or trailing slashes remain distinct. The first selected baseline remains linked to its concrete observation when later sources merge. Historical baselines remain stored if readiness is revoked.
 
-```mermaid
-flowchart TD
-    Agent[ReconAgent] --> Sources[DiscoverySource đang chờ]
-    Sources --> Planner[ReconPlanner.fetch_plan]
-    Planner --> Service[ReconService]
-    Service --> Gateway[Gateway: claim rồi PolicyService]
-    Gateway --> Fetch[HTTP_FETCH adapter: GET hoặc HEAD]
-    Fetch --> Evidence[EvidenceStore và ToolResult]
-    Evidence --> Parse[Parser xác định và kiểm tra evidence]
-    Parse --> Inventory[WebEndpointEntry: parameters và provenance]
-    Inventory --> Baseline[BaselineRequest và lifecycle]
-    Baseline --> Coverage[ReconCoverage]
-    Coverage -->|còn nguồn và budget| Sources
-    Coverage -->|hết queue hoặc đạt giới hạn| Result[ReconResult tổng hợp]
-```
+`FUZZ_READY` requires current scope, a verified baseline, valid evidence, resolved required inputs and a testable endpoint. A parameterless `GET /profile` with a verified 2xx baseline qualifies. Downstream testing selects inputs/checkers. Forms, authenticated/manual operations, write methods and unresolved required inputs are never automatically submitted by Recon.
 
-`ReconService` lưu từng plan và tổng hợp mọi tool result của task; `recon_results` là snapshot cập nhật, không chặn plan tiếp theo. Request trùng vẫn đi qua cơ chế claim/kết quả đã lưu của Day 1. Các bảng mới gồm `recon_plans`, `web_endpoints`, `discovery_sources`, `baseline_requests` và `recon_coverage`.
+Before exporting, `build_inventory` verifies artifact hashes, response metadata, request/observation/baseline links, policy and scope. Each exported route has a trace through provenance → observation → source request → evidence. A candidate discovered in a document may have no request of its own; its provenance references the request that fetched that document. Unevidenced seeds stay internal. Invalid evidence revokes readiness at snapshot/export time.
 
-HTTP_FETCH cần path được cấp phép rõ ràng, chỉ GET/HEAD, không tự theo redirect, mặc định timeout 5 giây và body tối đa 128 KiB. Parser nhận dữ liệu từ evidence đã kiểm tra SHA-256 và không tự gọi mạng. Form, operation ghi dữ liệu và endpoint thiếu tham số bắt buộc chỉ được ghi vào inventory.
+## Durable execution and budgets
 
-Lifecycle là `DISCOVERED → OBSERVED → BASELINED → FUZZ_READY`. Baseline cần response 2xx đầy đủ và evidence hợp lệ; FUZZ_READY còn cần query input cụ thể và không có yêu cầu nhập thủ công. Coverage phân biệt queue đã hội tụ với nguồn bị chặn, lỗi hoặc hết budget. Chi tiết quy tắc và ví dụ sử dụng nằm trong [tài liệu Day 2](docs/day2-endpoint-discovery.md).
+`ToolRun` states are `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `DENIED`, `TIMED_OUT`. The request ID is also the tool-run ID. The execution owner has a token, fingerprint, attempt number and 120-second lease. A completed request replays its stored result after restart. Reusing a known request ID with different content is rejected.
 
-## Ranh giới và kiểm chứng
+Active duplicate calls return an incomplete response without dispatch. Expired QUEUED/RUNNING requests become **durable FAILED** on recovery, Gateway entry or discovery resume. An expired lease cannot prove that the original worker never reached the network, so this version never reclaims or automatically retries the same request. Late owner results cannot overwrite the failure. Attempt remains 1. Recovery uses the original stored request; migrated orphan claims also terminate as FAILED. Call `recover_expired_runs(task_id)` when resuming a task; no background sweeper is installed.
 
-Chỉ IP và cổng được ghi trong task mới được thực thi. Scheme Day 1 là HTTPS cho cổng 443, 8443, 9443 và HTTP cho các cổng còn lại. Nmap/WhatWeb không bắt buộc được cài để chạy unit test; test HTTP localhost dùng mạng thật, đi qua Agent → Gateway → Policy → adapter → Evidence → ReconResult.
+The Gateway atomically reserves request/rate budgets with the final policy decision and transition to RUNNING. Limits belong to the stored task, not to caller-supplied counters. Reservations survive crashes/restarts and are never refunded. Direct Gateway calls receive the same checks as discovery plans:
 
-Chạy `ruff check src/ tests/` và `pytest tests/ -v --tb=short`. Bộ test giữ các kiểm tra Day 1 và thêm HTTP E2E nhiều nguồn cho Day 2. CI dùng `ubuntu-latest` với giới hạn 10 phút; kết quả GitHub Actions cần được xác nhận sau khi push.
+- Total adapter attempts: default 128, hard maximum 1024.
+- Sliding one-second rate: default 100, hard maximum 1000 requests.
+- HTTP_FETCH attempts: also capped by `DiscoveryLimits.max_requests` (default 64).
+- Capability timeout and HTTP body limits must fit `ExecutionBudget`; HTTP_FETCH also has fixed maxima of 10 seconds per network operation and 128 KiB retained body.
+
+Denied calls consume no dispatch reservation. `PolicyDecision` exposes ALLOW/DENY/REQUIRE_APPROVAL, version, fingerprint, reason, risk and attempt; Recon produces only ALLOW/DENY. `budget_context` identifies the trusted task and cannot override its limits. Coverage exposes runtime attempts; durable decisions explain budget/rate denials.
+
+## Persistence and evidence
+
+`src/storage/migrations.py` is the single SQLite schema authority. Ordered migrations run under `BEGIN IMMEDIATE`, record versions in `schema_migrations`, and roll back on failure. Unknown future schemas are rejected.
+
+Stop existing Recon workers before upgrading the database; running old and new worker versions against the same database during this schema transition is unsupported.
+
+1. Adopt existing Day-1/Day-2 tables, including unversioned databases.
+2. Split concrete observations from routes, merge old query variants, migrate baseline refs.
+3. Add ToolRun, policy audit, durable budget reservations and evidence manifest fields.
+
+Task, plan, source, result, policy and evidence history is preserved. Only derived Recon snapshots/coverage are invalidated during the route migration. Old readiness is reverified from original evidence on the next snapshot. Evidence bytes and their SHA-256 values are unchanged.
+
+The shared `EvidenceManifest` records run/task/request/tool-run, kind, hash, byte size, content type, capture time, redaction status and metadata. `EvidenceArtifact` adds the local relative path. New captures are `UNREVIEWED`; this is a classification, not a claim that redaction was performed. HTTP evidence is an envelope with URL/method, response metadata and bounded body; both artifact and body digests are checked.
+
+## Discovery, coverage and integration
+
+HTML, robots, sitemap/index, OpenAPI/Swagger and simple JavaScript parsers feed deterministic discovery rounds through the same boundary. Coverage reports route, observation, source, verified baseline and FUZZ_READY counts separately, plus source statuses, rounds and runtime attempts. Convergence describes the supported discovery queue; it does not prove exhaustive application coverage.
+
+Product API/Supervisor integration is a later step. Its input is a trusted stored `ReconTask`; execution is `ReconAgent.run(task_id)`; handoff is `ReconResult.attack_surface_inventory` serialized as shared **AttackSurfaceInventory v1.0**. Consumers import `src.contracts`, not Recon internals. [Contract and integration guide](docs/day2-endpoint-discovery.md) defines refs and versioning; [schema fixture](tests/fixtures/attack-surface-v1.schema.json) guards the freeze.
+
+**Hostname/VHost integration gate:** the implemented lab uses literal IPs, including localhost E2E. `authority` and `resolved_ip` are separate output fields, but hostname dispatch is not implemented. Before a hostname-based staging lab, trusted target configuration must pin authority, resolved IP and port, and preserve Host/TLS SNI with certificate verification. Agents must never supply arbitrary Host values. This is a P1 follow-up for the current IP lab and a P0 integration blocker if the product lab requires domains.
+
+Browser/CDP, CVE/RAG, fuzzing, validation, payload selection, findings, HITL UI and reports are outside this freeze. Future observation sources must retain the same Policy/Gateway boundary.
+
+## Verification
+
+Run `python -B -m ruff check --no-cache src tests` and `python -B -m pytest -p no:cacheprovider tests -q`. Tests include all Day-1 behaviors, a real localhost multi-source fixture, route/observation merge, evidence revocation, shared schema, legacy migration, restart/lease recovery, concurrent budget reservation and registry availability. GitHub Actions uses Python 3.11 on Ubuntu; remote CI status requires a pushed run.
+
+Local freeze verification: **88 tests passed; Ruff passed**.

@@ -1,38 +1,43 @@
-# Architecture Diagram
+# Implemented Recon architecture — Day 2 freeze
 
-## System Overview
-
-```mermaid
-graph TB
-    User([User]) --> UI[Frontend<br/>React/Next.js]
-    UI -->|REST API| API[FastAPI Backend]
-    API --> Agent[LangGraph Agent]
-    Agent --> LLM[LLM Service<br/>GPT-4o / Gemini]
-    Agent --> Tools[Agent Tools]
-    Tools --> DB[(Database)]
-    Agent --> VS[Vector Store<br/>ChromaDB]
-```
-
-## Agent Flow
+Python 3.11. See [architecture decisions](../ARCHITECTURE.md) and the [shared handoff contract](day2-endpoint-discovery.md).
 
 ```mermaid
-graph LR
-    START((Start)) --> Input[Parse Input]
-    Input --> Analyze[Analyze Query]
-    Analyze --> Decide{Need Tool?}
-    Decide -->|Yes| CallTool[Call Tool]
-    CallTool --> Analyze
-    Decide -->|No| Generate[Generate Response]
-    Generate --> END((End))
+flowchart TD
+    Task[Trusted ReconTask] --> Agent[ReconAgent]
+    Agent --> Planner[Deterministic ReconPlanner]
+    Planner --> Plan[ReconPlan]
+    Plan --> Service[ReconService]
+    Service --> Gateway[ToolExecutionGateway]
+    Gateway --> Claim[ToolRun claim / lease / replay]
+    Claim --> Policy[PolicyService]
+    Policy --> Audit[Persist decision + reserve budget atomically]
+    Audit --> Registry[CapabilityRegistry]
+    Registry --> Adapter[Bounded adapter]
+    Adapter --> Network[Tool or GET/HEAD HTTP]
+    Network --> Evidence[EvidenceStore + shared manifest]
+    Evidence --> Repo[(ReconRepository)]
+    Repo --> Parse[Deterministic parsers]
+    Parse --> Route[Routes + concrete observations]
+    Route --> Baseline[Verified baseline / readiness]
+    Baseline --> Coverage[Coverage and convergence]
+    Coverage -->|pending sources within limits| Planner
+    Coverage -->|snapshot| Result[ReconResult]
+    Result --> DTO[Shared AttackSurfaceInventory v1.0]
+    DTO -.-> Consumer[Future Supervisor / Fuzz consumer]
 ```
 
-## Component Details
+```mermaid
+stateDiagram-v2
+    [*] --> QUEUED: atomic claim
+    QUEUED --> RUNNING: policy ALLOW + budget reserved
+    QUEUED --> DENIED: policy or availability denied
+    QUEUED --> FAILED: expired lease
+    RUNNING --> SUCCEEDED: durable result
+    RUNNING --> FAILED: error or expired lease
+    RUNNING --> TIMED_OUT: adapter timeout
+```
 
-| Component | Technology | Purpose |
-|-----------|-----------|---------|
-| Frontend | React/Next.js | User interface |
-| Backend | FastAPI | API server |
-| Agent | LangGraph | AI agent orchestration |
-| LLM | OpenAI/Gemini | Language model |
-| Database | PostgreSQL/SQLite | Data persistence |
-| Vector Store | ChromaDB | RAG / embeddings |
+Terminal results replay without adapter execution. Lease expiry produces a durable failure; it does not authorize another network call. Readiness and coverage are derived from verified evidence, and can be revoked when evidence or required-input information changes.
+
+The product FastAPI/Supervisor handoff is not wired yet. Hostname dispatch needs trusted authority/IP/SNI configuration before a domain-based lab. No LLM, LangGraph or vector store participates in the current Recon execution path.

@@ -1,0 +1,358 @@
+{
+  "$defs": {
+    "AttackSurfaceEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "run_id": {
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "target_id": {
+          "minLength": 1,
+          "title": "Target Id",
+          "type": "string"
+        },
+        "scheme": {
+          "enum": [
+            "http",
+            "https"
+          ],
+          "title": "Scheme",
+          "type": "string"
+        },
+        "authority": {
+          "title": "Authority",
+          "type": "string"
+        },
+        "resolved_ip": {
+          "title": "Resolved Ip",
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "GET",
+            "HEAD",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+            "OPTIONS",
+            "TRACE"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "canonical_path": {
+          "title": "Canonical Path",
+          "type": "string"
+        },
+        "parameters": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Parameter"
+          },
+          "title": "Parameters",
+          "type": "array"
+        },
+        "observations": {
+          "items": {
+            "$ref": "#/$defs/Observation"
+          },
+          "title": "Observations",
+          "type": "array"
+        },
+        "baseline_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Ref"
+        },
+        "baseline_observation_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Observation Ref"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "title": "Provenance",
+          "type": "array"
+        },
+        "auth_context_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auth Context Ref"
+        },
+        "status": {
+          "$ref": "#/$defs/EndpointStatus"
+        },
+        "in_scope": {
+          "title": "In Scope",
+          "type": "boolean"
+        },
+        "has_verified_baseline": {
+          "title": "Has Verified Baseline",
+          "type": "boolean"
+        },
+        "has_valid_evidence": {
+          "title": "Has Valid Evidence",
+          "type": "boolean"
+        },
+        "has_unresolved_required_input": {
+          "title": "Has Unresolved Required Input",
+          "type": "boolean"
+        },
+        "is_testable": {
+          "title": "Is Testable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "run_id",
+        "target_id",
+        "scheme",
+        "authority",
+        "resolved_ip",
+        "method",
+        "canonical_path",
+        "observations",
+        "evidence_refs",
+        "provenance",
+        "status",
+        "in_scope",
+        "has_verified_baseline",
+        "has_valid_evidence",
+        "has_unresolved_required_input",
+        "is_testable"
+      ],
+      "title": "AttackSurfaceEntry",
+      "type": "object"
+    },
+    "EndpointStatus": {
+      "enum": [
+        "DISCOVERED",
+        "OBSERVED",
+        "BASELINED",
+        "FUZZ_READY"
+      ],
+      "title": "EndpointStatus",
+      "type": "string"
+    },
+    "Observation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "concrete_url": {
+          "minLength": 1,
+          "title": "Concrete Url",
+          "type": "string"
+        },
+        "request_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Ref"
+        },
+        "response_status": {
+          "anyOf": [
+            {
+              "maximum": 599,
+              "minimum": 100,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Response Status"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "concrete_url",
+        "evidence_refs",
+        "provenance"
+      ],
+      "title": "Observation",
+      "type": "object"
+    },
+    "Parameter": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "location": {
+          "enum": [
+            "query",
+            "path",
+            "header",
+            "cookie",
+            "body",
+            "formData"
+          ],
+          "title": "Location",
+          "type": "string"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "data_type": {
+          "default": "unknown",
+          "maxLength": 64,
+          "title": "Data Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "location"
+      ],
+      "title": "Parameter",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "source_ref": {
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "observation_ref": {
+          "minLength": 1,
+          "title": "Observation Ref",
+          "type": "string"
+        },
+        "request_ref": {
+          "minLength": 1,
+          "title": "Request Ref",
+          "type": "string"
+        },
+        "evidence_ref": {
+          "minLength": 1,
+          "title": "Evidence Ref",
+          "type": "string"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "relation": {
+          "minLength": 1,
+          "title": "Relation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_ref",
+        "observation_ref",
+        "request_ref",
+        "evidence_ref",
+        "kind",
+        "relation"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "task_id": {
+      "title": "Task Id",
+      "type": "string"
+    },
+    "entries": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/AttackSurfaceEntry"
+      },
+      "title": "Entries",
+      "type": "array"
+    }
+  },
+  "required": [
+    "run_id",
+    "task_id"
+  ],
+  "title": "AttackSurfaceInventory",
+  "type": "object"
+}

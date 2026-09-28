@@ -1,6 +1,6 @@
 # Recon Day 2: endpoint-discovery foundation
 
-Day 2 adds deterministic discovery rounds to the Day 1 execution boundary. Parsers only produce endpoint candidates. Every network request remains a typed `CapabilityRequest`, claimed and checked by `PolicyService` inside `ToolExecutionGateway` before an adapter executes it. `ReconAgent.run(task_id)` enables discovery when the stored task allows `HTTP_FETCH`.
+**Architecture frozen; shared Attack Surface contract v1.0. Runtime: Python 3.11.** Day 2 adds deterministic discovery rounds to the Day 1 execution boundary. Parsers only produce endpoint candidates. Every network request remains a typed `CapabilityRequest`, claimed and checked by `PolicyService` inside `ToolExecutionGateway` before an adapter executes it. `ReconAgent.run(task_id)` enables discovery when the stored task allows `HTTP_FETCH`.
 
 ## Run a scoped discovery task
 
@@ -36,7 +36,7 @@ The example requires an authorized HTTP server on that port. Default seeds are `
 
 `recon_plans` stores each deterministic plan by its content hash. `ReconService.run(plan)` executes that plan through the gateway and rebuilds the task's aggregate result from persisted tool results. `recon_results` is now the latest task snapshot, rather than a cache that prevents later plans from executing.
 
-Request IDs remain deterministic across rounds and restarts. An existing `ToolResult` is reused; a claimed request without a result is never redispatched under a fresh ID. Discovery can finish parsing a persisted response after interruption without consuming another network request. Discovery rounds are sequential; the existing SQLite claim protects concurrent duplicate gateway calls.
+Request IDs remain deterministic across rounds and restarts. An existing `ToolResult` is reused. An active claim remains pending; after its 120-second lease expires, recovery records a durable FAILED result without dispatching again. This avoids both indefinite orphan claims and duplicate execution when a crash might have happened after network dispatch. Discovery can finish parsing a persisted response after interruption without consuming another network request. Discovery rounds are sequential; atomic SQLite claims protect concurrent duplicate gateway calls.
 
 ## Bounded HTTP_FETCH
 
@@ -58,7 +58,7 @@ Request IDs remain deterministic across rounds and restarts. An existing `ToolRe
 
 The API parser follows the parameter and server structures in the [OpenAPI 3 specification](https://spec.openapis.org/oas/v3.0.3.html) and [Swagger 2 specification](https://spec.openapis.org/oas/v2.0.html). It intentionally handles a bounded subset, including no browser execution or remote reference resolution.
 
-Identity is `(task_id, method, canonical URL)`. Normalization canonicalizes literal IPs/default ports, removes fragments and normalizes unreserved escapes. It preserves path case, trailing slashes, query values, order and repeated query keys. Different methods or concrete query strings remain separate endpoints. Off-origin URLs, credentials, traversal, ambiguous separators and control characters are rejected. The same endpoint merges provenance and parameters by `(location, name)`; a required parameter stays required when sources disagree.
+Route identity is `(task_id, method, canonical origin/path)`, excluding query and fragment. `/search?q=a` and `/search?q=b` create one route and two `EndpointObservation` records. Observations retain full concrete URLs, including query values, order and repeated keys. A repeated identical URL merges provenance into the same observation. Different methods/origins, path case and trailing slashes remain distinct. Normalization canonicalizes literal IPs/default ports and unreserved escapes. Off-origin URLs, credentials, traversal, ambiguous separators and control characters are rejected. Parameters merge by `(location, name)`; required stays required when sources disagree.
 
 ## Lifecycle and baselines
 
@@ -67,23 +67,60 @@ Identity is `(task_id, method, canonical URL)`. Normalization canonicalizes lite
 | `DISCOVERED` | A seed or parser candidate exists. Source evidence and provenance do not by themselves prove the endpoint responded. |
 | `OBSERVED` | Its own scoped fetch produced response metadata and verified evidence. Redirects, 4xx/5xx and truncated responses remain at this state. |
 | `BASELINED` | An eligible GET/HEAD returned a complete 2xx response with verified evidence; a `BaselineRequest` records its exact URL/method, request ID, timestamp, status, content type, size and body hash. |
-| `FUZZ_READY` | A baseline exists, all inventoried parameters are concrete query inputs in that URL, required values are present, and there is no unresolved template or manual-input requirement. This state performs no fuzzing. |
+| `FUZZ_READY` | The route is in scope, has a verified baseline and valid evidence, has no unresolved required input, and is testable. Query parameters are optional. This state performs no fuzzing. |
 
-POST/PUT/PATCH/DELETE and all forms are inventory only. Required header/cookie/body inputs, unresolved path templates and missing required query values are never invented. A parameterless successful endpoint is BASELINED. Newly merged restrictions can revoke FUZZ_READY while preserving the historical baseline.
+POST/PUT/PATCH/DELETE and all forms are inventory only. Required header/cookie/body inputs, unresolved path templates and missing required query values are never invented. A parameterless `GET /profile` with a verified complete 2xx baseline can become FUZZ_READY. Optional absent query/header parameters do not block readiness. Newly merged restrictions or invalid evidence can revoke readiness while preserving the historical baseline. Baselines refer to a specific observation and exact request URL; query variants cannot silently change that reference.
 
-SQLite stores `web_endpoints` (including parameters and merged provenance), `discovery_sources`, `baseline_requests`, and `recon_coverage`, alongside the Day 1 tables. `ReconResult.endpoints` and `.coverage` expose the current inventory and progress.
+SQLite stores routes, `endpoint_observations`, sources, baselines, coverage, ToolRun, execution reservations, policy audit and evidence manifests. `src/storage/migrations.py` owns versioned transactional migrations, including upgrades from unversioned databases. Original results, plans, evidence bytes and provenance are retained; derived snapshots are rebuilt and readiness reverified.
 
 ## Coverage and stopping
 
 Default limits are 8 rounds, 64 request attempts, 128 sources, 256 endpoint identities and depth 3. The planner schedules at most 16 pending sources per round. Each parser emits at most 256 candidates per document. Limits are stored on the task and have hard model maxima.
 
+`ReconTask.execution_budget` independently caps all adapter attempts (default 128), rate (default 100 requests per second), timeout and HTTP body size. The Gateway checks these and the HTTP_FETCH request quota even when a caller bypasses the discovery planner. Reservation and final policy persistence are atomic before adapter dispatch; reservations survive restart. Rate denial is durable for that request ID, without automatic retry. The fetch planner reduces its requested timeout/body limits to fit the trusted task. Source/route/depth/round limits remain discovery orchestration bounds; direct Gateway calls do not parse or add routes/sources.
+
 Source status is `PENDING`, `PARSED`, `UNAVAILABLE`, `BLOCKED`, `ERROR`, or `LIMITED`. Missing resources and redirects are recorded as UNAVAILABLE; denied calls are BLOCKED; malformed documents or invalid evidence are ERROR. Resource limits record LIMITED or a coverage stop reason and never claim convergence.
 
-`ReconCoverage` counts requests, rounds, sources by status, and endpoints by lifecycle. `converged` means the supported discovery queue is exhausted without a resource-limit stop. `complete` also requires no blocked, failed or limited sources. These fields describe the attempted source set, not exhaustive application coverage or proof that an application is secure.
+`ReconCoverage` distinguishes `route_count`, `observation_count`, `source_count`, verified `baseline_count`, `fuzz_ready_count`, `runtime_attempts`, requests, rounds, source statuses and lifecycle counts. `converged` means the supported discovery queue is exhausted without a resource-limit stop. `complete` also requires no blocked, failed or limited sources. These fields describe the attempted source set, not exhaustive application coverage or proof that an application is secure.
+
+## Shared product handoff v1.0
+
+```python
+# Recon producer
+inventory_json = result.attack_surface_inventory.model_dump_json()
+
+# Supervisor/Fuzz consumer: imports only shared contracts
+from src.contracts.attack_surface import AttackSurfaceInventory, EndpointStatus
+
+inventory = AttackSurfaceInventory.model_validate_json(inventory_json)
+ready_routes = [entry for entry in inventory.entries if entry.status == EndpointStatus.FUZZ_READY]
+```
+
+The schema is frozen in [attack-surface-v1.schema.json](../tests/fixtures/attack-surface-v1.schema.json). A compatibility test detects shape changes. Changes to field semantics require an explicit contract version and a reviewed migration. Internal Recon records can evolve without a downstream import from `src.recon`.
+
+| Field | Meaning |
+|---|---|
+| `id`, `run_id`, `target_id` | Stable route ID within a task; run reference; deterministic target reference from run + origin. Product target-ID mapping is an integration responsibility. |
+| `scheme`, `authority`, `resolved_ip`, `method`, `canonical_path` | Origin/route identity; concrete query stays on observations. Current execution targets are literal IPs. |
+| `parameters`, `observations` | Merged input schema and distinct concrete URLs with response/provenance refs. |
+| `baseline_ref`, `baseline_observation_ref` | Selected durable baseline and the exact verified observation it used. |
+| `evidence_refs`, `provenance` | Every exported route traces to an observation, source request and verified evidence. An unexecuted candidate uses its source document's request/evidence; `Observation.request_ref` describes its own verified fetch, if any. |
+| `auth_context_ref` | Reserved; currently null because authenticated/manual operations are not submitted. |
+| `status`, readiness flags | Current scope, verified baseline/evidence, required-input completeness and testability. |
+
+`EvidenceManifest` is also shared, with run/task/request/tool-run correlation, kind, SHA-256, byte size, content type, capture time, metadata and redaction classification. Current captures are `UNREVIEWED`. Product integration must provide resolvers for baseline/evidence references and recheck authorization at its own execution boundary. A serialized inventory is an observation snapshot, not permission to execute.
+
+The current engine has no Product API/Supervisor wiring. The trusted operator layer stores a task, invokes `ReconAgent.run(task_id)`, then delivers this DTO. Nmap/WhatWeb are usable only when their binaries are detected; `available_capabilities()` reports the actual registry.
+
+## Integration gates and deferred scope
+
+The real fixture uses `127.0.0.1:port`. Hostname/VHost dispatch remains a P1 follow-up for that lab and a P0 integration gate for any domain-based lab: trusted authority, pinned resolved IP/port, Host/TLS SNI and certificate verification must be designed together. Arbitrary agent-supplied Host values remain forbidden. Output DTOs already separate authority from resolved IP; this does not imply hostname transport support.
+
+Python stays **3.11** across this implementation, CI and Docker. Browser/CDP, LLM planning, CVE/RAG, fuzzing/validation, payload/checker selection, findings, HITL UI and reports are outside Day 2. The next integration is the Recon → Fuzz vertical slice using the frozen DTO; a future browser adds observations through the same execution boundary.
 
 ## Verification
 
-`tests/integration/test_recon_discovery_e2e.py` starts a real HTTP server on `127.0.0.1` with HTML, robots, a sitemap index, OpenAPI and JavaScript. It checks multi-round discovery, merged provenance, all four lifecycle states, evidence correlation, no form/write-method submissions, no redirect following, replay without extra HTTP, and bounded termination. Day 1 tests continue to run in the same suite.
+`tests/integration/test_recon_discovery_e2e.py` starts a real HTTP server on `127.0.0.1` with HTML, robots, a sitemap index, OpenAPI and JavaScript. It checks multi-round discovery, merged provenance, query observation deduplication, parameterless readiness, evidence correlation, no form/write-method submissions, no redirect following, restart replay without extra HTTP, and bounded termination. Unit tests cover BASELINED routes with unresolved required input, evidence revocation, shared-contract isolation/schema, legacy migration, ToolRun recovery, policy persistence, concurrent budget reservation, rate limits and capability availability. Day 1 tests continue in the same suite.
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m ruff check --no-cache src tests

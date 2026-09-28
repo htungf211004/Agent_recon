@@ -3,32 +3,11 @@ from datetime import UTC, datetime, timedelta
 from src.recon.gateway import AdapterOutput, CapabilityRegistry, ToolExecutionGateway
 from src.recon.models import Capability, CapabilityRequest, HttpProbeParams, ReconTask, Scope
 from src.recon.policy import PolicyService
+from src.recon.storage import ReconRepository
 
 
-class MemoryStore:
-    def __init__(self, task):
-        self.task = task
-        self.results = []
-        self.claims = set()
-        self.decisions = {}
-
-    def get_task(self, task_id):
-        return self.task if self.task and self.task.id == task_id else None
-
-    def save_tool_result(self, result):
-        self.results.append(result)
-
-    def get_tool_result(self, request_id):
-        return next((result for result in self.results if result.request_id == request_id), None)
-
-    def claim_request(self, request):
-        if request.id in self.claims:
-            return False
-        self.claims.add(request.id)
-        return True
-
-    def save_policy_decision(self, decision):
-        self.decisions[decision.request_id] = decision
+class TestStore(ReconRepository):
+    __test__ = False
 
     def save(self, request, content):
         raise AssertionError("no evidence expected")
@@ -50,13 +29,14 @@ def request(target="127.0.0.1", port=80, task_id="task-1", request_id="req-1"):
     )
 
 
-def test_gateway_denies_unknown_task_target_port_and_unregistered_capability():
+def test_gateway_denies_unknown_task_target_port_and_unregistered_capability(tmp_path):
     task = ReconTask(
         id="task-1", run_id="run-1",
         scope=Scope(allowed_ips=("127.0.0.1",), allowed_ports=(80,), capabilities=(Capability.HTTP_PROBE,)),
         expires_at=datetime.now(UTC) + timedelta(minutes=5),
     )
-    store = MemoryStore(task)
+    store = TestStore(tmp_path / "recon.db")
+    store.save_task(task)
     adapter = SpyAdapter()
     registry = CapabilityRegistry()
     registry.register(Capability.HTTP_PROBE, adapter)
@@ -68,18 +48,19 @@ def test_gateway_denies_unknown_task_target_port_and_unregistered_capability():
     ):
         assert gateway.execute(denied).status == "denied"
     assert adapter.calls == 0
-    assert len(store.results) == 3
+    assert len(store.list_tool_results(task.id)) + len(store.list_tool_results("unknown")) == 3
     assert gateway.execute(request()).status == "success"
     assert adapter.calls == 1
 
 
-def test_expired_task_denied_before_dispatch():
+def test_expired_task_denied_before_dispatch(tmp_path):
     task = ReconTask(
         id="task-1", run_id="run-1",
         scope=Scope(allowed_ips=("127.0.0.1",), allowed_ports=(80,), capabilities=(Capability.HTTP_PROBE,)),
         expires_at=datetime.now(UTC) - timedelta(seconds=1),
     )
-    store = MemoryStore(task)
+    store = TestStore(tmp_path / "recon.db")
+    store.save_task(task)
     adapter = SpyAdapter()
     registry = CapabilityRegistry()
     registry.register(Capability.HTTP_PROBE, adapter)

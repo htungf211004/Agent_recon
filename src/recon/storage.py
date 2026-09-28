@@ -5,70 +5,36 @@ from __future__ import annotations
 import hashlib
 import os
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
 from src.recon.endpoints import merge_endpoints
+from src.recon.execution import ToolRun, ToolRunState
 from src.recon.models import (
+    Capability,
     CapabilityRequest,
     EvidenceArtifact,
     PolicyDecision,
+    PolicyOutcome,
     ReconPlan,
     ReconResult,
     ReconTask,
     ToolResult,
 )
-from src.recon.web_models import BaselineRequest, DiscoverySource, ReconCoverage, WebEndpointEntry
+from src.recon.web_models import BaselineRequest, DiscoverySource, EndpointObservation, ReconCoverage, WebEndpointEntry
+from src.storage.migrations import migrate
 
 MAX_EVIDENCE_BYTES = 262_144
 
 
 class ReconRepository:
-    def __init__(self, database_path: Path | str) -> None:
+    def __init__(self, database_path: Path | str, *, clock=None) -> None:
+        self.clock = clock or (lambda: datetime.now(UTC))
         self.database_path = Path(database_path)
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
-            connection.executescript("""
-                CREATE TABLE IF NOT EXISTS recon_tasks (
-                    id TEXT PRIMARY KEY, payload TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS tool_results (
-                    request_id TEXT PRIMARY KEY, task_id TEXT NOT NULL,
-                    status TEXT NOT NULL, payload TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS execution_claims (
-                    request_id TEXT PRIMARY KEY,
-                    task_id TEXT NOT NULL,
-                    claimed_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS policy_decisions (
-                    request_id TEXT PRIMARY KEY,
-                    payload TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS evidence_artifacts (
-                    id TEXT PRIMARY KEY, task_id TEXT NOT NULL,
-                    request_id TEXT NOT NULL, payload TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS recon_results (
-                    task_id TEXT PRIMARY KEY, payload TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS recon_plans (
-                    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, payload TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS web_endpoints (
-                    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, payload TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS discovery_sources (
-                    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, payload TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS baseline_requests (
-                    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, payload TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS recon_coverage (
-                    task_id TEXT PRIMARY KEY, payload TEXT NOT NULL
-                );
-            """)
+            migrate(connection)
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.database_path)
@@ -83,19 +49,134 @@ class ReconRepository:
         return ReconTask.model_validate_json(row[0]) if row else None
 
     def claim_request(self, request: CapabilityRequest) -> bool:
+        return self.acquire_tool_run(request) is not None
+
+    def acquire_tool_run(self, request: CapabilityRequest) -> ToolRun | None:
+        now = self.clock()
+        run = ToolRun(request_id=request.id, task_id=request.task_id, state=ToolRunState.QUEUED,
+                      owner_token=str(uuid4()), request_fingerprint=hashlib.sha256(request.model_dump_json().encode()).hexdigest(),
+                      request_payload=request.model_dump_json(), queued_at=now, lease_expires_at=now + timedelta(seconds=120))
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
-                "INSERT OR IGNORE INTO execution_claims (request_id, task_id, claimed_at) VALUES (?, ?, ?)",
-                (request.id, request.task_id, datetime.now(UTC).isoformat()),
+                "INSERT OR IGNORE INTO tool_runs VALUES (?, ?, ?)", (request.id, request.task_id, run.model_dump_json()),
             )
-        return cursor.rowcount == 1
+            connection.execute("INSERT OR IGNORE INTO execution_claims VALUES (?, ?, ?)", (request.id, request.task_id, now.isoformat()))
+        return run if cursor.rowcount == 1 else None
+
+    def get_tool_run(self, request_id: str) -> ToolRun | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM tool_runs WHERE request_id = ?", (request_id,)).fetchone()
+        return ToolRun.model_validate_json(row[0]) if row else None
+
+    def list_tool_runs(self, task_id: str) -> tuple[ToolRun, ...]:
+        with self._connect() as connection:
+            return tuple(ToolRun.model_validate_json(row[0]) for row in connection.execute(
+                "SELECT payload FROM tool_runs WHERE task_id = ? ORDER BY rowid", (task_id,)))
+
+    @staticmethod
+    def _failed_result(request: CapabilityRequest, run: ToolRun) -> ToolResult:
+        return ToolResult(request_id=request.id, task_id=request.task_id, capability=request.capability,
+                          target_ip=request.target_ip, status="error", message=run.message,
+                          started_at=run.started_at or run.queued_at, finished_at=run.finished_at)
+
+    def recover_expired_runs(self, task_id: str, request: CapabilityRequest | None = None) -> None:
+        now = self.clock()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = list(connection.execute("SELECT payload FROM tool_runs WHERE task_id = ?", (task_id,)))
+            for row in rows:
+                run = ToolRun.model_validate_json(row[0])
+                if run.state in (ToolRunState.QUEUED, ToolRunState.RUNNING) and run.lease_expires_at <= now:
+                    run = run.model_copy(update={"state": ToolRunState.FAILED, "finished_at": now,
+                                                 "message": "execution lease expired; outcome unknown; automatic replay prohibited"})
+                    connection.execute("UPDATE tool_runs SET payload = ? WHERE request_id = ?", (run.model_dump_json(), run.request_id))
+                if run.state == ToolRunState.FAILED:
+                    saved_request = CapabilityRequest.model_validate_json(run.request_payload) if run.request_payload else None
+                    if saved_request is None and request and request.id == run.request_id:
+                        saved_request = request
+                    if saved_request:
+                        result = self._failed_result(saved_request, run)
+                        connection.execute("INSERT OR IGNORE INTO tool_results VALUES (?, ?, ?, ?)",
+                                           (result.request_id, result.task_id, result.status, result.model_dump_json()))
+
+    def _budget_denial(self, connection, request: CapabilityRequest) -> str | None:
+        row = connection.execute("SELECT payload FROM recon_tasks WHERE id = ?", (request.task_id,)).fetchone()
+        if row is None:
+            return "unknown task"
+        task = ReconTask.model_validate_json(row[0])
+        if task.expires_at <= self.clock():
+            return "task expired"
+        budget = task.execution_budget
+        total, fetches, recent = connection.execute(
+            "SELECT COUNT(*), COALESCE(SUM(capability = ?), 0), COALESCE(SUM(started_at > ?), 0) "
+            "FROM execution_reservations WHERE task_id = ?",
+            (Capability.HTTP_FETCH.value, (self.clock() - timedelta(seconds=1)).isoformat(), task.id),
+        ).fetchone()
+        if total >= budget.max_requests:
+            return "task request budget exhausted"
+        if request.capability == Capability.HTTP_FETCH and fetches >= task.discovery_limits.max_requests:
+            return "HTTP_FETCH discovery request budget exhausted"
+        if recent >= budget.max_requests_per_second:
+            return "task request rate exceeded"
+        return None
+
+    def budget_denial(self, request: CapabilityRequest) -> str | None:
+        with self._connect() as connection:
+            return self._budget_denial(connection, request)
+
+    def budget_usage(self, task_id: str) -> int:
+        with self._connect() as connection:
+            return connection.execute("SELECT COUNT(*) FROM execution_reservations WHERE task_id = ?", (task_id,)).fetchone()[0]
+
+    @staticmethod
+    def _save_decision(connection, decision):
+        connection.execute("INSERT INTO policy_decisions VALUES (?, ?) ON CONFLICT(request_id) DO UPDATE SET payload=excluded.payload",
+                           (decision.request_id, decision.model_dump_json()))
+        connection.execute("INSERT INTO policy_audit VALUES (?, ?, ?) ON CONFLICT(request_id, attempt) DO UPDATE SET payload=excluded.payload",
+                           (decision.request_id, decision.attempt, decision.model_dump_json()))
+
+    def start_tool_run(self, run: ToolRun, request: CapabilityRequest, decision: PolicyDecision) -> PolicyDecision:
+        """Reserve budget, persist policy, and fence dispatch in a single transaction."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = ToolRun.model_validate_json(connection.execute("SELECT payload FROM tool_runs WHERE request_id = ?", (run.request_id,)).fetchone()[0])
+            if current.owner_token != run.owner_token or current.state != ToolRunState.QUEUED or current.lease_expires_at <= self.clock():
+                raise RuntimeError("execution lease lost before dispatch")
+            reason = self._budget_denial(connection, request) if decision.allowed else None
+            if reason:
+                decision = decision.model_copy(update={"allowed": False, "outcome": PolicyOutcome.DENY, "reason": reason})
+            self._save_decision(connection, decision)
+            if decision.allowed:
+                connection.execute("INSERT INTO execution_reservations VALUES (?, ?, ?, ?)",
+                                   (request.id, request.task_id, request.capability.value, self.clock().isoformat()))
+                current = current.model_copy(update={"state": ToolRunState.RUNNING, "started_at": self.clock()})
+                connection.execute("UPDATE tool_runs SET payload = ? WHERE request_id = ?", (current.model_dump_json(), current.request_id))
+        return decision
+
+    def finish_tool_run(self, run: ToolRun, result: ToolResult, *, timed_out: bool = False) -> ToolResult:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = ToolRun.model_validate_json(connection.execute("SELECT payload FROM tool_runs WHERE request_id = ?", (run.request_id,)).fetchone()[0])
+            existing = connection.execute("SELECT payload FROM tool_results WHERE request_id = ?", (run.request_id,)).fetchone()
+            if existing:
+                return ToolResult.model_validate_json(existing[0])
+            if current.owner_token != run.owner_token or current.state not in (ToolRunState.QUEUED, ToolRunState.RUNNING):
+                raise RuntimeError("execution owner lost")
+            if current.lease_expires_at <= self.clock():
+                current = current.model_copy(update={"message": "execution lease expired; late result rejected", "finished_at": self.clock()})
+                result = self._failed_result(CapabilityRequest.model_validate_json(current.request_payload), current)
+                timed_out = False
+            state = {"success": ToolRunState.SUCCEEDED, "denied": ToolRunState.DENIED}.get(result.status, ToolRunState.FAILED)
+            current = current.model_copy(update={"state": ToolRunState.TIMED_OUT if timed_out else state,
+                                                 "finished_at": self.clock(), "message": result.message})
+            connection.execute("UPDATE tool_runs SET payload = ? WHERE request_id = ?", (current.model_dump_json(), run.request_id))
+            connection.execute("INSERT INTO tool_results VALUES (?, ?, ?, ?)", (result.request_id, result.task_id, result.status, result.model_dump_json()))
+        return result
 
     def save_policy_decision(self, decision: PolicyDecision) -> None:
         with self._connect() as connection:
-            connection.execute(
-                "INSERT INTO policy_decisions (request_id, payload) VALUES (?, ?)",
-                (decision.request_id, decision.model_dump_json()),
-            )
+            self._save_decision(connection, decision)
 
     def get_policy_decision(self, request_id: str) -> PolicyDecision | None:
         with self._connect() as connection:
@@ -175,6 +256,32 @@ class ReconRepository:
             rows = connection.execute("SELECT payload FROM web_endpoints WHERE task_id = ? ORDER BY id", (task_id,))
             return tuple(WebEndpointEntry.model_validate_json(row[0]) for row in rows)
 
+    def replace_endpoint(self, endpoint: WebEndpointEntry) -> None:
+        """Refresh derived readiness after verifying scope/evidence, including revocation."""
+        endpoint = WebEndpointEntry.model_validate_json(endpoint.model_dump_json())
+        with self._connect() as connection:
+            connection.execute("UPDATE web_endpoints SET payload = ? WHERE id = ?", (endpoint.model_dump_json(), endpoint.id))
+
+    def save_observation(self, observation: EndpointObservation) -> EndpointObservation:
+        observation = EndpointObservation.model_validate_json(observation.model_dump_json())
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload FROM endpoint_observations WHERE id = ?", (observation.id,)).fetchone()
+            if row:
+                old = EndpointObservation.model_validate_json(row[0])
+                provenance = {p.model_dump_json(): p for p in (*old.provenance, *observation.provenance)}
+                observation = (observation if observation.request_id else old).model_copy(update={
+                    "provenance": tuple(provenance[key] for key in sorted(provenance)),
+                })
+            connection.execute("INSERT INTO endpoint_observations VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
+                               (observation.id, observation.task_id, observation.endpoint_id, observation.model_dump_json()))
+        return observation
+
+    def list_observations(self, task_id: str) -> tuple[EndpointObservation, ...]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT payload FROM endpoint_observations WHERE task_id = ? ORDER BY id", (task_id,))
+            return tuple(EndpointObservation.model_validate_json(row[0]) for row in rows)
+
     def save_source(self, source: DiscoverySource) -> None:
         source = DiscoverySource.model_validate_json(source.model_dump_json())
         with self._connect() as connection:
@@ -225,8 +332,13 @@ class EvidenceStore:
                 handle.write(content)
             artifact = EvidenceArtifact(
                 id=artifact_id,
+                run_id=self.repository.get_task(request.task_id).run_id,
                 task_id=request.task_id,
                 request_id=request.id,
+                tool_run_id=request.id,
+                kind="http_exchange" if request.capability == Capability.HTTP_FETCH else "tool_output",
+                content_type="application/json" if request.capability == Capability.HTTP_FETCH else "application/octet-stream",
+                metadata={"capability": request.capability.value},
                 sha256=hashlib.sha256(content).hexdigest(),
                 size_bytes=len(content),
                 relative_path=relative_path,

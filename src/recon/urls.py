@@ -57,6 +57,11 @@ def canonical_url(url: str) -> str:
     return urlunsplit((parts.scheme, f"{host}:{port}", path, query, ""))
 
 
+def route_url(url: str) -> str:
+    parts = urlsplit(canonical_url(url))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
 def normalize_candidate(value: str, base_url: str) -> str | None:
     try:
         # Reject traversal before urljoin could erase it.

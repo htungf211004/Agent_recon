@@ -38,6 +38,14 @@ Recon Day 1 đã có luồng thực thi từ task đến kết quả và bằng 
 - Parser HTML, robots, sitemap/index, OpenAPI 3/Swagger 2 và JavaScript đơn giản; gộp endpoint và provenance theo quy tắc xác định.
 - Lưu endpoint, parameters, discovery source, baseline và lifecycle `DISCOVERED → OBSERVED → BASELINED → FUZZ_READY`.
 - Coverage, source status và điểm dừng theo giới hạn; test localhost nhiều nguồn kiểm tra cả replay và evidence.
+- Tách route khỏi concrete observation: `/search?q=a` và `/search?q=b` là một route, hai observation; `/profile` có baseline hợp lệ có thể đạt `FUZZ_READY`.
+- Shared `AttackSurfaceInventory` v1.0 trong `src/contracts`, có schema freeze và trace provenance → observation → request → evidence.
+- `ToolRun` có lease/recovery: request đã hoàn tất được replay; claim hết lease thành `FAILED` bền vững, không tự chạy lại.
+- Policy/Gateway enforce request budget, rate, timeout và body limit; reservation và policy decision được lưu nguyên tử trước dispatch.
+- SQLite migration có version; evidence manifest có run/tool-run/kind/content type/redaction metadata.
+- Registry chỉ đăng ký Nmap/WhatWeb khi tìm thấy binary; HTTP probe/fetch luôn có trong runner Python.
+
+**Day 2 architecture: FROZEN; Recon → Fuzz contract: v1.0.** Python giữ **3.11** như CI/Docker. Product API/Supervisor chưa nối; hostname/VHost là integration gate trước khi dùng lab có domain. Chi tiết handoff và phạm vi còn lại nằm trong tài liệu Day 2.
 
 Xem [kiến trúc hiện tại](ARCHITECTURE.md) và [cách chạy, giới hạn Day 2](docs/day2-endpoint-discovery.md). Bộ kiểm tra gồm toàn bộ test Day 1 và các test Day 2; chạy bằng lệnh trong mục **Kiểm tra**.
 
@@ -97,6 +105,8 @@ Swagger UI: <http://localhost:8000/docs>
 
 ## Kiểm tra
 
+Kết quả local sau Day 2 freeze: **88 tests passed**, **Ruff PASS**. Suite gồm các kiểm tra Day 1 và localhost E2E nhiều nguồn; chưa xác nhận GitHub Actions cho thay đổi này vì chưa push.
+
 ```powershell
 .\.venv\Scripts\python.exe -B -m ruff check --no-cache src tests
 .\.venv\Scripts\python.exe -B -m pytest -p no:cacheprovider tests -q
@@ -118,6 +128,8 @@ Không commit `.env` hoặc `.ai-log/*.jsonl`. Hướng dẫn và checklist cho 
 ```text
 docs/gate-1/       Hồ sơ Gate 1
 src/recon/         Recon Day 1/2, discovery, policy, gateway, adapter và storage
+src/contracts/     Shared Attack Surface v1.0 và EvidenceManifest
+src/storage/       SQLite migration authority
 src/               FastAPI và LangGraph starter
 tests/             Unit test và HTTP localhost E2E
 scripts/           AI log hooks và utilities

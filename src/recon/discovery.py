@@ -20,11 +20,13 @@ from src.recon.web_models import (
     BaselineRequest,
     DiscoverySource,
     EndpointLifecycle,
+    EndpointObservation,
     EndpointParameter,
     EndpointProvenance,
     ReconCoverage,
     SourceStatus,
     WebEndpointEntry,
+    stable_id,
 )
 
 
@@ -36,6 +38,7 @@ class EndpointDiscovery:
         self.limit_reason = "exhausted"
 
     def run(self, task: ReconTask):
+        self.repository.recover_expired_runs(task.id)
         previous = self.repository.get_coverage(task.id)
         self.limit_reason = previous.stop_reason if previous else "exhausted"
         self._seed(task)
@@ -50,11 +53,15 @@ class EndpointDiscovery:
                 for source in resumed:
                     result = self.repository.get_tool_result(source.request_id)
                     if result is None:
-                        self.repository.save_source(source.model_copy(update={
-                            "status": SourceStatus.ERROR, "message": "request already claimed or incomplete",
-                        }))
-                    else:
-                        self._process(task, source, result)
+                        request = self.planner.fetch_plan(task, (source,)).actions[0].request
+                        if request.id != source.request_id:
+                            raise RuntimeError("persisted source request identity mismatch")
+                        self.service.gateway.execute(request)
+                        result = self.repository.get_tool_result(source.request_id)
+                    if result is None:
+                        self._coverage(task)
+                        return self.service.snapshot(task.id)
+                    self._process(task, source, result)
                 continue
             rounds = self._round_count(task.id)
             used = sum(source.request_id is not None for source in sources)
@@ -67,8 +74,8 @@ class EndpointDiscovery:
                 break
             selected = []
             for source in pending:
-                endpoint = self.repository.get_endpoint(source.id)
-                if endpoint is not None and not baseline_eligible(endpoint):
+                endpoint = self.repository.get_endpoint(source.endpoint_id)
+                if endpoint is not None and not baseline_eligible(endpoint, source.url):
                     self.repository.save_source(source.model_copy(update={
                         "status": SourceStatus.BLOCKED, "message": "endpoint requires manual input",
                     }))
@@ -93,9 +100,8 @@ class EndpointDiscovery:
             for source in selected:
                 result = self.repository.get_tool_result(source.request_id)
                 if result is None:
-                    self.repository.save_source(source.model_copy(update={
-                        "status": SourceStatus.ERROR, "message": "request already claimed or incomplete",
-                    }))
+                    self._coverage(task)
+                    return self.service.snapshot(task.id)
                 else:
                     self._process(task, source, result)
         self._coverage(task)
@@ -113,6 +119,7 @@ class EndpointDiscovery:
                         self._candidate(task, Candidate(url, relation="seed"), source, depth=0)
 
     def _candidate(self, task, candidate, source, depth):
+        observation_id = stable_id(task.id, candidate.method, candidate.url)
         query_params = tuple(EndpointParameter(name=name, location="query", data_type="string")
                              for name, _ in parse_qsl(urlsplit(candidate.url).query, keep_blank_values=True)
                              if 0 < len(name) <= 256)
@@ -120,17 +127,22 @@ class EndpointDiscovery:
             task_id=task.id, url=candidate.url, method=candidate.method,
             parameters=tuple({(param.location, param.name): param for param in (*query_params, *candidate.parameters)}.values()),
             provenance=(EndpointProvenance(source_id=source.id, kind=source.kind, relation=candidate.relation,
-                                           evidence_id=source.evidence_id),),
+                                           evidence_id=source.evidence_id, request_id=source.request_id,
+                                           observation_id=observation_id),),
             requires_manual_input=candidate.manual,
         )
         if self.repository.get_endpoint(endpoint.id) is None and len(self.repository.list_endpoints(task.id)) >= task.discovery_limits.max_endpoints:
             self.limit_reason = "endpoint_limit"
             return
         endpoint = self.repository.save_endpoint(endpoint)
-        if not baseline_eligible(endpoint):
+        self.repository.save_observation(EndpointObservation(
+            task_id=task.id, endpoint_id=endpoint.id, url=candidate.url, method=candidate.method,
+            provenance=tuple(p for p in endpoint.provenance if p.observation_id == observation_id),
+        ))
+        if not baseline_eligible(endpoint, candidate.url):
             return
         known = self.repository.list_sources(task.id)
-        if any(item.id == endpoint.id for item in known):
+        if any(item.id == observation_id for item in known):
             return
         if len(known) >= task.discovery_limits.max_sources:
             self.limit_reason = "source_limit"
@@ -140,27 +152,37 @@ class EndpointDiscovery:
             status = SourceStatus.LIMITED
             self.limit_reason = "depth_limit"
         self.repository.save_source(DiscoverySource(
-            task_id=task.id, url=endpoint.url, method=endpoint.method, kind=candidate.kind_hint,
+            task_id=task.id, url=candidate.url, method=endpoint.method, kind=candidate.kind_hint,
             depth=depth, status=status, message="depth_limit" if status == SourceStatus.LIMITED else "",
         ))
 
     def _observe(self, source: DiscoverySource, result: ToolResult):
-        endpoint = self.repository.get_endpoint(source.id)
+        endpoint = self.repository.get_endpoint(source.endpoint_id)
         if endpoint is None or result.http_response is None or result.evidence_id is None:
             return
         endpoint = endpoint.model_copy(update={
             "lifecycle": EndpointLifecycle.OBSERVED,
+            "in_scope": True,
             "evidence_ids": tuple(sorted(set((*endpoint.evidence_ids, result.evidence_id)))),
         })
+        provenance = EndpointProvenance(source_id=source.id, kind=source.kind, relation="response",
+                                        observation_id=source.id, request_id=result.request_id, evidence_id=result.evidence_id)
+        observation = self.repository.save_observation(EndpointObservation(
+            task_id=source.task_id, endpoint_id=endpoint.id, url=source.url, method=source.method,
+            provenance=(provenance,), request_id=result.request_id, evidence_id=result.evidence_id,
+            response=result.http_response, observed_at=result.finished_at, evidence_verified=True,
+        ))
+        endpoint = endpoint.model_copy(update={"provenance": (*endpoint.provenance, provenance)})
         response = result.http_response
-        if result.status == "success" and 200 <= response.status_code < 300 and not response.truncated and baseline_eligible(endpoint):
+        if result.status == "success" and 200 <= response.status_code < 300 and not response.truncated and baseline_eligible(endpoint, source.url):
             baseline = BaselineRequest(
                 task_id=source.task_id, endpoint_id=endpoint.id, request_id=result.request_id,
-                url=endpoint.url, method=source.method, evidence_id=result.evidence_id,
+                url=source.url, method=source.method, evidence_id=result.evidence_id, observation_id=observation.id,
                 response=response, observed_at=result.finished_at,
             )
             self.repository.save_baseline(baseline)
-            endpoint = endpoint.model_copy(update={"baseline_id": baseline.id, "lifecycle": EndpointLifecycle.BASELINED})
+            endpoint = endpoint.model_copy(update={"baseline_id": baseline.id, "lifecycle": EndpointLifecycle.BASELINED,
+                                                   "baseline_url": source.url, "baseline_verified": True})
             if fuzz_ready(endpoint):
                 endpoint = endpoint.model_copy(update={"lifecycle": EndpointLifecycle.FUZZ_READY})
         self.repository.save_endpoint(endpoint)
@@ -218,6 +240,9 @@ class EndpointDiscovery:
         self.repository.save_coverage(ReconCoverage(
             task_id=task.id, rounds=self._round_count(task.id), requests=sum(source.request_id is not None for source in sources),
             sources=len(sources), source_statuses=counts, endpoints=len(endpoints),
+            route_count=len(endpoints), observation_count=len(self.repository.list_observations(task.id)),
+            source_count=len(sources), baseline_count=sum(bool(item.baseline_id) for item in endpoints),
+            fuzz_ready_count=sum(item.lifecycle == EndpointLifecycle.FUZZ_READY for item in endpoints),
             lifecycle_counts=dict(Counter(endpoint.lifecycle for endpoint in endpoints)),
             converged=converged,
             complete=converged and not any(counts.get(status, 0) for status in (SourceStatus.ERROR, SourceStatus.BLOCKED, SourceStatus.LIMITED)),

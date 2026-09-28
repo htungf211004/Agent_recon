@@ -11,8 +11,17 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.contracts.attack_surface import AttackSurfaceInventory
+from src.contracts.evidence import EvidenceManifest
+from src.recon.execution import BudgetContext, ExecutionBudget
 from src.recon.urls import validate_path, validate_query
-from src.recon.web_models import DiscoveryLimits, HttpResponseMetadata, ReconCoverage, WebEndpointEntry
+from src.recon.web_models import (
+    DiscoveryLimits,
+    EndpointObservation,
+    HttpResponseMetadata,
+    ReconCoverage,
+    WebEndpointEntry,
+)
 
 
 class StrictModel(BaseModel):
@@ -58,6 +67,7 @@ class ReconTask(StrictModel):
     expires_at: datetime
     discovery_limits: DiscoveryLimits = Field(default_factory=DiscoveryLimits)
     discovery_seeds: tuple[str, ...] = Field(default=(), max_length=32)
+    execution_budget: ExecutionBudget = Field(default_factory=ExecutionBudget)
 
     @field_validator("discovery_seeds")
     @classmethod
@@ -126,6 +136,7 @@ class CapabilityRequest(StrictModel):
     capability: Capability
     target_ip: str
     parameters: Parameters = Field(discriminator="kind")
+    budget_context: BudgetContext | None = None
 
     @field_validator("target_ip")
     @classmethod
@@ -162,21 +173,36 @@ class ReconPlan(StrictModel):
         return self
 
 
+class PolicyOutcome(StrEnum):
+    ALLOW = "ALLOW"
+    DENY = "DENY"
+    REQUIRE_APPROVAL = "REQUIRE_APPROVAL"
+
+
 class PolicyDecision(StrictModel):
     request_id: str
-    allowed: bool
+    allowed: bool | None = None
+    outcome: PolicyOutcome | None = None
     reason: str
     checked_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    policy_version: str = "recon-2.1"
+    policy_fingerprint: str = ""
+    risk: str = "bounded_recon"
+    attempt: int = Field(default=1, ge=1)
+
+    @model_validator(mode="after")
+    def normalize_outcome(self):
+        outcome = self.outcome or (PolicyOutcome.ALLOW if self.allowed else PolicyOutcome.DENY)
+        allowed = outcome == PolicyOutcome.ALLOW
+        if self.allowed is not None and self.allowed != allowed:
+            raise ValueError("policy outcome and allowed flag disagree")
+        object.__setattr__(self, "outcome", outcome)
+        object.__setattr__(self, "allowed", allowed)
+        return self
 
 
-class EvidenceArtifact(StrictModel):
-    id: str
-    task_id: str
-    request_id: str
-    sha256: str
-    size_bytes: int
+class EvidenceArtifact(EvidenceManifest):
     relative_path: str
-    created_at: datetime
 
 
 class AttackSurfaceEntry(StrictModel):
@@ -220,3 +246,5 @@ class ReconResult(StrictModel):
     evidence_ids: tuple[str, ...]
     endpoints: tuple[WebEndpointEntry, ...] = ()
     coverage: ReconCoverage | None = None
+    observations: tuple[EndpointObservation, ...] = ()
+    attack_surface_inventory: AttackSurfaceInventory | None = None

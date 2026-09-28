@@ -79,7 +79,7 @@ class HttpFetchAdapter:
                         http_response=metadata,
                     )
         except httpx.HTTPError as exc:
-            return AdapterOutput(status="error", message=f"HTTP fetch failed: {type(exc).__name__}")
+            return AdapterOutput(status="error", timed_out=isinstance(exc, httpx.TimeoutException), message=f"HTTP fetch failed: {type(exc).__name__}")
 
 
 def _url(target_ip: str, scheme: str, port: int) -> str:
@@ -100,7 +100,7 @@ class HttpProbeAdapter:
             with httpx.Client(transport=self.transport, follow_redirects=False, trust_env=False, timeout=5.0) as client:
                 response = client.head(url)
         except httpx.HTTPError as exc:
-            return AdapterOutput(status="error", message=f"HTTP probe failed: {type(exc).__name__}")
+            return AdapterOutput(status="error", timed_out=isinstance(exc, httpx.TimeoutException), message=f"HTTP probe failed: {type(exc).__name__}")
         lines = [f"HTTP {response.status_code}"]
         for header in ("server", "content-type", "x-powered-by", "location"):
             if header in response.headers:
@@ -136,7 +136,7 @@ def _run_fixed(command: list[str], timeout: int) -> AdapterOutput:
         except subprocess.TimeoutExpired:
             output_file.seek(0)
             return AdapterOutput(
-                status="error", raw_output=output_file.read(MAX_OUTPUT_BYTES),
+                status="error", timed_out=True, raw_output=output_file.read(MAX_OUTPUT_BYTES),
                 message=f"tool timed out after {timeout}s",
             )
         except FileNotFoundError:
@@ -162,7 +162,7 @@ class NmapAdapter:
         output = _run_fixed(command, timeout=60)
         entries = parse_nmap(output.raw_output.decode("utf-8", errors="replace"), request.target_ip)
         return AdapterOutput(
-            status=output.status, raw_output=output.raw_output, message=output.message,
+            status=output.status, timed_out=output.timed_out, raw_output=output.raw_output, message=output.message,
             attack_surface=entries,
         )
 
@@ -176,6 +176,6 @@ class WhatWebAdapter:
         output = _run_fixed(command, timeout=20)
         technologies = parse_whatweb(output.raw_output.decode("utf-8", errors="replace"), request.target_ip)
         return AdapterOutput(
-            status=output.status, raw_output=output.raw_output, message=output.message,
+            status=output.status, timed_out=output.timed_out, raw_output=output.raw_output, message=output.message,
             technologies=technologies,
         )
