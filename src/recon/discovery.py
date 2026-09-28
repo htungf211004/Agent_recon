@@ -242,7 +242,8 @@ class EndpointDiscovery:
         self.repository.save_source(source.model_copy(update={"status": status, "message": message}))
 
     def _round_count(self, task_id):
-        return sum(any(action.request.capability == Capability.HTTP_FETCH for action in plan.actions)
+        return sum(any(action.request.capability == Capability.HTTP_FETCH
+                       and not action.request.id.startswith("browser-baseline-") for action in plan.actions)
                    for plan in self.repository.list_plans(task_id))
 
     def _coverage(self, task):

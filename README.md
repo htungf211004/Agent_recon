@@ -105,10 +105,11 @@ Swagger UI: <http://localhost:8000/docs>
 
 ## Kiểm tra
 
-Kết quả local sau final hardening: **221 tests passed, không skip, gồm Chromium thật; Ruff PASS**. Docker build, Chromium probe dưới user non-root và FastAPI health smoke đều PASS. CI có gate Chromium và Docker bắt buộc; kết quả GitHub Actions cho bản sửa mới cần được xác nhận sau khi push.
+Kết quả local sau final P0: **258 tests passed, không skip, gồm Chromium thật; Ruff PASS**. Docker build, Nmap/WhatWeb, Chromium probe dưới user non-root, smoke 5 adapter thật qua Gateway và FastAPI health đều PASS. CI bắt buộc các gate này; kết quả GitHub Actions cho bản sửa mới cần được xác nhận sau khi push. Chưa tuyên bố freeze MVP khi remote gate chưa được xác nhận.
 
 ```powershell
-.\.venv\Scripts\python.exe -B -m ruff check --no-cache src tests
+.\.venv\Scripts\python.exe -B -m ruff check --no-cache src tests scripts/check_recon_runtime.py
+$env:RECON_REQUIRE_CHROMIUM = "1"
 .\.venv\Scripts\python.exe -B -m pytest -p no:cacheprovider tests -q
 ```
 
@@ -139,6 +140,14 @@ CI installs Chromium and system dependencies, probes launch availability, and fa
 - AST tests reject Playwright imports/browser operations in Agent/planning/business logic and unapproved process execution.
 
 See [final hardening verification](docs/recon-final-hardening.md) and [container instructions](docs/day3-browser-discovery.md#container-gate).
+
+## Recon final P0
+
+- `ReconAgent` chạy `BrowserBaselinePromotion` sau passive browser discovery. Browser-observed GET/HEAD hợp lệ được chọn xác định, rồi baseline bằng một request `HTTP_FETCH` riêng qua Policy/Gateway.
+- Chỉ complete 2xx evidence hợp lệ mới tạo `BaselineRequest` và đạt `FUZZ_READY`; giữ browser provenance, không tạo fake discovery source. Restart không gửi lại baseline hoặc đổi concrete URL đã chọn.
+- Trusted task snapshot dùng `recon-3.0`; migration v6 gắn `recon-2.2` cho task cũ. Completed request cũ vẫn replay đúng fingerprint; action mới trên policy cũ bị DENY.
+- Final container có Nmap, WhatWeb và Chromium; manifest bắt buộc đúng 5 public capabilities. `BROWSER_REQUEST` là child execution nội bộ. WhatWeb dùng `--follow-redirect=never`, đã kiểm tra với sink server thật.
+- Xem [báo cáo P0 và các gate](docs/recon-final-p0.md).
 
 ## AI usage logging
 

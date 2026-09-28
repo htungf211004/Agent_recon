@@ -172,7 +172,7 @@ class WhatWebAdapter:
         params = request.parameters
         if not isinstance(params, WhatWebParams):
             raise TypeError("WhatWeb parameters required")
-        command = ["whatweb", "-a", "1", "--no-redirect", _url(request.target_ip, params.scheme, params.port)]
+        command = ["whatweb", "-a", "1", "--follow-redirect=never", _url(request.target_ip, params.scheme, params.port)]
         output = _run_fixed(command, timeout=20)
         technologies = parse_whatweb(output.raw_output.decode("utf-8", errors="replace"), request.target_ip)
         return AdapterOutput(

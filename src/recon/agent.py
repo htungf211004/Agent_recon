@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from src.recon.baseline_promotion import BrowserBaselinePromotion
 from src.recon.browser_discovery import BrowserDiscovery
 from src.recon.discovery import EndpointDiscovery
 from src.recon.models import BrowserLimits, Capability, ReconResult
@@ -38,4 +39,6 @@ class ReconAgent:
         if (Capability.BROWSER_EXPLORE in task.scope.capabilities
                 and self.service.gateway.registry.get(Capability.BROWSER_EXPLORE) is not None):
             result = BrowserDiscovery(self.repository, self.service, self.browser_limits).run(task)
+        if Capability.HTTP_FETCH in task.scope.capabilities:
+            result = BrowserBaselinePromotion(self.repository, self.planner, self.service).run(task)
         return result

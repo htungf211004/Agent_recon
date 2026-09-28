@@ -143,7 +143,7 @@ def test_unversioned_database_upgrades_routes_evidence_claims_without_losing_his
         artifact = upgraded.get_evidence(artifact_id)
         assert artifact.run_id == result.run_id and artifact.redaction_status == "UNREVIEWED"
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall() == [(1,), (2,), (3,), (4,), (5,)]
+        assert connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,)]
         assert connection.execute("SELECT COUNT(*) FROM baseline_requests").fetchone()[0] == 3
     gateway.results = upgraded
     orphan = CapabilityRequest(id="orphan", task_id=result.task_id, target_ip="127.0.0.1",
@@ -191,7 +191,10 @@ def test_v3_execution_records_gain_binding_without_replaying_request(tmp_path):
     repository, _, gateway, _, result = discovered(tmp_path)
     old = result.tool_results[0]
     with sqlite3.connect(repository.database_path) as connection:
-        connection.execute("DELETE FROM schema_migrations WHERE version = 4")
+        connection.execute("DELETE FROM schema_migrations WHERE version >= 4")
+        task = json.loads(connection.execute("SELECT payload FROM recon_tasks WHERE id = ?", (result.task_id,)).fetchone()[0])
+        task.pop("policy_version", None)
+        connection.execute("UPDATE recon_tasks SET payload = ? WHERE id = ?", (json.dumps(task), result.task_id))
         run = json.loads(connection.execute("SELECT payload FROM tool_runs WHERE request_id = ?", (old.request_id,)).fetchone()[0])
         request = json.loads(run["request_payload"])
         for field in ("run_id", "scope_version", "action_fingerprint"):

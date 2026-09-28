@@ -129,7 +129,12 @@ def _authorization_binding(connection):
     from src.recon.models import CapabilityRequest, ReconTask
     from src.recon.policy import PolicyService
 
-    tasks = {row[0]: ReconTask.model_validate_json(row[1]) for row in connection.execute("SELECT id, payload FROM recon_tasks")}
+    tasks = {}
+    for task_id, payload in connection.execute("SELECT id, payload FROM recon_tasks"):
+        raw_task = json.loads(payload)
+        # v4 predates policy snapshots; never bind historical work to today's default.
+        raw_task["policy_version"] = "recon-2.2"
+        tasks[task_id] = ReconTask.model_validate(raw_task)
     for request_id, raw in list(connection.execute("SELECT request_id, payload FROM tool_runs")):
         item = ToolRun.model_validate_json(raw)
         task = tasks.get(item.task_id)
@@ -179,12 +184,21 @@ def _declared_templates(connection):
     connection.execute("DELETE FROM recon_coverage")
 
 
+def _recon_policy_snapshot(connection):
+    for task_id, payload in list(connection.execute("SELECT id, payload FROM recon_tasks")):
+        task = json.loads(payload)
+        if "policy_version" not in task:
+            task["policy_version"] = "recon-2.2"
+            connection.execute("UPDATE recon_tasks SET payload = ? WHERE id = ?", (json.dumps(task), task_id))
+
+
 MIGRATIONS = (
     (1, "adopt_day1_day2_schema", _legacy_schema),
     (2, "route_observations", _route_observations),
     (3, "durable_execution_and_evidence", _execution_contracts),
     (4, "authorization_binding", _authorization_binding),
     (5, "declared_route_templates", _declared_templates),
+    (6, "v6_recon_policy_snapshot", _recon_policy_snapshot),
 )
 
 

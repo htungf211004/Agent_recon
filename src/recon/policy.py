@@ -7,7 +7,7 @@ import json
 from datetime import UTC, datetime
 from typing import Protocol
 
-from src.contracts.execution import Risk, action_fingerprint
+from src.contracts.execution import CURRENT_RECON_POLICY_VERSION, Risk, action_fingerprint
 from src.recon.models import (
     BrowserExploreParams,
     BrowserRequestParams,
@@ -27,15 +27,17 @@ class TaskReader(Protocol):
 
 
 class PolicyService:
-    VERSION = "recon-2.2"
+    VERSION = CURRENT_RECON_POLICY_VERSION
 
     def __init__(self, tasks: TaskReader):
         self.tasks = tasks
 
     @classmethod
     def scope_fingerprint(cls, task: ReconTask) -> str:
-        payload = json.dumps(task.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256((cls.VERSION + ":" + payload).encode()).hexdigest()
+        snapshot = task.model_dump(mode="json")
+        version = snapshot.pop("policy_version")
+        payload = json.dumps(snapshot, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256((version + ":" + payload).encode()).hexdigest()
 
     @classmethod
     def expected_fingerprint(cls, request: CapabilityRequest, task: ReconTask) -> str:
@@ -45,7 +47,7 @@ class PolicyService:
         return action_fingerprint(
             run_id=task.run_id, task_id=task.id, target=request.target_ip,
             tool=request.capability.value, parameters=parameters,
-            scope_version=task.scope_version, policy_version=cls.VERSION,
+            scope_version=task.scope_version, policy_version=task.policy_version,
             scope_fingerprint=cls.scope_fingerprint(task),
         )
 
@@ -79,6 +81,8 @@ class PolicyService:
     def _denial_reason(request: CapabilityRequest, task: ReconTask | None) -> str | None:
         if task is None:
             return "unknown task"
+        if task.policy_version != PolicyService.VERSION:
+            return "task policy version is stale"
         if request.run_id != task.run_id:
             return "run identity does not match task"
         if request.scope_version != task.scope_version:

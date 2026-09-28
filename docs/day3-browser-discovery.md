@@ -68,7 +68,9 @@ The response guard rejects redirects before Chromium can follow them. It admits 
 
 Every child response envelope is `http_exchange` evidence with parent/resource/page metadata. Bodies are not retained and nonempty GET responses are marked truncated. `transfer_complete` records whether the transfer completed. DOM extraction reads only bounded link/form metadata in an isolated world using fixed source code, with no input values; its JSON is retained in the document exchange evidence. DOM payloads over min(64 KiB, max_response_bytes) are discarded and reported. Navigation URLs/depths, request count, byte count and stop reason are recorded in parent evidence.
 
-Observed responses and discovered links/forms use the existing endpoint models. Provenance is merged and declared templates reconciled. Browser observations preserve earlier HTTP baseline proof; newly observed routes do not automatically become BASELINED or FUZZ_READY. Projection is idempotent and can be repaired from child evidence after a crash.
+Observed responses and discovered links/forms use the existing endpoint models. Provenance is merged and declared templates reconciled. Browser observations preserve earlier HTTP baseline proof. After browser discovery, `BrowserBaselinePromotion` can select a successful evidenced GET/HEAD observation for a separate deterministic `HTTP_FETCH` when allowed. Only its complete verified 2xx response can create a baseline and qualify for FUZZ_READY. Browser headers-only evidence never qualifies directly. Projection is idempotent and can be repaired from evidence after a crash.
+
+Promotion selects the first eligible concrete URL in lexical order per route, with GET before HEAD, and persists its plan before dispatch. Forms/manual inputs, writes, unresolved required parameters, non-2xx or truncated responses never qualify. Current scope, policy version, expiry and budgets remain enforced by the Gateway. Old browser provenance is retained alongside the HTTP baseline. Promotion does not create static discovery sources or inflate discovery rounds. Reopening the database replays the same request with zero additional network dispatch. New tasks use `recon-3.0`; migration v6 preserves `recon-2.2` replay while denying new actions on old task snapshots.
 
 Only `document`, `xhr` and `fetch` responses project into endpoint observations and inventory. Script/CSS/image/font/manifest traffic keeps its ToolRun, policy and evidence. The filter is applied again on evidence replay. CDP `Network.requestWillBeSent` and the Fetch pause's `networkId` correlate response resource semantics; URL alone is insufficient when a script and fetch share a URL.
 
@@ -85,12 +87,15 @@ If browser was not requested, it contributes no failure. If requested but unavai
 ```powershell
 docker build -t agent-recon-final .
 docker run --rm agent-recon-final python -m src.recon.browser_runtime --probe
+docker run --rm agent-recon-final nmap --version
+docker run --rm agent-recon-final whatweb --version
+docker run --rm agent-recon-final python -m scripts.check_recon_runtime
 docker run --rm agent-recon-final python -c "import os; assert os.getuid() != 0"
 docker run --detach --rm --name recon-final-smoke -e APP_ENV=test agent-recon-final
 docker exec recon-final-smoke python -c "import json, urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5))['status'] == 'ok'"
 docker stop recon-final-smoke
 ```
 
-The image executes as `appuser`. `/opt/venv` avoids inaccessible root-only Python packages; `/ms-playwright` contains the browser revision selected by the pinned package. CI also builds the image, runs the probe as non-root, and checks the default FastAPI command's health endpoint.
+The image executes as `appuser`. `/opt/venv` avoids inaccessible root-only Python packages; `/ms-playwright` contains the browser revision selected by the pinned package. Nmap and WhatWeb are installed in the final stage. CI requires all five public capabilities, real localhost adapter execution through the Gateway, a WhatWeb redirect sink check, a non-root Chromium probe and the default FastAPI command's health endpoint. Missing binaries fail the final-image gate.
 
 The localhost gate tests real forbidden-sink reachability followed by zero off-scope dispatch, redirects, writes, BFS bounds, repeated resources, DOM provenance, template merging, Day 2 baseline preservation, cancellation and restart. Browser-Use, CVE/RAG, Fuzzing, Validation, Approval and Finding logic are outside this implementation.

@@ -4,6 +4,8 @@ import hashlib
 import json
 from enum import StrEnum
 
+CURRENT_RECON_POLICY_VERSION = "recon-3.0"
+
 
 class Risk(StrEnum):
     R0 = "R0"

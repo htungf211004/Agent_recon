@@ -30,7 +30,7 @@ jobs:
         run: python -m src.recon.browser_runtime --probe
 
       - name: Lint with ruff
-        run: ruff check src/ tests/
+        run: ruff check src/ tests/ scripts/check_recon_runtime.py
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
@@ -50,6 +50,12 @@ jobs:
         run: |
           docker run --rm agent-recon-final python -c "import os; assert os.getuid() != 0"
           docker run --rm agent-recon-final python -m src.recon.browser_runtime --probe
+      - name: Require Nmap and WhatWeb binaries
+        run: |
+          docker run --rm agent-recon-final nmap --version
+          docker run --rm agent-recon-final whatweb --version
+      - name: Require exact capability manifest and real localhost adapter execution
+        run: docker run --rm agent-recon-final python -m scripts.check_recon_runtime
       - name: Check default FastAPI startup
         run: |
           docker run --detach --name recon-final-smoke -e APP_ENV=test agent-recon-final

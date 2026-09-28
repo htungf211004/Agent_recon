@@ -43,7 +43,7 @@ def test_subprocess_adapters_construct_fixed_arguments(monkeypatch):
     assert nmap.status == "success" and len(nmap.attack_surface) == 2
     assert whatweb.status == "success" and len(whatweb.technologies) == 3
     assert calls[0][0] == ["nmap", "-sT", "-sV", "-Pn", "-n", "--max-retries", "1", "-p", "21,22", "10.10.10.3"]
-    assert calls[1][0] == ["whatweb", "-a", "1", "--no-redirect", "http://10.10.10.3:80/"]
+    assert calls[1][0] == ["whatweb", "-a", "1", "--follow-redirect=never", "http://10.10.10.3:80/"]
     assert all(call[1]["check"] is False for call in calls)
 
 

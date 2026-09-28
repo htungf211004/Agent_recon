@@ -73,7 +73,13 @@ def browser_server(forbidden_sink):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             calls.append(("GET", self.path))
-            if self.path == "/hardening":
+            if self.path == "/browser-only":
+                body = (b"<html><script>const route=String.fromCharCode(47)+['dy','namic'].join('');"
+                        b"fetch(route+'?source=browser');</script></html>")
+                content_type = "text/html"
+            elif self.path == "/dynamic?source=browser":
+                body, content_type = b'{"discovered":"only at runtime"}', "application/json"
+            elif self.path == "/hardening":
                 body = (b"<html><head><link rel='stylesheet' href='/hardening.css'></head><body>font test"
                         b"<img src='/logo.png'><script src='/shared-data'></script>"
                         b"<script>fetch('/shared-data');const x=new XMLHttpRequest();"
@@ -140,6 +146,7 @@ def browser_server(forbidden_sink):
             self.send_response(200 if self.path.startswith("/crawl") or self.path in {
                 "/", "/app.js", "/style.css", "/api", "/shared.js", "/users/7",
                 "/hardening", "/shared-data", "/hardening.css", "/logo.png", "/font.woff2", "/api/profile",
+                "/browser-only", "/dynamic?source=browser",
             } else 404)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
@@ -235,10 +242,10 @@ def test_real_static_assets_and_same_url_resource_identity(tmp_path, browser_ser
     assert forbidden_sink[1] == []
 
 
-def browser_agent(tmp_path, port, limits, *, http=False):
+def browser_agent(tmp_path, port, limits, *, http=False, seeds=("/crawl",)):
     repository = ReconRepository(tmp_path / "agent.db")
     task = ReconTask(
-        id="browser-agent", run_id="browser-run", discovery_seeds=("/crawl",),
+        id="browser-agent", run_id="browser-run", discovery_seeds=seeds,
         scope=Scope(allowed_ips=("127.0.0.1",), allowed_ports=(port,), allowed_paths=("/",),
                     capabilities=(Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST,
                                   *((Capability.HTTP_FETCH,) if http else ()))),
@@ -376,3 +383,34 @@ def test_missing_chromium_is_a_ci_failure(monkeypatch):
     monkeypatch.setenv("RECON_REQUIRE_CHROMIUM", "1")
     with pytest.raises(pytest.fail.Exception, match="Chromium is mandatory"):
         chromium_gate.__wrapped__()
+
+
+def test_browser_only_endpoint_gets_one_complete_baseline_and_replays(tmp_path, browser_server, forbidden_sink, chromium_gate):
+    port, calls = browser_server
+    repository, gateway, agent, task = browser_agent(tmp_path, port, BrowserLimits(), http=True, seeds=("/browser-only",))
+    before = EndpointDiscovery(repository, agent.planner, agent.service).run(task)
+    assert not any(item.canonical_path == "/dynamic" for item in before.endpoints)
+    assert ("GET", "/dynamic?source=browser") not in calls
+    result = agent.run(task.id)
+    endpoint = next(item for item in result.attack_surface_inventory.entries if item.canonical_path == "/dynamic")
+    assert endpoint.status == "FUZZ_READY" and endpoint.has_verified_baseline
+    assert len(endpoint.observations) == 1
+    assert endpoint.observations[0].concrete_url == f"http://127.0.0.1:{port}/dynamic?source=browser"
+    assert Counter(calls)[("GET", "/dynamic?source=browser")] == 2
+    proofs = [repository.get_tool_result(p.request_ref) for p in endpoint.provenance]
+    assert {proof.capability for proof in proofs} == {Capability.BROWSER_REQUEST, Capability.HTTP_FETCH}
+    baseline = repository.get_baseline(endpoint.baseline_ref)
+    assert baseline.request_id.startswith("browser-baseline-")
+    assert baseline.response.body_size > 0 and not baseline.response.truncated
+    assert repository.get_policy_decision(baseline.request_id).policy_version == "recon-3.0"
+    assert gateway.evidence.read(baseline.evidence_id)
+    assert result.coverage.sources == before.coverage.sources and result.coverage.rounds == before.coverage.rounds
+    assert not any("/dynamic" in source.url for source in repository.list_sources(task.id))
+    counts = Counter(calls)
+    reopened = ReconRepository(repository.database_path)
+    resumed_gateway = ToolExecutionGateway(PolicyService(reopened), gateway.registry,
+                                           EvidenceStore(gateway.evidence.directory, reopened), reopened)
+    resumed = ReconAgent(reopened, ReconPlanner(), ReconService(reopened, resumed_gateway))
+    assert resumed.run(task.id).attack_surface_inventory == result.attack_surface_inventory
+    assert Counter(calls) == counts
+    assert forbidden_sink[1] == []

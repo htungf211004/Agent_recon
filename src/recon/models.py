@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serial
 
 from src.contracts.attack_surface import AttackSurfaceInventory
 from src.contracts.evidence import EvidenceManifest
-from src.contracts.execution import Risk
+from src.contracts.execution import CURRENT_RECON_POLICY_VERSION, Risk
 from src.recon.execution import BudgetContext, ExecutionBudget
 from src.recon.urls import validate_path, validate_query
 from src.recon.web_models import (
@@ -67,6 +67,7 @@ class ReconTask(StrictModel):
     id: str = Field(min_length=1)
     run_id: str = Field(min_length=1)
     scope_version: str = Field(default="1", min_length=1)
+    policy_version: str = Field(default=CURRENT_RECON_POLICY_VERSION, min_length=1)
     scope: Scope
     expires_at: datetime
     discovery_limits: DiscoveryLimits = Field(default_factory=DiscoveryLimits)
@@ -272,7 +273,7 @@ class PolicyDecision(StrictModel):
     outcome: PolicyOutcome | None = None
     reason: str
     checked_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    policy_version: str = "recon-2.2"
+    policy_version: str = CURRENT_RECON_POLICY_VERSION
     policy_fingerprint: str = ""
     risk: Risk = Risk.R0
     attempt: int = Field(default=1, ge=1)

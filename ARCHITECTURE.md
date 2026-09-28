@@ -1,4 +1,4 @@
-# Recon architecture — Day 03 Ver02
+# Recon architecture — Day 03 Ver02 + final P0
 
 Runtime: **Python 3.11**, consistent with CI and Docker. Recon uses deterministic plans and parsers. The existing FastAPI/LangGraph starter is separate from the implemented Recon engine.
 
@@ -51,6 +51,8 @@ Before exporting, `build_inventory` verifies artifact hashes, response metadata,
 
 `action_fingerprint` is separate from request ID. It binds run, task, exact IP target, capability, typed parameters and trusted task/policy context. The Gateway binds legacy Recon callers to stored task metadata; supplied conflicting metadata is denied. `PolicyDecision` stores action/scope/policy fingerprints and typed `Risk` R0–R4. See [ADR 0002](docs/adr/0002-day02-execution-and-route-contracts.md).
 
+New tasks snapshot `CURRENT_RECON_POLICY_VERSION = "recon-3.0"`. The scope fingerprint hashes the task's policy version followed by the canonical task JSON with that field removed. Migrated `recon-2.2` tasks therefore reproduce their historical fingerprints. Completed results replay before policy re-evaluation; new actions on stale policy snapshots are denied. Unknown or expired executions still fail durably without retry.
+
 Active duplicate calls return an incomplete response without dispatch. Expired QUEUED/RUNNING requests become **durable FAILED** on recovery, Gateway entry or discovery resume. An expired lease cannot prove that the original worker never reached the network, so this version never reclaims or automatically retries the same request. Late owner results cannot overwrite the failure. Attempt remains 1. Recovery uses the original stored request; migrated orphan claims also terminate as FAILED. Call `recover_expired_runs(task_id)` when resuming a task; no background sweeper is installed.
 
 The Gateway atomically reserves request/rate budgets with the final policy decision and transition to RUNNING. Limits belong to the stored task, not to caller-supplied counters. Reservations survive crashes/restarts and are never refunded. Direct Gateway calls receive the same checks as discovery plans:
@@ -73,6 +75,7 @@ Stop existing Recon workers before upgrading the database; running old and new w
 3. Add ToolRun, policy audit, durable budget reservations and evidence manifest fields.
 4. Bind historical ToolRun payloads for replay and normalize legacy risk without inventing historical approval fingerprints.
 5. Mark declared path templates and discard historical placeholder observations that were never concrete requests.
+6. Add the trusted `policy_version` task snapshot, assigning `recon-2.2` to historical tasks lacking the field. This migration does not rewrite historical runs, decisions, action fingerprints or evidence. Migration v4 explicitly binds old tasks with `recon-2.2` when upgrading older databases.
 
 Task, plan, source, result, policy and evidence history is preserved. Only derived Recon snapshots/coverage are invalidated during the route migration. Old readiness is reverified from original evidence on the next snapshot. Evidence bytes and their SHA-256 values are unchanged.
 
@@ -106,7 +109,22 @@ For each intercepted GET/HEAD URL, the adapter derives a versioned child `BROWSE
 
 Chromium can follow a redirect after `route.continue_()` without a second Playwright route callback. A CDP Fetch guard pauses every response before Chromium consumes it and rejects all 3xx responses. Requests still require the original Gateway permit before reaching the server. Missing or failed interception aborts the response.
 
-Parent and child ToolRuns contain `parent_request_id`; evidence metadata additionally records resource type and page sequence. Child evidence is typed `http_exchange`. Fixed DOM link/form observations are included in the successful document's evidence envelope before finalization. Network and DOM provenance enter the existing `EndpointObservation`, template reconciliation and `AttackSurfaceInventory v1.0` path. Browser projection preserves prior verified HTTP observations/baselines and is repairable from persisted evidence after a crash. It does not create baselines or promote new routes to `FUZZ_READY`.
+Parent and child ToolRuns contain `parent_request_id`; evidence metadata additionally records resource type and page sequence. Child evidence is typed `http_exchange`. Fixed DOM link/form observations are included in the successful document's evidence envelope before finalization. Network and DOM provenance enter the existing `EndpointObservation`, template reconciliation and `AttackSurfaceInventory v1.0` path. Browser projection preserves prior verified HTTP observations/baselines and is repairable from persisted evidence after a crash. A separate promotion phase can then obtain complete HTTP baseline evidence.
+
+## Browser baseline promotion
+
+```text
+ReconAgent → static discovery → BrowserDiscovery → BrowserBaselinePromotion
+  → deterministic ReconPlan → ReconService → Gateway claim → Policy + budget
+  → HTTP_FETCH adapter → complete 2xx evidence → BaselineRequest
+  → BASELINED → FUZZ_READY → AttackSurfaceInventory v1.0
+```
+
+`baseline_promotion.py` selects only evidenced successful browser network GET/HEAD observations from completed parents, with resolved inputs and no existing baseline. It evaluates templates against the concrete observation URL. GET precedes HEAD and concrete URLs sort lexically; persisted promotion plans freeze the selected observation before dispatch. Request identity is `browser-baseline-` plus `stable_id("browser-baseline-v1", task.id, endpoint.id, observation.id, observation.url, endpoint.method)`; it remains distinct from the authorization fingerprint.
+
+Every promotion is a separate bounded `HTTP_FETCH` authorized by the existing Gateway. The HTTP result must succeed with complete, verified 2xx evidence. It replaces the observation's primary response while merging browser network provenance with `kind=BROWSER, relation=baseline`. Browser headers-only evidence is never used directly as a baseline. Forms/manual inputs, writes, unresolved parameters, browser errors, redirects, truncated responses and denied requests cannot qualify. Evidence corruption revokes readiness. Stored results repair projection after a crash; restart does not send another baseline request or choose a different URL.
+
+Promotion creates no `DiscoverySource` and does not add to static discovery round/source counts. Its real requests still consume the shared execution and HTTP_FETCH budgets. The final image must expose exactly HTTP_PROBE, HTTP_FETCH, NMAP_SCAN, WHATWEB and BROWSER_EXPLORE; BROWSER_REQUEST remains internal. `scripts/check_recon_runtime.py` requires that manifest and executes all five real adapters against localhost through the production Gateway, including a WhatWeb redirect sink check.
 
 Browser network projection uses the explicit allowlist `document`, `xhr`, `fetch`. Scripts, stylesheets, images, fonts, manifests and other resources retain their child ToolRuns, policy and evidence but do not create inventory observations/routes. This is an execution-resource filter, not a filename heuristic or a change to route identity. CDP Network request IDs correlate resource types with Fetch response pauses so simultaneous requests for the same URL cannot exchange evidence.
 
