@@ -23,6 +23,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Install Chromium and system dependencies
+        run: python -m playwright install --with-deps chromium
+
+      - name: Require usable Chromium runtime
+        run: python -m src.recon.browser_runtime --probe
+
       - name: Lint with ruff
         run: ruff check src/ tests/
 
@@ -31,3 +37,4 @@ jobs:
         env:
           APP_ENV: test
           OPENAI_API_KEY: test-key
+          RECON_REQUIRE_CHROMIUM: "1"

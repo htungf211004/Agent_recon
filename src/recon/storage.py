@@ -74,7 +74,10 @@ class ReconRepository:
                         or parent_request.capability != Capability.BROWSER_EXPLORE
                         or parent_request.target_ip != request.target_ip
                         or parent_request.parameters.port != request.parameters.port
-                        or parent_request.parameters.scheme != request.parameters.scheme):
+                        or parent_request.parameters.scheme != request.parameters.scheme
+                        or request.parameters.page_sequence >= parent_request.parameters.limits.max_pages
+                        or request.parameters.max_body_bytes > parent_request.parameters.limits.max_response_bytes
+                        or request.parameters.timeout_seconds > parent_request.parameters.limits.max_runtime_seconds):
                     return None
             cursor = connection.execute(
                 "INSERT OR IGNORE INTO tool_runs VALUES (?, ?, ?)", (request.id, request.task_id, run.model_dump_json()),
@@ -420,7 +423,7 @@ class ReconRepository:
         with self._connect() as connection:
             connection.execute("UPDATE web_endpoints SET payload = ? WHERE id = ?", (endpoint.model_dump_json(), endpoint.id))
 
-    def save_observation(self, observation: EndpointObservation) -> EndpointObservation:
+    def save_observation(self, observation: EndpointObservation, *, preserve_existing_response: bool = False) -> EndpointObservation:
         observation = EndpointObservation.model_validate_json(observation.model_dump_json())
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -428,7 +431,8 @@ class ReconRepository:
             if row:
                 old = EndpointObservation.model_validate_json(row[0])
                 provenance = {p.model_dump_json(): p for p in (*old.provenance, *observation.provenance)}
-                observation = (observation if observation.request_id else old).model_copy(update={
+                keep_old = preserve_existing_response and old.request_id is not None
+                observation = (observation if observation.request_id and not keep_old else old).model_copy(update={
                     "provenance": tuple(provenance[key] for key in sorted(provenance)),
                 })
             connection.execute("INSERT INTO endpoint_observations VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
@@ -497,7 +501,9 @@ class EvidenceStore:
                 kind="http_exchange" if request.capability in {Capability.HTTP_FETCH, Capability.BROWSER_REQUEST} else "tool_output",
                 content_type="application/json" if request.capability in {Capability.HTTP_FETCH, Capability.BROWSER_REQUEST} else "application/octet-stream",
                 metadata={"capability": request.capability.value,
-                          **({"parent_request_id": request.parent_request_id} if request.parent_request_id else {})},
+                          **({"parent_request_id": request.parent_request_id,
+                              "resource_type": request.parameters.resource_type,
+                              "page_sequence": str(request.parameters.page_sequence)} if request.parent_request_id else {})},
                 sha256=hashlib.sha256(content).hexdigest(),
                 size_bytes=len(content),
                 relative_path=relative_path,

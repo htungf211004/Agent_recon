@@ -1,6 +1,6 @@
 # ADR 0003: Browser execution boundary before Day 03
 
-Status: Day 03 Ver1 passive browser boundary implemented for literal-IP lab targets.
+Status: Day 03 Ver02 implemented for literal-IP lab targets; external-dispatch contracts preserved.
 
 Every Browser planner or agent proposes a typed capability request to the existing `ToolExecutionGateway`. `PolicyService` evaluates trusted run, target, scope, method, risk and budget before `BrowserAdapter` may create a navigation. Browser-Use has no independent execution authority.
 
@@ -12,4 +12,8 @@ The implementation gate for Day 03 is a local fixture in which JavaScript attemp
 
 The current lab is literal `127.0.0.1`. A domain-based lab adds a separate P0 integration gate: trusted authority, pinned resolved IP/port, Host and TLS SNI with certificate validation must be bound and checked together. Agents cannot supply Host values. Until that transport exists, Browser navigation remains restricted to the literal-IP lab.
 
-Implementation note: `BROWSER_REQUEST` is dispatched by the two-phase Gateway permit, not by `HTTP_FETCH`. A durable continuation marker is consumed before Playwright sends a request. Cancellation writes a terminal parent/child result and fences later writes. Chromium WebSocket routes are kept local without calling `connect_to_server()`, so there is no WebSocket server dispatch. Response evidence stores headers and a bounded envelope; browser continuation has a time bound but does not provide a strict network byte cap for responses with missing or false `Content-Length`.
+Implementation note: `BROWSER_REQUEST` uses the two-phase Gateway permit. A durable continuation marker is consumed before Playwright sends a request. Cancellation writes a terminal parent/child result and fences later writes. Chromium WebSocket routes remain local without calling `connect_to_server()`.
+
+Ver02 adds a CDP response pause because Chromium redirect continuations can bypass the Playwright route callback. All redirects and attachments are aborted before consumption. Body-bearing responses require an explicit identity-encoded Content-Length within per-response and total admission budgets. Unknown-length, chunked and compressed responses fail closed. Headers and transport bytes buffered before response admission are not a hard wire-byte guarantee.
+
+ReconAgent now executes a persisted BrowserDiscovery plan and a bounded same-origin anchor BFS. Stable page sequence participates in child identity and fingerprint, while page-zero defaults preserve Ver1 replay. DOM reads use fixed code in an isolated world, and their evidence feeds the existing EndpointObservation/template/inventory contracts. CI requires a usable Chromium runtime and real zero-dispatch assertions against a reachable forbidden sink. See [Day 03 guide](../day3-browser-discovery.md).

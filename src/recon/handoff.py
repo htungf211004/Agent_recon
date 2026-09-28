@@ -36,7 +36,8 @@ def build_inventory(task, repository, evidence):
         origin = urlsplit(route.url)
         in_scope = bool(
             task.expires_at.tzinfo and task.expires_at > datetime.now(UTC)
-            and Capability.HTTP_FETCH in task.scope.capabilities
+            and (Capability.HTTP_FETCH in task.scope.capabilities
+                 or {Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST}.issubset(task.scope.capabilities))
             and origin.hostname in task.scope.allowed_ips and origin.port in task.scope.allowed_ports
             and route.method in task.scope.allowed_methods and path_allowed(origin.path, task.scope.allowed_paths)
         )

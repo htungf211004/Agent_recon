@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from importlib.util import find_spec
 from pathlib import Path
 from shutil import which
 
 from src.recon.adapters import HttpFetchAdapter, HttpProbeAdapter, NmapAdapter, WhatWebAdapter
 from src.recon.agent import ReconAgent
+from src.recon.browser_runtime import chromium_available
 from src.recon.gateway import CapabilityRegistry, ToolExecutionGateway
 from src.recon.models import Capability
 from src.recon.planner import ReconPlanner
@@ -32,7 +32,7 @@ def create_recon_service(database_path: Path | str, evidence_dir: Path | str) ->
         evidence=EvidenceStore(evidence_dir, repository),
         results=repository,
     )
-    if find_spec("playwright") is not None:
+    if chromium_available():
         from src.recon.browser import BrowserExploreAdapter
 
         registry.register(Capability.BROWSER_EXPLORE, BrowserExploreAdapter(gateway))

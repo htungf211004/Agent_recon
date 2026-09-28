@@ -9,7 +9,7 @@ from enum import StrEnum
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
 from src.contracts.attack_surface import AttackSurfaceInventory
 from src.contracts.evidence import EvidenceManifest
@@ -135,6 +135,18 @@ class BrowserLimits(StrictModel):
     max_requests: int = Field(default=16, ge=1, le=64)
     max_runtime_seconds: float = Field(default=10.0, gt=0, le=30)
     max_response_bytes: int = Field(default=65536, ge=1, le=131072)
+    max_pages: int = Field(default=1, ge=1, le=16)
+    max_depth: int = Field(default=0, ge=0, le=5)
+    max_total_bytes: int = Field(default=1048576, ge=1, le=8388608)
+
+    @model_serializer(mode="wrap")
+    def compatible_payload(self, handler):
+        # Keep persisted Ver1 fingerprints replayable at the legacy defaults.
+        payload = handler(self)
+        for key, default in (("max_pages", 1), ("max_depth", 0), ("max_total_bytes", 1048576)):
+            if payload.get(key) == default:
+                del payload[key]
+        return payload
 
 
 class BrowserExploreParams(StrictModel):
@@ -166,6 +178,14 @@ class BrowserRequestParams(StrictModel):
     resource_type: Literal["document", "stylesheet", "image", "font", "script", "xhr", "fetch", "manifest", "other"] = "document"
     timeout_seconds: float = Field(default=10.0, gt=0, le=30)
     max_body_bytes: int = Field(default=65536, ge=1, le=131072)
+    page_sequence: int = Field(default=0, ge=0, le=15)
+
+    @model_serializer(mode="wrap")
+    def compatible_payload(self, handler):
+        payload = handler(self)
+        if payload.get("page_sequence") == 0:
+            del payload["page_sequence"]
+        return payload
 
     @field_validator("path")
     @classmethod

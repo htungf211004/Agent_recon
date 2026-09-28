@@ -82,6 +82,13 @@ class FakeRoute:
         self.network.append((self.request.method, self.request.url))
         if self.after_continue:
             self.after_continue()
+        response = FakeResponse(self.request)
+        self.page.context.session.handler({
+            "requestId": self.request.url,
+            "request": {"method": self.request.method, "url": self.request.url},
+            "responseStatusCode": response.status,
+            "responseHeaders": [{"name": k, "value": v} for k, v in response.headers.items()],
+        })
         self.page.context.events["requestfinished"](self.request)
 
     def abort(self):
@@ -96,6 +103,7 @@ class FakePage:
         self.after_continue = after_continue
         self.events = {}
         self.routes = []
+        self.main_frame = object()
 
     def on(self, event, callback):
         self.events[event] = callback
@@ -103,13 +111,30 @@ class FakePage:
     def goto(self, url, **_kwargs):
         assert url == self.requests[0].url
         for request in self.requests:
+            request.frame = self.main_frame
             route = FakeRoute(request, self, self.network, self.after_continue)
             self.routes.append(route)
-            self.context.events["response"](FakeResponse(request))
             self.context.handler(route)
 
     def wait_for_timeout(self, _ms):
         pass
+
+    def close(self):
+        pass
+
+
+class FakeCDP:
+    def on(self, _event, handler):
+        self.handler = handler
+
+    def send(self, method, _params=None):
+        if method == "Page.getFrameTree":
+            return {"frameTree": {"frame": {"id": "frame"}}}
+        if method == "Page.createIsolatedWorld":
+            return {"executionContextId": 1}
+        if method == "Runtime.evaluate":
+            return {"result": {"value": []}}
+        return {}
 
 
 class FakeContext:
@@ -138,6 +163,10 @@ class FakeContext:
         self.events["page"](self.page)
         return self.page
 
+    def new_cdp_session(self, _page):
+        self.session = FakeCDP()
+        return self.session
+
     def close(self):
         pass
 
@@ -161,7 +190,7 @@ class FakeChromium:
         self.runtime = runtime
 
     def launch(self, **options):
-        assert options == {"headless": True}
+        assert options["headless"] is True and 0 < options["timeout"] <= 10000
         return FakeBrowser(self.runtime)
 
 

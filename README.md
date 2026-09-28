@@ -105,25 +105,29 @@ Swagger UI: <http://localhost:8000/docs>
 
 ## Kiểm tra
 
-Kết quả local sau Day 03 Ver1: **113 tests passed, 1 Chromium test skipped trong sandbox; Ruff PASS**. Fixture Chromium localhost chạy riêng đã pass. Chưa xác nhận GitHub Actions cho thay đổi này vì chưa push.
+Kết quả local Day 03 Ver02: **138 tests passed, không skip, gồm Chromium thật; Ruff PASS**. CI có gate Chromium bắt buộc bên cạnh toàn bộ test Day 1/2. Trạng thái GitHub Actions cần được xác nhận sau khi push.
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m ruff check --no-cache src tests
 .\.venv\Scripts\python.exe -B -m pytest -p no:cacheprovider tests -q
 ```
 
-## Recon Day 03 Ver1: passive browser
+## Recon Day 03 Ver02: passive browser discovery
 
-The Recon engine now supports typed `BROWSER_EXPLORE` parents and policy-authorized `BROWSER_REQUEST` children. Playwright uses a fresh Chromium context and intercepts every HTTP child before a one-use Gateway continuation permit allows network dispatch. GET/HEAD requests stay on the current literal-IP origin and scoped paths. POST and other write methods, off-scope URLs, secondary navigation, WebSocket server connections and service workers are blocked. Download artifacts are disabled and attachment responses are rejected. Browser observations retain ToolRun, policy, evidence and endpoint provenance; cancellation is a durable terminal `CANCELLED` state.
+`ReconAgent` now runs a deterministic `BrowserDiscovery` phase when the task allows `BROWSER_EXPLORE` and Chromium is available. Bounded BFS follows sorted same-origin anchors with page, depth, request, runtime and response/total byte limits. Fixed DOM reads collect links/forms; forms are never submitted. Browser observations merge into the existing `EndpointObservation`, template reconciliation and **AttackSurfaceInventory v1.0**, preserving verified Day 2 baselines.
+
+The external-dispatch boundary is preserved: every browser GET/HEAD needs a policy-authorized child ToolRun and one-use Gateway continuation permit. Stable page sequence distinguishes repeated resources across pages. A Chromium response guard blocks redirects before any follow-up request and rejects attachments, unbounded/compressed and oversized bodies. Child evidence is `http_exchange` with parent/resource/page metadata and document DOM provenance. Cancellation remains terminal; restart never repeats a completed or uncertain network dispatch.
 
 Install Chromium locally for the real localhost integration gate:
 
 ```powershell
 .\.venv\Scripts\python.exe -m playwright install chromium
+.\.venv\Scripts\python.exe -m src.recon.browser_runtime --probe
+$env:RECON_REQUIRE_CHROMIUM = "1"
 .\.venv\Scripts\python.exe -m pytest -q tests/integration/test_recon_browser_local_e2e.py
 ```
 
-The test skips when Chromium cannot launch. The full Python suite and Ruff run with the commands above. See [browser architecture](ARCHITECTURE.md#day-03-ver1-passive-browser-extension) and [ADR 0003](docs/adr/0003-browser-execution-boundary.md) for the execution boundary and byte-limit caveat.
+CI installs Chromium and system dependencies, probes launch availability, and fails if browser tests cannot run. Local skipping is allowed only without the mandatory flag. The real E2E first proves a forbidden sink is reachable, then checks zero off-scope dispatch, BFS, evidence, baseline preservation, cancellation and restart. See the [Day 03 guide](docs/day3-browser-discovery.md), [browser architecture](ARCHITECTURE.md#day-03-ver02-passive-browser-discovery) and [ADR 0003](docs/adr/0003-browser-execution-boundary.md) for configuration and response-admission limits.
 
 ## AI usage logging
 
