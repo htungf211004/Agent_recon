@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib.util import find_spec
 from pathlib import Path
 from shutil import which
 
@@ -31,6 +32,10 @@ def create_recon_service(database_path: Path | str, evidence_dir: Path | str) ->
         evidence=EvidenceStore(evidence_dir, repository),
         results=repository,
     )
+    if find_spec("playwright") is not None:
+        from src.recon.browser import BrowserExploreAdapter
+
+        registry.register(Capability.BROWSER_EXPLORE, BrowserExploreAdapter(gateway))
     return repository, ReconService(repository, gateway)
 
 

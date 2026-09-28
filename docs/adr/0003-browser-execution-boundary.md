@@ -1,6 +1,6 @@
 # ADR 0003: Browser execution boundary before Day 03
 
-Status: design gate accepted; no Browser adapter is implemented in Day 02.
+Status: Day 03 Ver1 passive browser boundary implemented for literal-IP lab targets.
 
 Every Browser planner or agent proposes a typed capability request to the existing `ToolExecutionGateway`. `PolicyService` evaluates trusted run, target, scope, method, risk and budget before `BrowserAdapter` may create a navigation. Browser-Use has no independent execution authority.
 
@@ -11,3 +11,5 @@ The first browser mode is a deterministic passive observer. Permit only GET/HEAD
 The implementation gate for Day 03 is a local fixture in which JavaScript attempts an off-scope fetch, a POST, a redirect, a download and a WebSocket. The test must show zero forbidden network dispatches, allow and record authorized GET/HEAD resources through the Gateway, and prove evidence/request correlation after restart. A second gate verifies cancellation: a requested cancellation reaches a durable terminal `CANCELLED` state, fences late results and stops further child dispatch. These acceptance tests precede any Browser-Use agent.
 
 The current lab is literal `127.0.0.1`. A domain-based lab adds a separate P0 integration gate: trusted authority, pinned resolved IP/port, Host and TLS SNI with certificate validation must be bound and checked together. Agents cannot supply Host values. Until that transport exists, Browser navigation remains restricted to the literal-IP lab.
+
+Implementation note: `BROWSER_REQUEST` is dispatched by the two-phase Gateway permit, not by `HTTP_FETCH`. A durable continuation marker is consumed before Playwright sends a request. Cancellation writes a terminal parent/child result and fences later writes. Chromium WebSocket routes are kept local without calling `connect_to_server()`, so there is no WebSocket server dispatch. Response evidence stores headers and a bounded envelope; browser continuation has a time bound but does not provide a strict network byte cap for responses with missing or false `Content-Length`.

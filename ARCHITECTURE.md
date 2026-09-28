@@ -1,4 +1,4 @@
-# Recon Day 1/2 architecture — frozen v1
+# Recon architecture — Day 03 Ver1
 
 Runtime: **Python 3.11**, consistent with CI and Docker. Recon uses deterministic plans and parsers. The existing FastAPI/LangGraph starter is separate from the implemented Recon engine.
 
@@ -28,7 +28,7 @@ flowchart TD
 
 Policy runs **inside the Gateway after the atomic claim**, and its final decision is committed before any adapter executes. Agents propose typed `CapabilityRequest` objects. Parsers have no network access. There is no arbitrary shell command, HTTP header, Host override, write method or redirect-following field.
 
-`HTTP_PROBE` and `HTTP_FETCH` are available in the standard Python runner. Nmap and WhatWeb are registered only when `shutil.which` finds their binaries. `CapabilityRegistry.available_capabilities()` exposes the usable registry; an unavailable capability is denied before dispatch.
+`HTTP_PROBE` and `HTTP_FETCH` are available in the standard Python runner. Nmap and WhatWeb are registered only when `shutil.which` finds their binaries. The Browser adapter is registered when the Playwright Python package is present; Chromium must also be installed for a navigation to run. `CapabilityRegistry.available_capabilities()` lists registered adapters; a missing adapter is denied before dispatch, while a missing Chromium executable produces a durable adapter error.
 
 ## Route, observation, baseline
 
@@ -47,7 +47,7 @@ Before exporting, `build_inventory` verifies artifact hashes, response metadata,
 
 ## Durable execution and budgets
 
-`ToolRun` states are `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `DENIED`, `TIMED_OUT`. The request ID is also the tool-run ID. The execution owner has a token, fingerprint, attempt number and 120-second lease. A completed request replays its stored result after restart. Reusing a known request ID with different content is rejected.
+`ToolRun` states are `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `DENIED`, `TIMED_OUT`, `CANCELLED`. The request ID is also the tool-run ID. The execution owner has a token, fingerprint, attempt number and 120-second lease. A completed request replays its stored result after restart. Reusing a known request ID with different content is rejected.
 
 `action_fingerprint` is separate from request ID. It binds run, task, exact IP target, capability, typed parameters and trusted task/policy context. The Gateway binds legacy Recon callers to stored task metadata; supplied conflicting metadata is denied. `PolicyDecision` stores action/scope/policy fingerprints and typed `Risk` R0–R4. See [ADR 0002](docs/adr/0002-day02-execution-and-route-contracts.md).
 
@@ -84,14 +84,24 @@ HTML, robots, sitemap/index, OpenAPI/Swagger and simple JavaScript parsers feed 
 
 Product API/Supervisor integration is a later step. Its input is a trusted stored `ReconTask`; execution is `ReconAgent.run(task_id)`; handoff is `ReconResult.attack_surface_inventory` serialized as shared **AttackSurfaceInventory v1.0**. Consumers import `src.contracts`, not Recon internals. [Contract and integration guide](docs/day2-endpoint-discovery.md) defines refs and versioning; [schema fixture](tests/fixtures/attack-surface-v1.schema.json) guards the freeze.
 
-The future Browser path is frozen in [ADR 0003](docs/adr/0003-browser-execution-boundary.md): navigation and every child resource must pass the Gateway/Policy boundary before network continuation. Cancellation is part of that Day 03 implementation gate. The Python 3.11 choice is recorded in [ADR 0001](docs/adr/0001-mvp-python-runtime.md).
+The passive Browser path implements [ADR 0003](docs/adr/0003-browser-execution-boundary.md): navigation and every child resource pass the Gateway/Policy boundary before network continuation. The Python 3.11 choice is recorded in [ADR 0001](docs/adr/0001-mvp-python-runtime.md).
 
 **Hostname/VHost integration gate:** the implemented lab uses literal IPs, including localhost E2E. `authority` and `resolved_ip` are separate output fields, but hostname dispatch is not implemented. Before a hostname-based staging lab, trusted target configuration must pin authority, resolved IP and port, and preserve Host/TLS SNI with certificate verification. Agents must never supply arbitrary Host values. This is a P1 follow-up for the current IP lab and a P0 integration blocker if the product lab requires domains.
 
-Browser/CDP, CVE/RAG, fuzzing, validation, payload selection, findings, HITL UI and reports are outside this freeze. Future observation sources must retain the same Policy/Gateway boundary.
+Browser-Use, CVE/RAG, fuzzing, validation, payload selection, findings, HITL UI and reports remain outside this implementation. Future observation sources must retain the same Policy/Gateway boundary.
 
 ## Verification
 
 Run `python -B -m ruff check --no-cache src tests` and `python -B -m pytest -p no:cacheprovider tests -q`. Tests include all Day-1 behaviors, a real localhost multi-source fixture, route/observation merge, evidence revocation, shared schema, legacy migration, restart/lease recovery, concurrent budget reservation and registry availability. GitHub Actions uses Python 3.11 on Ubuntu; remote CI status requires a pushed run.
 
-Local freeze verification: **101 tests passed; Ruff passed**.
+Day 03 verification includes parent/child authorization, a one-use external continuation permit, cancellation fencing, and a real localhost Chromium fixture. Run the Chromium test where its binary is installed; CI skips that one test when Chromium is unavailable.
+
+## Day 03 Ver1 passive browser extension
+
+`BROWSER_EXPLORE` is a bounded parent ToolRun. Its Playwright adapter creates a fresh non-persistent Chromium context with service workers blocked and downloads disabled. It installs HTTP and WebSocket interception before navigation. No clicks, forms, Agent JavaScript, persistent browser profile or browser-driven write action is available.
+
+For each intercepted GET/HEAD URL, the adapter derives a deterministic child `BROWSER_REQUEST` ID from the parent ID, method and canonical literal-IP URL. It calls `begin_external_dispatch()` to claim the child, persist policy and reserve budget. It consumes `authorize_external_continuation()` once before `route.continue_()`. `finish_external_dispatch()` stores a response-header evidence envelope and the child ToolResult. It never issues a parallel `HTTP_FETCH` for that request. A duplicate child ID cannot get a second continuation permit. The repository also verifies the parent's origin and dispatch count inside the transaction.
+
+Parent and child ToolRuns contain `parent_request_id`; evidence metadata and ToolResults retain the same correlation. `cancel_tool_run()` atomically writes terminal `CANCELLED` results for a live parent and its children. Later callbacks receive the stored cancellation result. Browser child observations enter the existing `WebEndpointEntry` and `AttackSurfaceInventory` path; they are observed routes and do not become baselines or `FUZZ_READY` without the Day 2 baseline rules.
+
+Browser evidence retains response metadata and an empty body, marked truncated for nonempty GET bodies. Attachment responses are rejected after their headers arrive, and no download artifact is accepted. This caps evidence storage, while navigation timeout caps time spent waiting for responses. Playwright continuation does not provide a hard byte cap on the network transfer itself; a response that omits or falsifies `Content-Length` can transfer more than the configured evidence limit before the context closes. Browser Ver1 therefore remains restricted to the literal-IP lab and short time limits.

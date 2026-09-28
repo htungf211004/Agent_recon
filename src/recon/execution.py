@@ -17,6 +17,7 @@ class ToolRunState(StrEnum):
     FAILED = "FAILED"
     DENIED = "DENIED"
     TIMED_OUT = "TIMED_OUT"
+    CANCELLED = "CANCELLED"
 
 
 class ToolRun(ExecutionModel):
@@ -32,6 +33,8 @@ class ToolRun(ExecutionModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     message: str = ""
+    parent_request_id: str | None = None
+    external_dispatched_at: datetime | None = None
 
 
 class ExecutionBudget(ExecutionModel):

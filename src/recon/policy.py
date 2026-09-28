@@ -8,7 +8,15 @@ from datetime import UTC, datetime
 from typing import Protocol
 
 from src.contracts.execution import Risk, action_fingerprint
-from src.recon.models import Capability, CapabilityRequest, HttpFetchParams, PolicyDecision, ReconTask
+from src.recon.models import (
+    BrowserExploreParams,
+    BrowserRequestParams,
+    Capability,
+    CapabilityRequest,
+    HttpFetchParams,
+    PolicyDecision,
+    ReconTask,
+)
 from src.recon.urls import path_allowed
 
 
@@ -31,9 +39,12 @@ class PolicyService:
 
     @classmethod
     def expected_fingerprint(cls, request: CapabilityRequest, task: ReconTask) -> str:
+        parameters = request.parameters.model_dump(mode="json")
+        if request.parent_request_id is not None:
+            parameters["parent_request_id"] = request.parent_request_id
         return action_fingerprint(
             run_id=task.run_id, task_id=task.id, target=request.target_ip,
-            tool=request.capability.value, parameters=request.parameters.model_dump(mode="json"),
+            tool=request.capability.value, parameters=parameters,
             scope_version=task.scope_version, policy_version=cls.VERSION,
             scope_fingerprint=cls.scope_fingerprint(task),
         )
@@ -83,19 +94,27 @@ class PolicyService:
         if request.target_ip not in task.scope.allowed_ips:
             return "target not allowed"
         params = request.parameters
-        timeout = params.timeout_seconds if isinstance(params, HttpFetchParams) else {
-            Capability.HTTP_PROBE: 5, Capability.NMAP_SCAN: 60, Capability.WHATWEB: 20,
-        }[request.capability]
+        if isinstance(params, BrowserExploreParams):
+            timeout = params.limits.max_runtime_seconds
+        elif isinstance(params, (HttpFetchParams, BrowserRequestParams)):
+            timeout = params.timeout_seconds
+        else:
+            timeout = {Capability.HTTP_PROBE: 5, Capability.NMAP_SCAN: 60, Capability.WHATWEB: 20}[request.capability]
         if timeout > task.execution_budget.max_timeout_seconds:
             return "timeout exceeds task budget"
         requested_ports = params.ports if hasattr(params, "ports") else (params.port,)
         if any(port not in task.scope.allowed_ports for port in requested_ports):
             return "port not allowed"
-        if isinstance(params, HttpFetchParams):
-            if params.max_body_bytes > task.execution_budget.max_body_bytes:
+        if isinstance(params, (HttpFetchParams, BrowserRequestParams, BrowserExploreParams)):
+            body_limit = params.limits.max_response_bytes if isinstance(params, BrowserExploreParams) else params.max_body_bytes
+            if body_limit > task.execution_budget.max_body_bytes:
                 return "body size exceeds task budget"
-            if params.method not in task.scope.allowed_methods:
+            if isinstance(params, (HttpFetchParams, BrowserRequestParams)) and params.method not in task.scope.allowed_methods:
                 return "method not allowed"
             if not path_allowed(params.path, task.scope.allowed_paths):
                 return "path not allowed"
+        if isinstance(params, BrowserExploreParams) and "GET" not in task.scope.allowed_methods:
+            return "method not allowed"
+        if isinstance(params, BrowserRequestParams) and not request.parent_request_id:
+            return "browser request has no parent"
         return None

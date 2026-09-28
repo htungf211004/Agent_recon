@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 
-from src.recon.execution import ToolRun
+from src.recon.execution import ToolRun, ToolRunState
 from src.recon.models import (
     AttackSurfaceEntry,
     Capability,
@@ -31,6 +31,13 @@ class AdapterOutput:
     attack_surface: tuple[AttackSurfaceEntry, ...] = ()
     technologies: tuple[TechnologyObservation, ...] = ()
     http_response: HttpResponseMetadata | None = None
+
+
+@dataclass(frozen=True)
+class ExternalDispatchPermit:
+    request: CapabilityRequest
+    run: ToolRun
+    started_at: datetime
 
 
 class Adapter(Protocol):
@@ -59,6 +66,10 @@ class ResultWriter(Protocol):
     def save_policy_decision(self, decision: PolicyDecision) -> None: ...
 
     def save_tool_result(self, result: ToolResult) -> None: ...
+
+    def mark_external_dispatched(self, run: ToolRun) -> bool: ...
+
+    def cancel_tool_run(self, request_id: str) -> ToolResult | None: ...
 
 
 class CapabilityRegistry:
@@ -91,6 +102,8 @@ class ToolExecutionGateway:
         self.results = results
 
     def execute(self, request: CapabilityRequest) -> ToolResult:
+        if request.capability == Capability.BROWSER_REQUEST:
+            raise ValueError("browser requests require external dispatch")
         request = self.policy.bind(request)
         previous = self.results.get_tool_run(request.id)
         if previous and (previous.task_id != request.task_id or (previous.request_fingerprint and
@@ -133,6 +146,7 @@ class ToolExecutionGateway:
                 capability=request.capability,
                 target_ip=request.target_ip,
                 status="denied",
+                parent_request_id=request.parent_request_id,
                 message=decision.reason if not decision.allowed else "capability adapter unavailable",
                 started_at=started_at,
             )
@@ -144,6 +158,9 @@ class ToolExecutionGateway:
             timed_out = output.timed_out
             if output.status not in ("success", "error"):
                 raise ValueError("adapter returned invalid status")
+            terminal = self.results.get_tool_result(request.id)
+            if terminal is not None:
+                return terminal
             artifact = self.evidence.save(request, output.raw_output) if output.raw_output else None
             evidence_id = artifact.id if artifact else None
             result = ToolResult(
@@ -152,6 +169,7 @@ class ToolExecutionGateway:
                 capability=request.capability,
                 target_ip=request.target_ip,
                 status=output.status,
+                parent_request_id=request.parent_request_id,
                 message=output.message,
                 evidence_id=evidence_id,
                 attack_surface=tuple(entry.model_copy(update={"evidence_id": evidence_id or ""}) for entry in output.attack_surface),
@@ -168,8 +186,68 @@ class ToolExecutionGateway:
                 capability=request.capability,
                 target_ip=request.target_ip,
                 status="error",
+                parent_request_id=request.parent_request_id,
                 message=f"{type(exc).__name__}: {exc}",
                 started_at=started_at,
                 finished_at=datetime.now(UTC),
             )
         return self.results.finish_tool_run(run, result, timed_out=timed_out)
+
+    def begin_external_dispatch(self, request: CapabilityRequest) -> ExternalDispatchPermit | ToolResult:
+        """Claim and authorize an intercepted browser request before any network I/O."""
+        if request.capability != Capability.BROWSER_REQUEST or not request.parent_request_id:
+            raise ValueError("external dispatch is only for browser child requests")
+        request = self.policy.bind(request)
+        fingerprint = hashlib.sha256(request.model_dump_json().encode()).hexdigest()
+        previous = self.results.get_tool_run(request.id)
+        if previous and (previous.task_id != request.task_id or previous.request_fingerprint != fingerprint):
+            raise ValueError("request id reused with different content")
+        self.results.recover_expired_runs(request.task_id, request)
+        existing = self.results.get_tool_result(request.id)
+        if existing is not None:
+            return existing
+        run = self.results.acquire_tool_run(request)
+        if run is None:
+            return self.results.get_tool_result(request.id) or ToolResult(
+                request_id=request.id, task_id=request.task_id, capability=request.capability,
+                target_ip=request.target_ip, parent_request_id=request.parent_request_id,
+                status="error", message="request already claimed or parent not running",
+            )
+        started_at = datetime.now(UTC)
+        decision = self.results.start_tool_run(run, request, self.policy.decide(request))
+        if not decision.allowed:
+            return self.results.finish_tool_run(run, ToolResult(
+                request_id=request.id, task_id=request.task_id, capability=request.capability,
+                target_ip=request.target_ip, parent_request_id=request.parent_request_id,
+                status="denied", message=decision.reason, started_at=started_at,
+            ))
+        return ExternalDispatchPermit(request=request, run=run, started_at=started_at)
+
+    def authorize_external_continuation(self, permit: ExternalDispatchPermit) -> bool:
+        """Consume a durable, one-use network continuation token."""
+        return self.results.mark_external_dispatched(permit.run)
+
+    def finish_external_dispatch(self, permit: ExternalDispatchPermit, output: AdapterOutput) -> ToolResult:
+        """Persist child evidence and terminal result; cancellation wins any race."""
+        request, run = permit.request, permit.run
+        existing = self.results.get_tool_result(request.id)
+        if existing is not None:
+            return existing
+        current = self.results.get_tool_run(request.id)
+        if (current is None or current.owner_token != run.owner_token
+                or current.state != ToolRunState.RUNNING or current.external_dispatched_at is None):
+            raise RuntimeError("external dispatch was not continued or execution was cancelled")
+        if output.status not in ("success", "error"):
+            raise ValueError("invalid external dispatch status")
+        artifact = self.evidence.save(request, output.raw_output) if output.raw_output else None
+        result = ToolResult(
+            request_id=request.id, task_id=request.task_id, capability=request.capability,
+            target_ip=request.target_ip, parent_request_id=request.parent_request_id,
+            status=output.status, message=output.message,
+            evidence_id=artifact.id if artifact else None, http_response=output.http_response,
+            started_at=permit.started_at, finished_at=datetime.now(UTC),
+        )
+        return self.results.finish_tool_run(run, result, timed_out=output.timed_out)
+
+    def cancel(self, request_id: str) -> ToolResult | None:
+        return self.results.cancel_tool_run(request_id)

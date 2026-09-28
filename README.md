@@ -105,12 +105,25 @@ Swagger UI: <http://localhost:8000/docs>
 
 ## Kiểm tra
 
-Kết quả local sau Day 2 freeze: **101 tests passed**, **Ruff PASS**. Suite gồm các kiểm tra Day 1 và localhost E2E nhiều nguồn; chưa xác nhận GitHub Actions cho thay đổi này vì chưa push.
+Kết quả local sau Day 03 Ver1: **113 tests passed, 1 Chromium test skipped trong sandbox; Ruff PASS**. Fixture Chromium localhost chạy riêng đã pass. Chưa xác nhận GitHub Actions cho thay đổi này vì chưa push.
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m ruff check --no-cache src tests
 .\.venv\Scripts\python.exe -B -m pytest -p no:cacheprovider tests -q
 ```
+
+## Recon Day 03 Ver1: passive browser
+
+The Recon engine now supports typed `BROWSER_EXPLORE` parents and policy-authorized `BROWSER_REQUEST` children. Playwright uses a fresh Chromium context and intercepts every HTTP child before a one-use Gateway continuation permit allows network dispatch. GET/HEAD requests stay on the current literal-IP origin and scoped paths. POST and other write methods, off-scope URLs, secondary navigation, WebSocket server connections and service workers are blocked. Download artifacts are disabled and attachment responses are rejected. Browser observations retain ToolRun, policy, evidence and endpoint provenance; cancellation is a durable terminal `CANCELLED` state.
+
+Install Chromium locally for the real localhost integration gate:
+
+```powershell
+.\.venv\Scripts\python.exe -m playwright install chromium
+.\.venv\Scripts\python.exe -m pytest -q tests/integration/test_recon_browser_local_e2e.py
+```
+
+The test skips when Chromium cannot launch. The full Python suite and Ruff run with the commands above. See [browser architecture](ARCHITECTURE.md#day-03-ver1-passive-browser-extension) and [ADR 0003](docs/adr/0003-browser-execution-boundary.md) for the execution boundary and byte-limit caveat.
 
 ## AI usage logging
 

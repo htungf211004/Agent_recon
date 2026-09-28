@@ -59,13 +59,28 @@ class ReconRepository:
         now = self.clock()
         run = ToolRun(request_id=request.id, task_id=request.task_id, state=ToolRunState.QUEUED,
                       owner_token=str(uuid4()), request_fingerprint=hashlib.sha256(request.model_dump_json().encode()).hexdigest(),
-                      request_payload=request.model_dump_json(), queued_at=now, lease_expires_at=now + timedelta(seconds=120))
+                      request_payload=request.model_dump_json(), queued_at=now, lease_expires_at=now + timedelta(seconds=120),
+                      parent_request_id=request.parent_request_id)
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            if request.parent_request_id:
+                row = connection.execute("SELECT payload FROM tool_runs WHERE request_id = ?", (request.parent_request_id,)).fetchone()
+                if row is None:
+                    return None
+                parent = ToolRun.model_validate_json(row[0])
+                parent_request = CapabilityRequest.model_validate_json(parent.request_payload) if parent.request_payload else None
+                if (parent.task_id != request.task_id or parent.state != ToolRunState.RUNNING
+                        or parent.lease_expires_at <= now or parent_request is None
+                        or parent_request.capability != Capability.BROWSER_EXPLORE
+                        or parent_request.target_ip != request.target_ip
+                        or parent_request.parameters.port != request.parameters.port
+                        or parent_request.parameters.scheme != request.parameters.scheme):
+                    return None
             cursor = connection.execute(
                 "INSERT OR IGNORE INTO tool_runs VALUES (?, ?, ?)", (request.id, request.task_id, run.model_dump_json()),
             )
-            connection.execute("INSERT OR IGNORE INTO execution_claims VALUES (?, ?, ?)", (request.id, request.task_id, now.isoformat()))
+            if cursor.rowcount == 1:
+                connection.execute("INSERT OR IGNORE INTO execution_claims VALUES (?, ?, ?)", (request.id, request.task_id, now.isoformat()))
         return run if cursor.rowcount == 1 else None
 
     def get_tool_run(self, request_id: str) -> ToolRun | None:
@@ -77,6 +92,11 @@ class ReconRepository:
         with self._connect() as connection:
             return tuple(ToolRun.model_validate_json(row[0]) for row in connection.execute(
                 "SELECT payload FROM tool_runs WHERE task_id = ? ORDER BY rowid", (task_id,)))
+
+    def list_child_runs(self, parent_request_id: str) -> tuple[ToolRun, ...]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT payload FROM tool_runs ORDER BY rowid")
+            return tuple(run for row in rows if (run := ToolRun.model_validate_json(row[0])).parent_request_id == parent_request_id)
 
     @staticmethod
     def _failed_result(request: CapabilityRequest, run: ToolRun) -> ToolResult:
@@ -147,6 +167,12 @@ class ReconRepository:
             current = ToolRun.model_validate_json(connection.execute("SELECT payload FROM tool_runs WHERE request_id = ?", (run.request_id,)).fetchone()[0])
             if current.owner_token != run.owner_token or current.state != ToolRunState.QUEUED or current.lease_expires_at <= self.clock():
                 raise RuntimeError("execution lease lost before dispatch")
+            if request.parent_request_id:
+                parent_row = connection.execute("SELECT payload FROM tool_runs WHERE request_id = ?", (request.parent_request_id,)).fetchone()
+                parent = ToolRun.model_validate_json(parent_row[0]) if parent_row else None
+                if parent is None or parent.state != ToolRunState.RUNNING or parent.lease_expires_at <= self.clock():
+                    decision = decision.model_copy(update={"allowed": False, "outcome": PolicyOutcome.DENY,
+                                                           "reason": "browser parent is not running"})
             reason = self._budget_denial(connection, request) if decision.allowed else None
             if reason:
                 decision = decision.model_copy(update={"allowed": False, "outcome": PolicyOutcome.DENY, "reason": reason})
@@ -157,6 +183,67 @@ class ReconRepository:
                 current = current.model_copy(update={"state": ToolRunState.RUNNING, "started_at": self.clock()})
                 connection.execute("UPDATE tool_runs SET payload = ? WHERE request_id = ?", (current.model_dump_json(), current.request_id))
         return decision
+
+    def mark_external_dispatched(self, run: ToolRun) -> bool:
+        """Spend the single continuation permit, guarded by parent and child states."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload FROM tool_runs WHERE request_id = ?", (run.request_id,)).fetchone()
+            if row is None:
+                return False
+            current = ToolRun.model_validate_json(row[0])
+            parent_row = connection.execute("SELECT payload FROM tool_runs WHERE request_id = ?", (current.parent_request_id,)).fetchone()
+            parent = ToolRun.model_validate_json(parent_row[0]) if parent_row else None
+            if (current.owner_token != run.owner_token or current.state != ToolRunState.RUNNING
+                    or current.external_dispatched_at is not None or current.lease_expires_at <= self.clock()
+                    or parent is None or parent.state != ToolRunState.RUNNING or parent.lease_expires_at <= self.clock()):
+                return False
+            parent_request = CapabilityRequest.model_validate_json(parent.request_payload)
+            dispatched = sum(
+                child.parent_request_id == parent.request_id and child.external_dispatched_at is not None
+                for row in connection.execute("SELECT payload FROM tool_runs WHERE task_id = ?", (parent.task_id,))
+                if (child := ToolRun.model_validate_json(row[0]))
+            )
+            if dispatched >= parent_request.parameters.limits.max_requests:
+                return False
+            current = current.model_copy(update={"external_dispatched_at": self.clock()})
+            connection.execute("UPDATE tool_runs SET payload = ? WHERE request_id = ?", (current.model_dump_json(), run.request_id))
+            return True
+
+    def cancel_tool_run(self, request_id: str) -> ToolResult | None:
+        """Atomically cancel a run and its live children; terminal results fence late workers."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            ids = [request_id]
+            ids.extend(run.request_id for row in connection.execute("SELECT payload FROM tool_runs")
+                       if (run := ToolRun.model_validate_json(row[0])).parent_request_id == request_id)
+            root_result = None
+            for current_id in ids:
+                row = connection.execute("SELECT payload FROM tool_runs WHERE request_id = ?", (current_id,)).fetchone()
+                if row is None:
+                    continue
+                run = ToolRun.model_validate_json(row[0])
+                existing = connection.execute("SELECT payload FROM tool_results WHERE request_id = ?", (current_id,)).fetchone()
+                if existing:
+                    if current_id == request_id:
+                        root_result = ToolResult.model_validate_json(existing[0])
+                    continue
+                if run.state not in (ToolRunState.QUEUED, ToolRunState.RUNNING):
+                    continue
+                request = CapabilityRequest.model_validate_json(run.request_payload)
+                result = ToolResult(request_id=current_id, task_id=run.task_id,
+                                    capability=request.capability, target_ip=request.target_ip,
+                                    parent_request_id=request.parent_request_id, status="cancelled",
+                                    message="execution cancelled", started_at=run.started_at or run.queued_at,
+                                    finished_at=self.clock())
+                updated = run.model_copy(update={"state": ToolRunState.CANCELLED,
+                                                 "finished_at": self.clock(), "message": result.message})
+                connection.execute("UPDATE tool_runs SET payload = ? WHERE request_id = ?", (updated.model_dump_json(), current_id))
+                connection.execute("INSERT INTO tool_results VALUES (?, ?, ?, ?)",
+                                   (current_id, run.task_id, result.status, result.model_dump_json()))
+                if current_id == request_id:
+                    root_result = result
+            return root_result
 
     def finish_tool_run(self, run: ToolRun, result: ToolResult, *, timed_out: bool = False) -> ToolResult:
         with self._connect() as connection:
@@ -171,7 +258,8 @@ class ReconRepository:
                 current = current.model_copy(update={"message": "execution lease expired; late result rejected", "finished_at": self.clock()})
                 result = self._failed_result(CapabilityRequest.model_validate_json(current.request_payload), current)
                 timed_out = False
-            state = {"success": ToolRunState.SUCCEEDED, "denied": ToolRunState.DENIED}.get(result.status, ToolRunState.FAILED)
+            state = {"success": ToolRunState.SUCCEEDED, "denied": ToolRunState.DENIED,
+                     "cancelled": ToolRunState.CANCELLED}.get(result.status, ToolRunState.FAILED)
             current = current.model_copy(update={"state": ToolRunState.TIMED_OUT if timed_out else state,
                                                  "finished_at": self.clock(), "message": result.message})
             connection.execute("UPDATE tool_runs SET payload = ? WHERE request_id = ?", (current.model_dump_json(), run.request_id))
@@ -406,9 +494,10 @@ class EvidenceStore:
                 task_id=request.task_id,
                 request_id=request.id,
                 tool_run_id=request.id,
-                kind="http_exchange" if request.capability == Capability.HTTP_FETCH else "tool_output",
-                content_type="application/json" if request.capability == Capability.HTTP_FETCH else "application/octet-stream",
-                metadata={"capability": request.capability.value},
+                kind="http_exchange" if request.capability in {Capability.HTTP_FETCH, Capability.BROWSER_REQUEST} else "tool_output",
+                content_type="application/json" if request.capability in {Capability.HTTP_FETCH, Capability.BROWSER_REQUEST} else "application/octet-stream",
+                metadata={"capability": request.capability.value,
+                          **({"parent_request_id": request.parent_request_id} if request.parent_request_id else {})},
                 sha256=hashlib.sha256(content).hexdigest(),
                 size_bytes=len(content),
                 relative_path=relative_path,

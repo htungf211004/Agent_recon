@@ -30,6 +30,7 @@ class DiscoveryKind(StrEnum):
     OPENAPI = "openapi"
     JAVASCRIPT = "javascript"
     SEED = "seed"
+    BROWSER = "browser"
 
 
 class SourceStatus(StrEnum):

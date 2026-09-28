@@ -34,6 +34,8 @@ class Capability(StrEnum):
     NMAP_SCAN = "nmap_scan"
     WHATWEB = "whatweb"
     HTTP_FETCH = "http_fetch"
+    BROWSER_EXPLORE = "browser_explore"
+    BROWSER_REQUEST = "browser_request"
 
 
 class Scope(StrictModel):
@@ -129,7 +131,54 @@ class HttpFetchParams(StrictModel):
     _query = field_validator("query")(validate_query)
 
 
-Parameters = HttpProbeParams | NmapScanParams | WhatWebParams | HttpFetchParams
+class BrowserLimits(StrictModel):
+    max_requests: int = Field(default=16, ge=1, le=64)
+    max_runtime_seconds: float = Field(default=10.0, gt=0, le=30)
+    max_response_bytes: int = Field(default=65536, ge=1, le=131072)
+
+
+class BrowserExploreParams(StrictModel):
+    kind: Literal["browser_explore"] = "browser_explore"
+    port: int = Field(ge=1, le=65535)
+    scheme: Literal["http", "https"] = "http"
+    path: str = "/"
+    query: str = ""
+    limits: BrowserLimits = Field(default_factory=BrowserLimits)
+
+    @field_validator("path")
+    @classmethod
+    def local_path(cls, value: str) -> str:
+        validate_path(value)
+        if any(c in value for c in "{}"):
+            raise ValueError("unresolved path template")
+        return value
+
+    _query = field_validator("query")(validate_query)
+
+
+class BrowserRequestParams(StrictModel):
+    kind: Literal["browser_request"] = "browser_request"
+    port: int = Field(ge=1, le=65535)
+    scheme: Literal["http", "https"] = "http"
+    method: Literal["GET", "HEAD"] = "GET"
+    path: str = "/"
+    query: str = ""
+    resource_type: Literal["document", "stylesheet", "image", "font", "script", "xhr", "fetch", "manifest", "other"] = "document"
+    timeout_seconds: float = Field(default=10.0, gt=0, le=30)
+    max_body_bytes: int = Field(default=65536, ge=1, le=131072)
+
+    @field_validator("path")
+    @classmethod
+    def local_path(cls, value: str) -> str:
+        validate_path(value)
+        if any(c in value for c in "{}"):
+            raise ValueError("unresolved path template")
+        return value
+
+    _query = field_validator("query")(validate_query)
+
+
+Parameters = HttpProbeParams | NmapScanParams | WhatWebParams | HttpFetchParams | BrowserExploreParams | BrowserRequestParams
 
 
 class CapabilityRequest(StrictModel):
@@ -144,6 +193,7 @@ class CapabilityRequest(StrictModel):
     target_ip: str
     parameters: Parameters = Field(discriminator="kind")
     budget_context: BudgetContext | None = None
+    parent_request_id: str | None = Field(default=None, min_length=1)
 
     @field_validator("target_ip")
     @classmethod
@@ -154,6 +204,10 @@ class CapabilityRequest(StrictModel):
     def matching_parameters(self) -> CapabilityRequest:
         if self.capability.value != self.parameters.kind:
             raise ValueError("parameters do not match capability")
+        if (self.capability == Capability.BROWSER_REQUEST) != (self.parent_request_id is not None):
+            raise ValueError("browser child request requires a parent; other capabilities cannot have one")
+        if self.parent_request_id == self.id:
+            raise ValueError("browser request cannot be its own parent")
         return self
 
     @property
@@ -240,7 +294,8 @@ class ToolResult(StrictModel):
     task_id: str
     capability: Capability
     target_ip: str
-    status: Literal["success", "error", "denied"]
+    status: Literal["success", "error", "denied", "cancelled"]
+    parent_request_id: str | None = None
     message: str = ""
     evidence_id: str | None = None
     attack_surface: tuple[AttackSurfaceEntry, ...] = ()
