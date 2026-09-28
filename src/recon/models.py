@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from src.contracts.attack_surface import AttackSurfaceInventory
 from src.contracts.evidence import EvidenceManifest
+from src.contracts.execution import Risk
 from src.recon.execution import BudgetContext, ExecutionBudget
 from src.recon.urls import validate_path, validate_query
 from src.recon.web_models import (
@@ -63,6 +64,7 @@ class Scope(StrictModel):
 class ReconTask(StrictModel):
     id: str = Field(min_length=1)
     run_id: str = Field(min_length=1)
+    scope_version: str = Field(default="1", min_length=1)
     scope: Scope
     expires_at: datetime
     discovery_limits: DiscoveryLimits = Field(default_factory=DiscoveryLimits)
@@ -133,6 +135,11 @@ Parameters = HttpProbeParams | NmapScanParams | WhatWebParams | HttpFetchParams
 class CapabilityRequest(StrictModel):
     id: str = Field(min_length=1)
     task_id: str = Field(min_length=1)
+    # Older callers may omit binding metadata. Gateway fills it from the stored task
+    # before claiming; any supplied value is checked by PolicyService.
+    run_id: str | None = None
+    scope_version: str | None = None
+    action_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     capability: Capability
     target_ip: str
     parameters: Parameters = Field(discriminator="kind")
@@ -148,6 +155,10 @@ class CapabilityRequest(StrictModel):
         if self.capability.value != self.parameters.kind:
             raise ValueError("parameters do not match capability")
         return self
+
+    @property
+    def target(self) -> str:
+        return self.target_ip
 
 
 class ReconAction(StrictModel):
@@ -181,13 +192,15 @@ class PolicyOutcome(StrEnum):
 
 class PolicyDecision(StrictModel):
     request_id: str
+    action_fingerprint: str = ""
+    scope_version: str = "legacy"
     allowed: bool | None = None
     outcome: PolicyOutcome | None = None
     reason: str
     checked_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    policy_version: str = "recon-2.1"
+    policy_version: str = "recon-2.2"
     policy_fingerprint: str = ""
-    risk: str = "bounded_recon"
+    risk: Risk = Risk.R0
     attempt: int = Field(default=1, ge=1)
 
     @model_validator(mode="after")

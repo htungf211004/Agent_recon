@@ -51,6 +51,7 @@ class AttackSurfaceEntry(ContractModel):
     resolved_ip: str
     method: Literal["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE"]
     canonical_path: str
+    route_template: str | None = None
     parameters: tuple[Parameter, ...] = ()
     observations: tuple[Observation, ...]
     baseline_ref: str | None = None
@@ -69,6 +70,8 @@ class AttackSurfaceEntry(ContractModel):
     def traceable_and_ready(self):
         if not self.canonical_path.startswith("/") or any(c in self.canonical_path for c in "?#"):
             raise ValueError("route identity must not contain query or fragment")
+        if self.route_template is not None and self.route_template != self.canonical_path:
+            raise ValueError("route template must equal the canonical route path")
         observation_ids = {item.id for item in self.observations}
         if len(observation_ids) != len(self.observations):
             raise ValueError("duplicate observation identity")

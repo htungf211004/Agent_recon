@@ -76,5 +76,10 @@ class ReconPlanner:
             capability=capability,
             target_ip=target_ip,
             parameters=parameters,
+            run_id=task.run_id,
+            scope_version=task.scope_version,
         )
+        from src.recon.policy import PolicyService
+
+        request = request.model_copy(update={"action_fingerprint": PolicyService.expected_fingerprint(request, task)})
         return ReconAction(id=request_id, request=request)

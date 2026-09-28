@@ -15,9 +15,10 @@ from src.recon.models import Capability, ReconTask, ToolResult
 from src.recon.planner import ReconPlanner, scheme_for_port
 from src.recon.service import ReconService
 from src.recon.storage import ReconRepository
-from src.recon.urls import normalize_candidate, request_url
+from src.recon.urls import normalize_candidate, request_url, valid_template_path
 from src.recon.web_models import (
     BaselineRequest,
+    DiscoveryKind,
     DiscoverySource,
     EndpointLifecycle,
     EndpointObservation,
@@ -104,6 +105,7 @@ class EndpointDiscovery:
                     return self.service.snapshot(task.id)
                 else:
                     self._process(task, source, result)
+        self.repository.reconcile_all_templates(task.id)
         self._coverage(task)
         return self.service.snapshot(task.id)
 
@@ -120,25 +122,32 @@ class EndpointDiscovery:
 
     def _candidate(self, task, candidate, source, depth):
         observation_id = stable_id(task.id, candidate.method, candidate.url)
+        path = urlsplit(candidate.url).path
+        unresolved_path = any(char in path for char in "{}")
+        from_openapi = source.kind == DiscoveryKind.OPENAPI and candidate.relation == "operation"
+        route_template = path if from_openapi and valid_template_path(path) else None
+        route = urlsplit(candidate.url)
+        route_url = f"{route.scheme}://{route.netloc}{route_template}" if route_template else candidate.url
         query_params = tuple(EndpointParameter(name=name, location="query", data_type="string")
                              for name, _ in parse_qsl(urlsplit(candidate.url).query, keep_blank_values=True)
                              if 0 < len(name) <= 256)
         endpoint = WebEndpointEntry(
-            task_id=task.id, url=candidate.url, method=candidate.method,
+            task_id=task.id, url=route_url, route_template=route_template, method=candidate.method,
             parameters=tuple({(param.location, param.name): param for param in (*query_params, *candidate.parameters)}.values()),
             provenance=(EndpointProvenance(source_id=source.id, kind=source.kind, relation=candidate.relation,
                                            evidence_id=source.evidence_id, request_id=source.request_id,
-                                           observation_id=observation_id),),
+                                           observation_id=None if unresolved_path else observation_id),),
             requires_manual_input=candidate.manual,
         )
         if self.repository.get_endpoint(endpoint.id) is None and len(self.repository.list_endpoints(task.id)) >= task.discovery_limits.max_endpoints:
             self.limit_reason = "endpoint_limit"
             return
         endpoint = self.repository.save_endpoint(endpoint)
-        self.repository.save_observation(EndpointObservation(
-            task_id=task.id, endpoint_id=endpoint.id, url=candidate.url, method=candidate.method,
-            provenance=tuple(p for p in endpoint.provenance if p.observation_id == observation_id),
-        ))
+        if not unresolved_path:
+            self.repository.save_observation(EndpointObservation(
+                task_id=task.id, endpoint_id=endpoint.id, url=candidate.url, method=candidate.method,
+                provenance=tuple(p for p in endpoint.provenance if p.observation_id == observation_id),
+            ))
         if not baseline_eligible(endpoint, candidate.url):
             return
         known = self.repository.list_sources(task.id)
@@ -153,6 +162,7 @@ class EndpointDiscovery:
             self.limit_reason = "depth_limit"
         self.repository.save_source(DiscoverySource(
             task_id=task.id, url=candidate.url, method=endpoint.method, kind=candidate.kind_hint,
+            route_template=route_template,
             depth=depth, status=status, message="depth_limit" if status == SourceStatus.LIMITED else "",
         ))
 
@@ -169,6 +179,7 @@ class EndpointDiscovery:
                                         observation_id=source.id, request_id=result.request_id, evidence_id=result.evidence_id)
         observation = self.repository.save_observation(EndpointObservation(
             task_id=source.task_id, endpoint_id=endpoint.id, url=source.url, method=source.method,
+            route_template=source.route_template,
             provenance=(provenance,), request_id=result.request_id, evidence_id=result.evidence_id,
             response=result.http_response, observed_at=result.finished_at, evidence_verified=True,
         ))
@@ -178,6 +189,7 @@ class EndpointDiscovery:
             baseline = BaselineRequest(
                 task_id=source.task_id, endpoint_id=endpoint.id, request_id=result.request_id,
                 url=source.url, method=source.method, evidence_id=result.evidence_id, observation_id=observation.id,
+                route_template=source.route_template,
                 response=response, observed_at=result.finished_at,
             )
             self.repository.save_baseline(baseline)
@@ -188,6 +200,7 @@ class EndpointDiscovery:
         self.repository.save_endpoint(endpoint)
 
     def _process(self, task, source, result):
+        source = next((item for item in self.repository.list_sources(task.id) if item.id == source.id), source)
         source = source.model_copy(update={"evidence_id": result.evidence_id})
         metadata = result.http_response
         body = b""

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from src.contracts.attack_surface import EndpointStatus as EndpointLifecycle
 from src.contracts.attack_surface import Parameter as EndpointParameter
-from src.recon.urls import canonical_url, route_url
+from src.recon.urls import canonical_url, match_route_template, route_url, valid_template_path
 
 
 def stable_id(*parts: str) -> str:
@@ -56,6 +56,7 @@ HttpMethod = Literal["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS",
 class WebEndpointEntry(WebModel):
     task_id: str = Field(min_length=1)
     url: str
+    route_template: str | None = None
     method: HttpMethod = "GET"
     parameters: tuple[EndpointParameter, ...] = ()
     provenance: tuple[EndpointProvenance, ...] = ()
@@ -81,6 +82,9 @@ class WebEndpointEntry(WebModel):
 
     @model_validator(mode="after")
     def consistent_lifecycle(self):
+        if self.route_template is not None and (self.route_template != self.canonical_path
+                                                or not valid_template_path(self.route_template)):
+            raise ValueError("route template must be the canonical path with whole-segment placeholders")
         keys = [(p.location, p.name) for p in self.parameters]
         if len(keys) != len(set(keys)):
             raise ValueError("endpoint parameters must be unique by location and name")
@@ -100,6 +104,7 @@ class WebEndpointEntry(WebModel):
 class DiscoverySource(WebModel):
     task_id: str = Field(min_length=1)
     url: str
+    route_template: str | None = None
     method: Literal["GET", "HEAD"] = "GET"
     kind: DiscoveryKind = DiscoveryKind.SEED
     depth: int = Field(default=0, ge=0, le=6)
@@ -117,10 +122,17 @@ class DiscoverySource(WebModel):
 
     @property
     def endpoint_id(self) -> str:
-        return stable_id(self.task_id, self.method, route_url(self.url))
+        concrete = urlsplit(self.url)
+        route = f"{concrete.scheme}://{concrete.netloc}{self.route_template}" if self.route_template else self.url
+        return stable_id(self.task_id, self.method, route_url(route))
 
     @model_validator(mode="after")
     def completed_source_has_evidence(self):
+        if self.route_template:
+            concrete = urlsplit(self.url)
+            template = f"{concrete.scheme}://{concrete.netloc}{self.route_template}"
+            if match_route_template(template, self.url) is None:
+                raise ValueError("source does not match route template")
         if self.status in {SourceStatus.PARSED, SourceStatus.UNAVAILABLE} and not (self.request_id and self.evidence_id):
             raise ValueError("completed sources require a request and evidence")
         return self
@@ -140,6 +152,7 @@ class BaselineRequest(WebModel):
     request_id: str = Field(min_length=1)
     observation_id: str = Field(min_length=1)
     url: str
+    route_template: str | None = None
     method: Literal["GET", "HEAD"]
     evidence_id: str = Field(min_length=1)
     response: HttpResponseMetadata
@@ -157,7 +170,11 @@ class BaselineRequest(WebModel):
             raise ValueError("baseline requires a complete 2xx response")
         if self.observed_at.tzinfo is None:
             raise ValueError("baseline timestamp requires a timezone")
-        if self.endpoint_id != stable_id(self.task_id, self.method, route_url(self.url)):
+        parts = urlsplit(self.url)
+        template = f"{parts.scheme}://{parts.netloc}{self.route_template}" if self.route_template else self.url
+        if self.route_template and match_route_template(template, self.url) is None:
+            raise ValueError("baseline does not match route template")
+        if self.endpoint_id != stable_id(self.task_id, self.method, route_url(template)):
             raise ValueError("baseline endpoint identity mismatch")
         if self.observation_id != stable_id(self.task_id, self.method, self.url):
             raise ValueError("baseline observation identity mismatch")
@@ -168,6 +185,7 @@ class EndpointObservation(WebModel):
     task_id: str
     endpoint_id: str
     url: str
+    route_template: str | None = None
     method: HttpMethod = "GET"
     provenance: tuple[EndpointProvenance, ...] = ()
     request_id: str | None = None
@@ -184,7 +202,11 @@ class EndpointObservation(WebModel):
 
     @model_validator(mode="after")
     def identity_and_evidence(self):
-        if self.endpoint_id != stable_id(self.task_id, self.method, route_url(self.url)):
+        parts = urlsplit(self.url)
+        template = f"{parts.scheme}://{parts.netloc}{self.route_template}" if self.route_template else self.url
+        if self.route_template and match_route_template(template, self.url) is None:
+            raise ValueError("observation does not match route template")
+        if self.endpoint_id != stable_id(self.task_id, self.method, route_url(template)):
             raise ValueError("observation does not belong to route")
         if self.evidence_verified and not (self.request_id and self.evidence_id and self.response):
             raise ValueError("verified observation requires response and evidence")

@@ -52,6 +52,18 @@
           "title": "Canonical Path",
           "type": "string"
         },
+        "route_template": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Route Template"
+        },
         "parameters": {
           "default": [],
           "items": {

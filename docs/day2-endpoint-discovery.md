@@ -60,6 +60,8 @@ The API parser follows the parameter and server structures in the [OpenAPI 3 spe
 
 Route identity is `(task_id, method, canonical origin/path)`, excluding query and fragment. `/search?q=a` and `/search?q=b` create one route and two `EndpointObservation` records. Observations retain full concrete URLs, including query values, order and repeated keys. A repeated identical URL merges provenance into the same observation. Different methods/origins, path case and trailing slashes remain distinct. Normalization canonicalizes literal IPs/default ports and unreserved escapes. Off-origin URLs, credentials, traversal, ambiguous separators and control characters are rejected. Parameters merge by `(location, name)`; required stays required when sources disagree.
 
+OpenAPI/Swagger can declare a whole-segment path template. A unique exact-origin/method match joins `/users/1` and `/users/2` to `/users/{id}` after the current discovery queue is processed. The template itself is a route, not a fabricated concrete observation. Concrete URLs and baseline evidence stay on their observations. Ambiguous template matches remain separate routes. Unsupported partial templates remain inventory only. There is no numeric or UUID guessing: `/version/v1` and `/version/v2` remain distinct without a declared template. [ADR 0002](adr/0002-day02-execution-and-route-contracts.md) records the identity rule.
+
 ## Lifecycle and baselines
 
 | State | Deterministic rule |
@@ -78,6 +80,8 @@ SQLite stores routes, `endpoint_observations`, sources, baselines, coverage, Too
 Default limits are 8 rounds, 64 request attempts, 128 sources, 256 endpoint identities and depth 3. The planner schedules at most 16 pending sources per round. Each parser emits at most 256 candidates per document. Limits are stored on the task and have hard model maxima.
 
 `ReconTask.execution_budget` independently caps all adapter attempts (default 128), rate (default 100 requests per second), timeout and HTTP body size. The Gateway checks these and the HTTP_FETCH request quota even when a caller bypasses the discovery planner. Reservation and final policy persistence are atomic before adapter dispatch; reservations survive restart. Rate denial is durable for that request ID, without automatic retry. The fetch planner reduces its requested timeout/body limits to fit the trusted task. Source/route/depth/round limits remain discovery orchestration bounds; direct Gateway calls do not parse or add routes/sources.
+
+Authorization uses `action_fingerprint` separately from the idempotent request ID. The digest binds run/task, literal target IP, capability, typed parameters, scope version, policy version and the trusted stored task fingerprint. Supplied mismatches are denied before adapter dispatch. Recon classifies bounded HTTP/WhatWeb as R0 and Nmap as R1 using shared `Risk` R0–R4; it still only emits ALLOW/DENY. Legacy Recon callers without binding metadata are filled from the stored task at the Gateway. Historical decisions without this digest retain an empty action fingerprint after migration, rather than gaining a fabricated approval binding.
 
 Source status is `PENDING`, `PARSED`, `UNAVAILABLE`, `BLOCKED`, `ERROR`, or `LIMITED`. Missing resources and redirects are recorded as UNAVAILABLE; denied calls are BLOCKED; malformed documents or invalid evidence are ERROR. Resource limits record LIMITED or a coverage stop reason and never claim convergence.
 
@@ -101,7 +105,7 @@ The schema is frozen in [attack-surface-v1.schema.json](../tests/fixtures/attack
 | Field | Meaning |
 |---|---|
 | `id`, `run_id`, `target_id` | Stable route ID within a task; run reference; deterministic target reference from run + origin. Product target-ID mapping is an integration responsibility. |
-| `scheme`, `authority`, `resolved_ip`, `method`, `canonical_path` | Origin/route identity; concrete query stays on observations. Current execution targets are literal IPs. |
+| `scheme`, `authority`, `resolved_ip`, `method`, `canonical_path`, `route_template` | Origin/route identity; concrete query/path values stay on observations. `route_template` equals the canonical path only for declared templates, otherwise null. Current execution targets are literal IPs. |
 | `parameters`, `observations` | Merged input schema and distinct concrete URLs with response/provenance refs. |
 | `baseline_ref`, `baseline_observation_ref` | Selected durable baseline and the exact verified observation it used. |
 | `evidence_refs`, `provenance` | Every exported route traces to an observation, source request and verified evidence. An unexecuted candidate uses its source document's request/evidence; `Observation.request_ref` describes its own verified fetch, if any. |
@@ -116,7 +120,7 @@ The current engine has no Product API/Supervisor wiring. The trusted operator la
 
 The real fixture uses `127.0.0.1:port`. Hostname/VHost dispatch remains a P1 follow-up for that lab and a P0 integration gate for any domain-based lab: trusted authority, pinned resolved IP/port, Host/TLS SNI and certificate verification must be designed together. Arbitrary agent-supplied Host values remain forbidden. Output DTOs already separate authority from resolved IP; this does not imply hostname transport support.
 
-Python stays **3.11** across this implementation, CI and Docker. Browser/CDP, LLM planning, CVE/RAG, fuzzing/validation, payload/checker selection, findings, HITL UI and reports are outside Day 2. The next integration is the Recon → Fuzz vertical slice using the frozen DTO; a future browser adds observations through the same execution boundary.
+Python stays **3.11** across this implementation, CI and Docker ([ADR 0001](adr/0001-mvp-python-runtime.md)). Browser/CDP, LLM planning, CVE/RAG, fuzzing/validation, payload/checker selection, findings, HITL UI and reports are outside Day 2. The [Browser execution boundary](adr/0003-browser-execution-boundary.md) is frozen before Day 03: every browser-generated network request must pass a gateway-controlled policy decision and evidence path. Durable cancellation is an implementation gate with the Browser adapter. Domain-based labs retain the trusted authority/IP/SNI integration gate.
 
 ## Verification
 

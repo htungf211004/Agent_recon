@@ -22,6 +22,7 @@ from src.recon.models import (
     ReconTask,
     ToolResult,
 )
+from src.recon.urls import match_route_template
 from src.recon.web_models import BaselineRequest, DiscoverySource, EndpointObservation, ReconCoverage, WebEndpointEntry
 from src.storage.migrations import migrate
 
@@ -52,6 +53,9 @@ class ReconRepository:
         return self.acquire_tool_run(request) is not None
 
     def acquire_tool_run(self, request: CapabilityRequest) -> ToolRun | None:
+        from src.recon.policy import PolicyService
+
+        request = PolicyService(self).bind(request)
         now = self.clock()
         run = ToolRun(request_id=request.id, task_id=request.task_id, state=ToolRunState.QUEUED,
                       owner_token=str(uuid4()), request_fingerprint=hashlib.sha256(request.model_dump_json().encode()).hexdigest(),
@@ -255,6 +259,72 @@ class ReconRepository:
         with self._connect() as connection:
             rows = connection.execute("SELECT payload FROM web_endpoints WHERE task_id = ? ORDER BY id", (task_id,))
             return tuple(WebEndpointEntry.model_validate_json(row[0]) for row in rows)
+
+    def matching_template(self, task_id: str, method: str, concrete_url: str) -> WebEndpointEntry | None:
+        candidates = tuple(endpoint for endpoint in self.list_endpoints(task_id)
+                           if endpoint.method == method and endpoint.route_template
+                           and match_route_template(endpoint.url, concrete_url) is not None)
+        return candidates[0] if len(candidates) == 1 else None
+
+    def reconcile_all_templates(self, task_id: str) -> None:
+        for template in self.list_endpoints(task_id):
+            if template.route_template:
+                self.reconcile_template(template)
+
+    def reconcile_template(self, template: WebEndpointEntry) -> None:
+        """Move precise concrete routes to a unique trusted template, preserving proof IDs."""
+        for old in self.list_endpoints(template.task_id):
+            if old.id == template.id or old.route_template or not self.matching_template(old.task_id, old.method, old.url):
+                continue
+            if self.matching_template(old.task_id, old.method, old.url).id != template.id:
+                continue
+            self._rebind_route(old, template)
+
+    def _rebind_route(self, old: WebEndpointEntry, template: WebEndpointEntry) -> None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = connection.execute("SELECT payload FROM web_endpoints WHERE id = ?", (template.id,)).fetchone()
+            previous = connection.execute("SELECT payload FROM web_endpoints WHERE id = ?", (old.id,)).fetchone()
+            if current is None or previous is None:
+                return
+            template = WebEndpointEntry.model_validate_json(current[0])
+            old = WebEndpointEntry.model_validate_json(previous[0])
+            baseline_id = old.baseline_id
+            if baseline_id:
+                row = connection.execute("SELECT payload FROM baseline_requests WHERE id = ?", (baseline_id,)).fetchone()
+                if row:
+                    baseline = BaselineRequest.model_validate_json(row[0])
+                    baseline = baseline.model_copy(update={
+                        "endpoint_id": template.id, "route_template": template.route_template,
+                    })
+                    baseline = BaselineRequest.model_validate_json(baseline.model_dump_json())
+                    baseline_id = baseline.id
+                    connection.execute("INSERT OR IGNORE INTO baseline_requests VALUES (?, ?, ?)",
+                                       (baseline.id, baseline.task_id, baseline.model_dump_json()))
+            rebound = old.model_copy(update={"url": template.url, "route_template": template.route_template,
+                                             "baseline_id": baseline_id})
+            linked_provenance = []
+            for row in list(connection.execute("SELECT id, payload FROM endpoint_observations WHERE endpoint_id = ?", (old.id,))):
+                observation = EndpointObservation.model_validate_json(row[1]).model_copy(update={
+                    "endpoint_id": template.id, "route_template": template.route_template,
+                })
+                proofs = tuple(item.model_copy(update={"observation_id": observation.id})
+                               for item in template.provenance if item.request_id and item.evidence_id)
+                observation = observation.model_copy(update={"provenance": (*observation.provenance, *proofs)})
+                observation = EndpointObservation.model_validate_json(observation.model_dump_json())
+                linked_provenance.extend(proofs)
+                connection.execute("UPDATE endpoint_observations SET endpoint_id = ?, payload = ? WHERE id = ?",
+                                   (template.id, observation.model_dump_json(), row[0]))
+            rebound = rebound.model_copy(update={"provenance": (*rebound.provenance, *linked_provenance)})
+            merged = merge_endpoints(template, rebound)
+            for row in list(connection.execute("SELECT id, payload FROM discovery_sources WHERE task_id = ?", (old.task_id,))):
+                source = DiscoverySource.model_validate_json(row[1])
+                if source.endpoint_id == old.id:
+                    source = source.model_copy(update={"route_template": template.route_template})
+                    connection.execute("UPDATE discovery_sources SET payload = ? WHERE id = ?",
+                                       (source.model_dump_json(), row[0]))
+            connection.execute("UPDATE web_endpoints SET payload = ? WHERE id = ?", (merged.model_dump_json(), template.id))
+            connection.execute("DELETE FROM web_endpoints WHERE id = ?", (old.id,))
 
     def replace_endpoint(self, endpoint: WebEndpointEntry) -> None:
         """Refresh derived readiness after verifying scope/evidence, including revocation."""

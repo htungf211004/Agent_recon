@@ -62,6 +62,37 @@ def route_url(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
 
+def valid_template_path(path: str) -> bool:
+    """Only whole named path segments are accepted as declared templates."""
+    segments = path.split("/")
+    return any(re.fullmatch(r"\{[A-Za-z_][A-Za-z0-9_]*\}", part) for part in segments) and all(
+        ("{" not in part and "}" not in part) or re.fullmatch(r"\{[A-Za-z_][A-Za-z0-9_]*\}", part)
+        for part in segments
+    )
+
+
+def match_route_template(template_url: str, concrete_url: str) -> dict[str, str] | None:
+    """Match only known whole-segment placeholders on the exact same origin."""
+    template, concrete = urlsplit(route_url(template_url)), urlsplit(route_url(concrete_url))
+    if (template.scheme, template.netloc) != (concrete.scheme, concrete.netloc):
+        return None
+    pattern, values = template.path.split("/"), concrete.path.split("/")
+    if len(pattern) != len(values):
+        return None
+    bindings = {}
+    for name, value in zip(pattern, values, strict=True):
+        if re.fullmatch(r"\{[A-Za-z_][A-Za-z0-9_]*\}", name):
+            if not value or value in {".", ".."} or any(char in value for char in "{}"):
+                return None
+            key = name[1:-1]
+            if key in bindings and bindings[key] != value:
+                return None
+            bindings[key] = value
+        elif name != value:
+            return None
+    return bindings if bindings else None
+
+
 def normalize_candidate(value: str, base_url: str) -> str | None:
     try:
         # Reject traversal before urljoin could erase it.

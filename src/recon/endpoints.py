@@ -2,6 +2,7 @@
 
 from urllib.parse import parse_qsl, urlsplit
 
+from src.recon.urls import match_route_template
 from src.recon.web_models import EndpointLifecycle, EndpointParameter, WebEndpointEntry
 
 
@@ -45,11 +46,17 @@ def merge_endpoints(old: WebEndpointEntry, new: WebEndpointEntry) -> WebEndpoint
 
 
 def has_unresolved_required_input(endpoint: WebEndpointEntry, concrete_url: str | None = None) -> bool:
-    if any(char in endpoint.url for char in "{}"):
+    concrete = concrete_url or endpoint.baseline_url or endpoint.url
+    bindings = match_route_template(endpoint.url, concrete) if endpoint.route_template else {}
+    if endpoint.route_template and bindings is None:
         return True
-    query = dict(parse_qsl(urlsplit(concrete_url or endpoint.baseline_url or endpoint.url).query, keep_blank_values=True))
+    if not endpoint.route_template and any(char in endpoint.url for char in "{}"):
+        return True
+    query = dict(parse_qsl(urlsplit(concrete).query, keep_blank_values=True))
     for param in endpoint.parameters:
-        if param.required and (param.location != "query" or not query.get(param.name)):
+        if param.required and ((param.location == "query" and not query.get(param.name))
+                               or (param.location == "path" and not bindings.get(param.name))
+                               or param.location not in {"query", "path"}):
             return True
     return False
 

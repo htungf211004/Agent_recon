@@ -4,6 +4,7 @@ import hashlib
 import json
 import sqlite3
 from datetime import UTC, datetime
+from urllib.parse import urlsplit
 
 
 def _legacy_schema(connection):
@@ -122,10 +123,68 @@ def _execution_contracts(connection):
     connection.execute("INSERT INTO policy_audit SELECT request_id, 1, payload FROM policy_decisions")
 
 
+def _authorization_binding(connection):
+    """Bind historical request payloads for replay without reauthorizing old work."""
+    from src.recon.execution import ToolRun
+    from src.recon.models import CapabilityRequest, ReconTask
+    from src.recon.policy import PolicyService
+
+    tasks = {row[0]: ReconTask.model_validate_json(row[1]) for row in connection.execute("SELECT id, payload FROM recon_tasks")}
+    for request_id, raw in list(connection.execute("SELECT request_id, payload FROM tool_runs")):
+        item = ToolRun.model_validate_json(raw)
+        task = tasks.get(item.task_id)
+        if task and item.request_payload:
+            request = CapabilityRequest.model_validate_json(item.request_payload)
+            request = request.model_copy(update={
+                "run_id": task.run_id, "scope_version": task.scope_version,
+                "action_fingerprint": PolicyService.expected_fingerprint(request, task),
+            })
+            payload = request.model_dump_json()
+            item = item.model_copy(update={
+                "request_payload": payload, "request_fingerprint": hashlib.sha256(payload.encode()).hexdigest(),
+            })
+            connection.execute("UPDATE tool_runs SET payload = ? WHERE request_id = ?", (item.model_dump_json(), request_id))
+    for request_id, raw in list(connection.execute("SELECT request_id, payload FROM policy_decisions")):
+        item = json.loads(raw)
+        item["risk"] = "R0" if item.get("risk") == "bounded_recon" else item.get("risk", "R0")
+        item.setdefault("action_fingerprint", "")  # Historical policy did not bind an action fingerprint.
+        item.setdefault("scope_version", "legacy")
+        connection.execute("UPDATE policy_decisions SET payload = ? WHERE request_id = ?", (json.dumps(item), request_id))
+        connection.execute("UPDATE policy_audit SET payload = ? WHERE request_id = ?", (json.dumps(item), request_id))
+
+
+def _declared_templates(connection):
+    from src.recon.urls import valid_template_path
+    from src.recon.web_models import stable_id
+
+    for route_id, raw in list(connection.execute("SELECT id, payload FROM web_endpoints")):
+        route = json.loads(raw)
+        path = urlsplit(route["url"]).path
+        if valid_template_path(path) and any(
+            item.get("kind") == "openapi" and item.get("relation") == "operation"
+            for item in route.get("provenance", [])
+        ):
+            route["route_template"] = path
+        if "{" in path or "}" in path:
+            placeholder_id = stable_id(route["task_id"], route["method"], route["url"])
+            for item in route.get("provenance", []):
+                if item.get("observation_id") == placeholder_id:
+                    item["observation_id"] = None
+        connection.execute("UPDATE web_endpoints SET payload = ? WHERE id = ?", (json.dumps(route), route_id))
+    for observation_id, raw in list(connection.execute("SELECT id, payload FROM endpoint_observations")):
+        item = json.loads(raw)
+        if ("{" in urlsplit(item["url"]).path or "}" in urlsplit(item["url"]).path) and not item.get("request_id"):
+            connection.execute("DELETE FROM endpoint_observations WHERE id = ?", (observation_id,))
+    connection.execute("DELETE FROM recon_results")
+    connection.execute("DELETE FROM recon_coverage")
+
+
 MIGRATIONS = (
     (1, "adopt_day1_day2_schema", _legacy_schema),
     (2, "route_observations", _route_observations),
     (3, "durable_execution_and_evidence", _execution_contracts),
+    (4, "authorization_binding", _authorization_binding),
+    (5, "declared_route_templates", _declared_templates),
 )
 
 

@@ -45,7 +45,7 @@ Recon Day 1 đã có luồng thực thi từ task đến kết quả và bằng 
 - SQLite migration có version; evidence manifest có run/tool-run/kind/content type/redaction metadata.
 - Registry chỉ đăng ký Nmap/WhatWeb khi tìm thấy binary; HTTP probe/fetch luôn có trong runner Python.
 
-**Day 2 architecture: FROZEN; Recon → Fuzz contract: v1.0.** Python giữ **3.11** như CI/Docker. Product API/Supervisor chưa nối; hostname/VHost là integration gate trước khi dùng lab có domain. Chi tiết handoff và phạm vi còn lại nằm trong tài liệu Day 2.
+**Day 2 architecture: FROZEN; Recon → Fuzz contract: v1.0.** Request dùng `action_fingerprint` tách khỏi `request_id`, `Risk` là R0–R4; OpenAPI template có thể gộp path cụ thể khi khớp duy nhất. Python giữ **3.11** theo [ADR runtime](docs/adr/0001-mvp-python-runtime.md). [ADR Browser](docs/adr/0003-browser-execution-boundary.md) khóa đường thực thi và interception cho Day 03. Product API/Supervisor chưa nối; hostname/VHost là integration gate trước khi dùng lab có domain. Chi tiết handoff nằm trong tài liệu Day 2.
 
 Xem [kiến trúc hiện tại](ARCHITECTURE.md) và [cách chạy, giới hạn Day 2](docs/day2-endpoint-discovery.md). Bộ kiểm tra gồm toàn bộ test Day 1 và các test Day 2; chạy bằng lệnh trong mục **Kiểm tra**.
 
@@ -105,7 +105,7 @@ Swagger UI: <http://localhost:8000/docs>
 
 ## Kiểm tra
 
-Kết quả local sau Day 2 freeze: **88 tests passed**, **Ruff PASS**. Suite gồm các kiểm tra Day 1 và localhost E2E nhiều nguồn; chưa xác nhận GitHub Actions cho thay đổi này vì chưa push.
+Kết quả local sau Day 2 freeze: **101 tests passed**, **Ruff PASS**. Suite gồm các kiểm tra Day 1 và localhost E2E nhiều nguồn; chưa xác nhận GitHub Actions cho thay đổi này vì chưa push.
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m ruff check --no-cache src tests

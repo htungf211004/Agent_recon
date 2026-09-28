@@ -101,7 +101,8 @@ def build_inventory(task, repository, evidence):
         entries.append(AttackSurfaceEntry(
             id=route.id, run_id=task.run_id, target_id=stable_id(task.run_id, origin.scheme, origin.netloc),
             scheme=origin.scheme, authority=origin.netloc, resolved_ip=origin.hostname, method=route.method,
-            canonical_path=origin.path, parameters=route.parameters, observations=tuple(dtos),
+            canonical_path=origin.path, route_template=route.route_template,
+            parameters=route.parameters, observations=tuple(dtos),
             baseline_ref=route.baseline_id, baseline_observation_ref=baseline.observation_id if baseline_valid else None,
             evidence_refs=refs, provenance=tuple(provenance), status=route.lifecycle, in_scope=in_scope,
             has_verified_baseline=baseline_valid, has_valid_evidence=bool(refs),

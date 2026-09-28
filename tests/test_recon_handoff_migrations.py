@@ -143,7 +143,7 @@ def test_unversioned_database_upgrades_routes_evidence_claims_without_losing_his
         artifact = upgraded.get_evidence(artifact_id)
         assert artifact.run_id == result.run_id and artifact.redaction_status == "UNREVIEWED"
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall() == [(1,), (2,), (3,)]
+        assert connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall() == [(1,), (2,), (3,), (4,), (5,)]
         assert connection.execute("SELECT COUNT(*) FROM baseline_requests").fetchone()[0] == 3
     gateway.results = upgraded
     orphan = CapabilityRequest(id="orphan", task_id=result.task_id, target_ip="127.0.0.1",
@@ -182,3 +182,32 @@ def test_failed_migration_rolls_back_schema_and_version(tmp_path, monkeypatch):
         ReconRepository(path)
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall() == []
+
+
+def test_v3_execution_records_gain_binding_without_replaying_request(tmp_path):
+    from src.contracts.execution import Risk
+    from src.recon.models import CapabilityRequest
+
+    repository, _, gateway, _, result = discovered(tmp_path)
+    old = result.tool_results[0]
+    with sqlite3.connect(repository.database_path) as connection:
+        connection.execute("DELETE FROM schema_migrations WHERE version = 4")
+        run = json.loads(connection.execute("SELECT payload FROM tool_runs WHERE request_id = ?", (old.request_id,)).fetchone()[0])
+        request = json.loads(run["request_payload"])
+        for field in ("run_id", "scope_version", "action_fingerprint"):
+            request.pop(field)
+        run["request_payload"] = json.dumps(request, separators=(",", ":"))
+        run["request_fingerprint"] = "legacy"
+        connection.execute("UPDATE tool_runs SET payload = ? WHERE request_id = ?", (json.dumps(run), old.request_id))
+        decision = json.loads(connection.execute("SELECT payload FROM policy_decisions WHERE request_id = ?", (old.request_id,)).fetchone()[0])
+        for field in ("action_fingerprint", "scope_version"):
+            decision.pop(field)
+        decision["risk"] = "bounded_recon"
+        connection.execute("UPDATE policy_decisions SET payload = ? WHERE request_id = ?", (json.dumps(decision), old.request_id))
+    upgraded = ReconRepository(repository.database_path)
+    bound = CapabilityRequest.model_validate_json(upgraded.get_tool_run(old.request_id).request_payload)
+    assert bound.run_id == result.run_id and bound.action_fingerprint
+    assert upgraded.get_policy_decision(old.request_id).risk == Risk.R0
+    assert upgraded.get_policy_decision(old.request_id).action_fingerprint == ""  # Historical proof is not invented.
+    gateway.results = upgraded
+    assert gateway.execute(CapabilityRequest.model_validate(request)) == old

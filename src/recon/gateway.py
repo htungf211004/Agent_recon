@@ -91,6 +91,7 @@ class ToolExecutionGateway:
         self.results = results
 
     def execute(self, request: CapabilityRequest) -> ToolResult:
+        request = self.policy.bind(request)
         previous = self.results.get_tool_run(request.id)
         if previous and (previous.task_id != request.task_id or (previous.request_fingerprint and
                 previous.request_fingerprint != hashlib.sha256(request.model_dump_json().encode()).hexdigest())):

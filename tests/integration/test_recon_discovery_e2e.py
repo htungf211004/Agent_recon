@@ -22,6 +22,8 @@ def discovery_server():
             documents = {
                 "/": ("text/html", '''<html><a href="/shared">shared</a><a href="/query?q=one">query</a>
                     <a href="/query?q=two">query two</a><a href="/profile">profile</a>
+                    <a href="/users/1">user 1</a><a href="/users/2">user 2</a>
+                    <a href="/version/v1">API v1</a><a href="/version/v2">API v2</a>
                     <a href="/missing">missing</a><a href="/redirect">redirect</a>
                     <a href="http://127.0.0.2/outside">outside</a><script src="/app.js"></script>
                     <form method="post" action="/mutate"><input name="value" required></form>
@@ -34,6 +36,7 @@ def discovery_server():
                         "/shared": {"get": {}},
                         "/required": {"get": {"parameters": [{"name": "q", "in": "query", "required": True}]}},
                         "/api/{id}": {"get": {"parameters": [{"name": "id", "in": "path", "required": True}]}},
+                        "/users/{id}": {"get": {"parameters": [{"name": "id", "in": "path", "required": True}]}},
                         "/mutate": {"post": {"requestBody": {"required": True}}},
                     },
                 })),
@@ -42,6 +45,10 @@ def discovery_server():
                 "/query?q=one": ("application/json", '{"q":"one"}'),
                 "/query?q=two": ("application/json", '{"q":"two"}'),
                 "/profile": ("text/plain", "profile without query parameters"),
+                "/users/1": ("application/json", '{"id":1}'),
+                "/users/2": ("application/json", '{"id":2}'),
+                "/version/v1": ("text/plain", "version one"),
+                "/version/v2": ("text/plain", "version two"),
                 "/from-js": ("text/plain", "JavaScript candidate"),
                 "/from-sitemap": ("text/plain", "sitemap candidate"),
             }
@@ -107,6 +114,15 @@ def test_local_multisource_discovery_merge_lifecycle_evidence_and_replay(tmp_pat
     observations = [item for item in result.observations if item.endpoint_id == query.id]
     assert {item.url for item in observations} == {origin + "/query?q=one", origin + "/query?q=two"}
     assert endpoints[("/profile", "GET")].lifecycle == EndpointLifecycle.FUZZ_READY
+    users = endpoints[("/users/{id}", "GET")]
+    assert users.route_template == "/users/{id}" and users.lifecycle == EndpointLifecycle.FUZZ_READY
+    assert ("/users/1", "GET") not in endpoints and ("/users/2", "GET") not in endpoints
+    assert {item.url for item in result.observations if item.endpoint_id == users.id} >= {
+        origin + "/users/1", origin + "/users/2",
+    }
+    assert endpoints[("/version/v1", "GET")].id != endpoints[("/version/v2", "GET")].id
+    exported = next(item for item in result.attack_surface_inventory.entries if item.id == users.id)
+    assert exported.route_template == exported.canonical_path == "/users/{id}"
     assert endpoints[("/missing", "GET")].lifecycle == EndpointLifecycle.OBSERVED
     assert endpoints[("/redirect", "GET")].lifecycle == EndpointLifecycle.OBSERVED
     assert endpoints[("/mutate", "POST")].lifecycle == EndpointLifecycle.DISCOVERED

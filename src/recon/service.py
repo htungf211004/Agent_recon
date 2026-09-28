@@ -8,7 +8,7 @@ from src.recon.gateway import ToolExecutionGateway
 from src.recon.handoff import build_inventory
 from src.recon.models import ReconPlan, ReconResult
 from src.recon.storage import ReconRepository
-from src.recon.web_models import EndpointLifecycle
+from src.recon.web_models import EndpointLifecycle, SourceStatus
 
 
 class ReconService:
@@ -32,6 +32,8 @@ class ReconService:
         task = self.repository.get_task(task_id)
         if task is None:
             raise ValueError("unknown Recon task")
+        if not any(source.status == SourceStatus.PENDING for source in self.repository.list_sources(task_id)):
+            self.repository.reconcile_all_templates(task_id)
         results = self.repository.list_tool_results(task_id)
         inventory = build_inventory(task, self.repository, self.gateway.evidence)
         endpoints = self.repository.list_endpoints(task_id)
