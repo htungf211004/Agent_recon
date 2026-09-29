@@ -192,6 +192,18 @@ def _recon_policy_snapshot(connection):
             connection.execute("UPDATE recon_tasks SET payload = ? WHERE id = ?", (json.dumps(task), task_id))
 
 
+def _adaptive_planning(connection):
+    connection.execute("""CREATE TABLE IF NOT EXISTS recon_planning_sessions (
+        task_id TEXT PRIMARY KEY, binding TEXT NOT NULL, config TEXT NOT NULL, stop_reason TEXT
+    )""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS recon_planning_rounds (
+        task_id TEXT NOT NULL, number INTEGER NOT NULL, state TEXT NOT NULL,
+        owner TEXT NOT NULL, expires_at TEXT NOT NULL, context TEXT NOT NULL,
+        decision TEXT, plan TEXT, rejections TEXT NOT NULL DEFAULT '[]',
+        action_count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(task_id, number)
+    )""")
+
+
 MIGRATIONS = (
     (1, "adopt_day1_day2_schema", _legacy_schema),
     (2, "route_observations", _route_observations),
@@ -199,6 +211,7 @@ MIGRATIONS = (
     (4, "authorization_binding", _authorization_binding),
     (5, "declared_route_templates", _declared_templates),
     (6, "v6_recon_policy_snapshot", _recon_policy_snapshot),
+    (7, "bounded_adaptive_planning", _adaptive_planning),
 )
 
 

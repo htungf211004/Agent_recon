@@ -105,7 +105,7 @@ Swagger UI: <http://localhost:8000/docs>
 
 ## Kiểm tra
 
-Kết quả local sau final P0: **258 tests passed, không skip, gồm Chromium thật; Ruff PASS**. Docker build, Nmap/WhatWeb, Chromium probe dưới user non-root, smoke 5 adapter thật qua Gateway và FastAPI health đều PASS. CI bắt buộc các gate này; kết quả GitHub Actions cho bản sửa mới cần được xác nhận sau khi push. Chưa tuyên bố freeze MVP khi remote gate chưa được xác nhận.
+Kết quả local sau adaptive planning: **300 tests passed, không skip, gồm Chromium thật; Ruff PASS**. Giữ toàn bộ 258 test P0 và thêm 42 test. Docker build và smoke 5 adapter thật qua Gateway trong image mới đều PASS. CI bắt buộc Chromium và các gate container; GitHub Actions cho bản sửa mới chưa chạy vì thay đổi đang giữ local theo yêu cầu. Chưa tuyên bố freeze MVP khi remote gate chưa được xác nhận.
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m ruff check --no-cache src tests scripts/check_recon_runtime.py
@@ -148,6 +148,14 @@ See [final hardening verification](docs/recon-final-hardening.md) and [container
 - Trusted task snapshot dùng `recon-3.0`; migration v6 gắn `recon-2.2` cho task cũ. Completed request cũ vẫn replay đúng fingerprint; action mới trên policy cũ bị DENY.
 - Final container có Nmap, WhatWeb và Chromium; manifest bắt buộc đúng 5 public capabilities. `BROWSER_REQUEST` là child execution nội bộ. WhatWeb dùng `--follow-redirect=never`, đã kiểm tra với sink server thật.
 - Xem [báo cáo P0 và các gate](docs/recon-final-p0.md).
+
+## Optional adaptive Recon planning
+
+`AdaptiveReconAgent` bọc engine deterministic bằng LangGraph theo stage: ASI/context → LLM proposal có schema → deterministic validator → Policy/Gateway → evidence → ASI refresh. Mặc định tối đa 2 round, hard cap 3 round, 5 proposal/round và 8 action root/task; SQLite migration v7 lưu quyết định và budget planning để restart không gọi lại model hoặc reset giới hạn.
+
+Model chỉ có thể đề xuất safe HTTP (GET/HEAD qua `HTTP_FETCH`), bounded browser, hoặc stop. `content_discovery` bị từ chối vì FFUF chưa có capability/adapter trong scope hiện tại. Context không chứa raw evidence/body/header/cookie/query values. Core `ReconAgent` vẫn deterministic; kết nối model thật là opt-in riêng.
+
+Xem [đánh giá thiết kế, cách bật, giới hạn và kiểm chứng](docs/recon-adaptive-planning.md).
 
 ## AI usage logging
 

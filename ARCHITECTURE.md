@@ -76,6 +76,7 @@ Stop existing Recon workers before upgrading the database; running old and new w
 4. Bind historical ToolRun payloads for replay and normalize legacy risk without inventing historical approval fingerprints.
 5. Mark declared path templates and discard historical placeholder observations that were never concrete requests.
 6. Add the trusted `policy_version` task snapshot, assigning `recon-2.2` to historical tasks lacking the field. This migration does not rewrite historical runs, decisions, action fingerprints or evidence. Migration v4 explicitly binds old tasks with `recon-2.2` when upgrading older databases.
+7. Add optional adaptive-planning sessions and rounds. These tables persist model claims, bounded contexts, decisions, validated plans and action counts, without changing task fingerprints or ToolRuns.
 
 Task, plan, source, result, policy and evidence history is preserved. Only derived Recon snapshots/coverage are invalidated during the route migration. Old readiness is reverified from original evidence on the next snapshot. Evidence bytes and their SHA-256 values are unchanged.
 
@@ -110,6 +111,10 @@ For each intercepted GET/HEAD URL, the adapter derives a versioned child `BROWSE
 Chromium can follow a redirect after `route.continue_()` without a second Playwright route callback. A CDP Fetch guard pauses every response before Chromium consumes it and rejects all 3xx responses. Requests still require the original Gateway permit before reaching the server. Missing or failed interception aborts the response.
 
 Parent and child ToolRuns contain `parent_request_id`; evidence metadata additionally records resource type and page sequence. Child evidence is typed `http_exchange`. Fixed DOM link/form observations are included in the successful document's evidence envelope before finalization. Network and DOM provenance enter the existing `EndpointObservation`, template reconciliation and `AttackSurfaceInventory v1.0` path. Browser projection preserves prior verified HTTP observations/baselines and is repairable from persisted evidence after a crash. A separate promotion phase can then obtain complete HTTP baseline evidence.
+
+## Optional adaptive planning
+
+The optional `AdaptiveReconAgent` runs the unchanged engine first, then wraps bounded LLM planning/validation/execution/refresh stages in LangGraph. Only shared typed proposals cross the model boundary. SQLite owns planning durability, while the existing Gateway owns all target execution. See [adaptive planning](docs/recon-adaptive-planning.md) for the graph, strict model boundary, persistent limits and recovery behavior. The default `ReconAgent` does not call a model.
 
 ## Browser baseline promotion
 

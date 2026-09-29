@@ -143,7 +143,7 @@ def test_unversioned_database_upgrades_routes_evidence_claims_without_losing_his
         artifact = upgraded.get_evidence(artifact_id)
         assert artifact.run_id == result.run_id and artifact.redaction_status == "UNREVIEWED"
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,)]
+        assert connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,), (7,)]
         assert connection.execute("SELECT COUNT(*) FROM baseline_requests").fetchone()[0] == 3
     gateway.results = upgraded
     orphan = CapabilityRequest(id="orphan", task_id=result.task_id, target_ip="127.0.0.1",

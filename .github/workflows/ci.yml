@@ -30,7 +30,7 @@ jobs:
         run: python -m src.recon.browser_runtime --probe
 
       - name: Lint with ruff
-        run: ruff check src/ tests/ scripts/check_recon_runtime.py
+        run: ruff check src/ tests/ scripts/check_recon_runtime.py scripts/run_recon_live.py
 
       - name: Run tests
         run: pytest tests/ -v --tb=short

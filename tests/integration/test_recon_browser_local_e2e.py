@@ -414,3 +414,34 @@ def test_browser_only_endpoint_gets_one_complete_baseline_and_replays(tmp_path, 
     assert resumed.run(task.id).attack_surface_inventory == result.attack_surface_inventory
     assert Counter(calls) == counts
     assert forbidden_sink[1] == []
+
+
+def test_adaptive_browser_proposal_uses_real_boundary_and_baseline(tmp_path, browser_server, forbidden_sink, chromium_gate):
+    from src.recon.adaptive_agent import AdaptiveReconAgent
+    from src.recon.llm_planner import LLMReconPlanner
+    from src.recon.models import ReconPlan
+    from tests.test_recon_adaptive_planning import STOP, FakeModel, proposal
+
+    port, calls = browser_server
+    repository, gateway, engine, task = browser_agent(tmp_path, port, BrowserLimits(), http=True)
+    model = FakeModel({"proposals": [proposal("/browser-only", kind="browser_explore", port=port)]}, STOP)
+    agent = AdaptiveReconAgent(engine, LLMReconPlanner(model, planner_id="fake-browser-v1"))
+    result = agent.run(task.id)
+    dynamic = next(e for e in result.attack_surface_inventory.entries if e.canonical_path == "/dynamic")
+    assert dynamic.status == "FUZZ_READY" and dynamic.has_verified_baseline
+    assert Counter(calls)[("GET", "/dynamic?source=browser")] == 2
+    row = agent.store.rounds(task.id)[0]
+    plan = ReconPlan.model_validate_json(row["plan"])
+    parent = plan.actions[0].request
+    assert parent.capability == Capability.BROWSER_EXPLORE
+    assert repository.get_policy_decision(parent.id).allowed
+    assert repository.list_child_runs(parent.id)
+    assert any(e["path"] == "/dynamic" for e in model.contexts[1]["routes"])
+    count = list(calls)
+    reopened = ReconRepository(repository.database_path)
+    resumed_gateway = ToolExecutionGateway(PolicyService(reopened), gateway.registry,
+        EvidenceStore(gateway.evidence.directory, reopened), reopened)
+    resumed = AdaptiveReconAgent(ReconAgent(reopened, ReconPlanner(), ReconService(reopened, resumed_gateway)), agent.planner)
+    assert resumed.run(task.id).attack_surface_inventory == result.attack_surface_inventory
+    assert calls == count and len(model.contexts) == 2
+    assert forbidden_sink[1] == []
