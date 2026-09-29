@@ -1,0 +1,142 @@
+version: recon-checklist-v1
+items:
+  - id: RECON-SERVICE-DISCOVERY
+    phase: service_discovery
+    title: Discover scoped TCP services
+    purpose: Discover scoped TCP services with durable evidence
+    applicable_when: capability_authorized
+    recommended_capabilities: [nmap_scan]
+    required_capabilities: [nmap_scan]
+    risk: R1
+    safe_default: true
+    evidence_requirement: verified_terminal_evidence
+    status_rule: capability
+    source_reference: PT_01_Checklist_Pentest_Web.docx; group 1; STT 2 (Active Recon); bounded subset
+    notes: Fixed scoped Nmap service discovery only; no full-port sweep or arbitrary NSE. Planning knowledge only; does not authorize execution. See docs/recon-checklist-source-mapping.md.
+    paths: []
+  - id: RECON-WEB-PROBE
+    phase: web_service_discovery
+    title: Verify HTTP origins
+    purpose: Verify HTTP origins with durable evidence
+    applicable_when: capability_authorized
+    recommended_capabilities: [http_probe]
+    required_capabilities: [http_probe]
+    risk: R0
+    safe_default: true
+    evidence_requirement: verified_terminal_evidence
+    status_rule: capability
+    source_reference: PT_01_Checklist_Pentest_Web.docx; group 1; STT 2, 3 (Active Recon; Fingerprinting); derived step
+    notes: Project HTTP-origin verification stage supporting the source objectives. Planning knowledge only; does not authorize execution. See docs/recon-checklist-source-mapping.md.
+    paths: []
+  - id: RECON-TECH-FINGERPRINT
+    phase: technology_fingerprinting
+    title: Observe web technologies
+    purpose: Observe web technologies with durable evidence
+    applicable_when: capability_authorized
+    recommended_capabilities: [whatweb]
+    required_capabilities: [whatweb]
+    risk: R0
+    safe_default: true
+    evidence_requirement: verified_terminal_evidence
+    status_rule: capability
+    source_reference: PT_01_Checklist_Pentest_Web.docx; group 1; STT 3 (Fingerprinting); bounded subset
+    notes: Bounded WhatWeb observations only; no aggressive scan or CVE mapping. Planning knowledge only; does not authorize execution. See docs/recon-checklist-source-mapping.md.
+    paths: []
+  - id: RECON-ROBOTS
+    phase: static_discovery
+    title: Read crawler directives
+    purpose: Read crawler directives with durable evidence
+    applicable_when: capability_authorized
+    recommended_capabilities: [http_fetch]
+    required_capabilities: [http_fetch]
+    risk: R0
+    safe_default: true
+    evidence_requirement: verified_terminal_evidence
+    status_rule: source
+    source_reference: PT_01_Checklist_Pentest_Web.docx; group 1; STT 4 (Robots.txt); bounded subset
+    notes: Direct scoped parsing only; directives grant no access and archive lookup is excluded. Planning knowledge only; does not authorize execution. See docs/recon-checklist-source-mapping.md.
+    paths: ["/robots.txt"]
+  - id: RECON-SITEMAP
+    phase: static_discovery
+    title: Read sitemap routes
+    purpose: Read sitemap routes with durable evidence
+    applicable_when: capability_authorized
+    recommended_capabilities: [http_fetch]
+    required_capabilities: [http_fetch]
+    risk: R0
+    safe_default: true
+    evidence_requirement: verified_terminal_evidence
+    status_rule: source
+    source_reference: PT_01_Checklist_Pentest_Web.docx; group 1; STT 5 (Sitemap.xml); bounded subset
+    notes: Bounded sitemap/index parsing only; each URL remains subject to scope and budgets. Planning knowledge only; does not authorize execution. See docs/recon-checklist-source-mapping.md.
+    paths: ["/sitemap.xml"]
+  - id: RECON-WELL-KNOWN
+    phase: static_discovery
+    title: Read bounded metadata
+    purpose: Read bounded metadata with durable evidence
+    applicable_when: capability_authorized
+    recommended_capabilities: [http_fetch]
+    required_capabilities: [http_fetch]
+    risk: R0
+    safe_default: true
+    evidence_requirement: verified_terminal_evidence
+    status_rule: source
+    source_reference: PT_01_Checklist_Pentest_Web.docx; group 1; STT 6 (.well-known Directory); bounded subset
+    notes: Only the three curated metadata paths; no JWT testing or arbitrary wordlists. Planning knowledge only; does not authorize execution. See docs/recon-checklist-source-mapping.md.
+    paths: ["/.well-known/security.txt","/.well-known/openid-configuration","/.well-known/jwks.json"]
+  - id: RECON-API-DOCS
+    phase: static_discovery
+    title: Read declared API routes
+    purpose: Read declared API routes with durable evidence
+    applicable_when: capability_authorized
+    recommended_capabilities: [http_fetch]
+    required_capabilities: [http_fetch]
+    risk: R0
+    safe_default: true
+    evidence_requirement: verified_terminal_evidence
+    status_rule: source
+    source_reference: PT_01_Checklist_Pentest_Web.docx; group 1; STT 7 (Swagger / OpenAPI); bounded subset
+    notes: Declared routes and parameters only; no automatic write calls or authentication testing. Planning knowledge only; does not authorize execution. See docs/recon-checklist-source-mapping.md.
+    paths: ["/openapi.json","/swagger.json","/swagger","/swagger-ui","/api-docs","/v3/api-docs"]
+  - id: RECON-STATIC-ROUTES
+    phase: static_discovery
+    title: Extract static document routes
+    purpose: Extract static document routes with durable evidence
+    applicable_when: capability_authorized
+    recommended_capabilities: [http_fetch]
+    required_capabilities: [http_fetch]
+    risk: R0
+    safe_default: true
+    evidence_requirement: verified_terminal_evidence
+    status_rule: static
+    source_reference: PT_01_Checklist_Pentest_Web.docx; group 1; STT 2, 11 (Active Recon; Hidden Endpoints); bounded subset
+    notes: Static links/forms/scripts and simple JS candidates only; no form submission or source reconstruction. Planning knowledge only; does not authorize execution. See docs/recon-checklist-source-mapping.md.
+    paths: []
+  - id: RECON-BROWSER-DYNAMIC
+    phase: adaptive
+    title: Observe passive dynamic routes
+    purpose: Observe passive dynamic routes with durable evidence
+    applicable_when: capability_authorized
+    recommended_capabilities: [browser_explore]
+    required_capabilities: [browser_explore, browser_request]
+    risk: R0
+    safe_default: true
+    evidence_requirement: verified_terminal_evidence
+    status_rule: capability
+    source_reference: PT_01_Checklist_Pentest_Web.docx; group 1; STT 2, 11 (Active Recon; Hidden Endpoints); project extension
+    notes: Passive Playwright navigation is a project mechanism; child authorization remains mandatory. Planning knowledge only; does not authorize execution. See docs/recon-checklist-source-mapping.md.
+    paths: []
+  - id: RECON-CONTENT-DISCOVERY
+    phase: adaptive
+    title: Discover bounded hidden paths
+    purpose: Discover bounded hidden paths with durable evidence
+    applicable_when: capability_authorized
+    recommended_capabilities: [content_discovery]
+    required_capabilities: [content_discovery]
+    risk: R1
+    safe_default: true
+    evidence_requirement: verified_terminal_evidence
+    status_rule: capability
+    source_reference: PT_01_Checklist_Pentest_Web.docx; group 1; STT 2, 11 (Active Recon; Hidden Endpoints); bounded subset
+    notes: Trusted small FFUF wordlists and separate baselines only; no recursion, auto-calibration or VHost fuzzing. Planning knowledge only; does not authorize execution. See docs/recon-checklist-source-mapping.md.
+    paths: []

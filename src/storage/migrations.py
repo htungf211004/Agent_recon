@@ -204,6 +204,16 @@ def _adaptive_planning(connection):
     )""")
 
 
+def _adaptive_stages(connection):
+    connection.execute("""CREATE TABLE IF NOT EXISTS recon_stages (
+        task_id TEXT NOT NULL, name TEXT NOT NULL, plan TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'PLANNED', PRIMARY KEY(task_id, name))""")
+    for table, column, declaration in (("recon_planning_rounds", "error_code", "TEXT"),
+                                        ("execution_reservations", "request_units", "INTEGER NOT NULL DEFAULT 1")):
+        if column not in {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}:
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+
+
 MIGRATIONS = (
     (1, "adopt_day1_day2_schema", _legacy_schema),
     (2, "route_observations", _route_observations),
@@ -212,6 +222,7 @@ MIGRATIONS = (
     (5, "declared_route_templates", _declared_templates),
     (6, "v6_recon_policy_snapshot", _recon_policy_snapshot),
     (7, "bounded_adaptive_planning", _adaptive_planning),
+    (8, "adaptive_stages_and_bounded_content_budget", _adaptive_stages),
 )
 
 

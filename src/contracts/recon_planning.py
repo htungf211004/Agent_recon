@@ -1,27 +1,67 @@
 """Untrusted planning suggestions, independent of execution/Recon implementation."""
 
-from typing import Literal
+from enum import StrEnum
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class PlanningModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class ReconProposal(PlanningModel):
-    kind: Literal["safe_http_probe", "browser_explore", "content_discovery", "stop"]
-    target_ip: str | None = Field(default=None, max_length=45)
-    port: int | None = Field(default=None, ge=1, le=65535, strict=True)
-    scheme: Literal["http", "https"] = "http"
-    method: Literal["GET", "HEAD"] = "GET"
-    path: str = Field(default="/", max_length=2048)
+class ProposalBase(PlanningModel):
     rationale: str = Field(min_length=1, max_length=512)
     priority: int = Field(ge=1, le=5, strict=True)
 
 
+class TargetProposal(ProposalBase):
+    target_ip: str = Field(min_length=1, max_length=45)
+    port: int = Field(ge=1, le=65535, strict=True)
+    scheme: Literal["http", "https"] = "http"
+
+
+class SafeHttpProbeProposal(TargetProposal):
+    kind: Literal["safe_http_probe"] = "safe_http_probe"
+    method: Literal["GET", "HEAD"] = "GET"
+    path: str = Field(default="/", max_length=2048)
+
+
+class BrowserExploreProposal(TargetProposal):
+    kind: Literal["browser_explore"] = "browser_explore"
+    path: str = Field(default="/", max_length=2048)
+
+
+class ContentDiscoveryProposal(TargetProposal):
+    kind: Literal["content_discovery"] = "content_discovery"
+    path_prefix: str = Field(max_length=2048)
+    wordlist_id: str = Field(min_length=1, max_length=64)
+
+
+class StopReason(StrEnum):
+    COVERAGE_SUFFICIENT = "COVERAGE_SUFFICIENT"
+    NO_SAFE_SUPPORTED_ACTION = "NO_SAFE_SUPPORTED_ACTION"
+    SCOPE_BLOCKED = "SCOPE_BLOCKED"
+    BUDGET_EXHAUSTED = "BUDGET_EXHAUSTED"
+
+
+class StopProposal(ProposalBase):
+    kind: Literal["stop"] = "stop"
+    reason_code: StopReason
+
+
+ReconProposal = Annotated[SafeHttpProbeProposal | BrowserExploreProposal | ContentDiscoveryProposal | StopProposal,
+                          Field(discriminator="kind")]
+
+
 class ReconPlanningDecision(PlanningModel):
     proposals: tuple[ReconProposal, ...] = Field(max_length=5)
+
+    @model_validator(mode="after")
+    def stop_is_exclusive(self):
+        if len(self.proposals) > 1 and any(p.kind == "stop" for p in self.proposals):
+            raise ValueError("STOP must be the only proposal")
+        return self
 
 
 class ReconPlanningLimits(PlanningModel):
@@ -37,6 +77,17 @@ class PlanningScope(PlanningModel):
     ports: tuple[int, ...]
     allowed_paths: tuple[str, ...]
     allowed_methods: tuple[str, ...]
+    capabilities: tuple[str, ...]
+    scope_version: str
+    policy_version: str
+
+
+class PlanningRedirect(PlanningModel):
+    present: bool = False
+    target_scheme: str | None = None
+    target_port: int | None = None
+    same_target_ip: bool = False
+    scope_status: Literal["NONE", "IN_SCOPE", "OUT_OF_SCOPE", "INVALID"] = "NONE"
 
 
 class PlanningRoute(PlanningModel):
@@ -45,6 +96,12 @@ class PlanningRoute(PlanningModel):
     origin: str
     status: str
     parameters: tuple[str, ...]
+    last_status_code: int | None = None
+    baseline_verified: bool = False
+    baseline_blocker: str | None = None
+    redirect: PlanningRedirect = Field(default_factory=PlanningRedirect)
+    requires_manual_input: bool = False
+    required_inputs: bool = False
 
 
 class PlanningAction(PlanningModel):
@@ -62,12 +119,41 @@ class PlanningCoverage(PlanningModel):
     observations: int
     fuzz_ready: int
     limitations: tuple[str, ...]
+    static_status: str
+    browser_status: str
 
 
 class PlanningBudget(PlanningModel):
     requests: int
-    planning_rounds: int
     actions: int
+
+
+class PlanningProgress(PlanningModel):
+    current_round: int
+    max_rounds: int
+    future_rounds_remaining: int
+
+
+class PlanningService(PlanningModel):
+    target_ip: str
+    port: int
+    protocol: str
+    service: str
+    version: str
+    evidence_ref: str
+
+
+class PlanningTechnology(PlanningModel):
+    technology: str
+    version: str
+    source: str
+    evidence_ref: str
+
+
+class ChecklistSummary(PlanningModel):
+    id: str
+    status: Literal["PENDING", "COMPLETE", "BLOCKED", "UNSUPPORTED", "NOT_APPLICABLE"]
+    reason: str
 
 
 class ReconPlanningContext(PlanningModel):
@@ -75,11 +161,16 @@ class ReconPlanningContext(PlanningModel):
     run_id: str
     inventory_version: Literal["1.0"] = "1.0"
     planning_round: int
+    planning: PlanningProgress
     scope: PlanningScope
     capabilities: tuple[str, ...]
     coverage: PlanningCoverage
-    services: tuple[str, ...]
-    technologies: tuple[str, ...]
+    services: tuple[PlanningService, ...]
+    technologies: tuple[PlanningTechnology, ...]
+    checklist_version: Literal["recon-checklist-v1"] = "recon-checklist-v1"
+    checklist: tuple[ChecklistSummary, ...]
+    available_actions: tuple[str, ...]
+    trusted_wordlists: tuple[str, ...] = ()
     routes: tuple[PlanningRoute, ...]
     previous_actions: tuple[PlanningAction, ...]
     remaining_budget: PlanningBudget

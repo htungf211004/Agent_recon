@@ -13,6 +13,7 @@ from src.recon.models import (
     BrowserRequestParams,
     Capability,
     CapabilityRequest,
+    ContentDiscoveryParams,
     HttpFetchParams,
     PolicyDecision,
     ReconTask,
@@ -74,7 +75,7 @@ class PolicyService:
             scope_version=request.scope_version or "unknown", allowed=reason is None,
             reason=reason or "in scope", policy_version=self.VERSION,
             policy_fingerprint=fingerprint,
-            risk=Risk.R1 if request.capability == Capability.NMAP_SCAN else Risk.R0,
+            risk=Risk.R1 if request.capability in {Capability.NMAP_SCAN, Capability.CONTENT_DISCOVERY} else Risk.R0,
         )
 
     @staticmethod
@@ -103,12 +104,28 @@ class PolicyService:
         elif isinstance(params, (HttpFetchParams, BrowserRequestParams)):
             timeout = params.timeout_seconds
         else:
-            timeout = {Capability.HTTP_PROBE: 5, Capability.NMAP_SCAN: 60, Capability.WHATWEB: 20}[request.capability]
+            timeout = {Capability.HTTP_PROBE: 5, Capability.NMAP_SCAN: 60, Capability.WHATWEB: 20,
+                       Capability.CONTENT_DISCOVERY: 20}[request.capability]
         if timeout > task.execution_budget.max_timeout_seconds:
             return "timeout exceeds task budget"
         requested_ports = params.ports if hasattr(params, "ports") else (params.port,)
         if any(port not in task.scope.allowed_ports for port in requested_ports):
             return "port not allowed"
+        if isinstance(params, ContentDiscoveryParams):
+            from src.recon.wordlists import load_wordlist
+            if "HEAD" not in task.scope.allowed_methods:
+                return "method not allowed"
+            if any(not path_allowed(params.path_prefix + word, task.scope.allowed_paths)
+                   for word in load_wordlist(params.wordlist_id).entries):
+                return "path not allowed"
+            if task.execution_budget.max_requests_per_second < 2:
+                return "content discovery rate exceeds task budget"
+        if request.capability in {Capability.HTTP_PROBE, Capability.WHATWEB}:
+            method = "HEAD" if request.capability == Capability.HTTP_PROBE else "GET"
+            if method not in task.scope.allowed_methods:
+                return "method not allowed"
+            if not path_allowed("/", task.scope.allowed_paths):
+                return "path not allowed"
         if isinstance(params, (HttpFetchParams, BrowserRequestParams, BrowserExploreParams)):
             body_limit = params.limits.max_response_bytes if isinstance(params, BrowserExploreParams) else params.max_body_bytes
             if body_limit > task.execution_budget.max_body_bytes:

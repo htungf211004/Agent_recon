@@ -36,6 +36,7 @@ class Capability(StrEnum):
     HTTP_FETCH = "http_fetch"
     BROWSER_EXPLORE = "browser_explore"
     BROWSER_REQUEST = "browser_request"
+    CONTENT_DISCOVERY = "content_discovery"
 
 
 class Scope(StrictModel):
@@ -199,7 +200,31 @@ class BrowserRequestParams(StrictModel):
     _query = field_validator("query")(validate_query)
 
 
-Parameters = HttpProbeParams | NmapScanParams | WhatWebParams | HttpFetchParams | BrowserExploreParams | BrowserRequestParams
+class ContentDiscoveryParams(StrictModel):
+    kind: Literal["content_discovery"] = "content_discovery"
+    port: int = Field(ge=1, le=65535, strict=True)
+    scheme: Literal["http", "https"] = "http"
+    path_prefix: str = Field(default="/", max_length=2048)
+    wordlist_id: str = Field(min_length=1, max_length=64)
+
+    @field_validator("path_prefix")
+    @classmethod
+    def prefix(cls, value):
+        validate_path(value)
+        if any(c in value for c in "{}%") or "FUZZ" in value:
+            raise ValueError("concrete content prefix required")
+        return value.rstrip("/") + "/"
+
+    @field_validator("wordlist_id")
+    @classmethod
+    def trusted_wordlist(cls, value):
+        from src.recon.wordlists import load_wordlist
+        load_wordlist(value)
+        return value
+
+
+Parameters = (HttpProbeParams | NmapScanParams | WhatWebParams | HttpFetchParams | BrowserExploreParams
+              | BrowserRequestParams | ContentDiscoveryParams)
 
 
 class CapabilityRequest(StrictModel):
@@ -337,3 +362,5 @@ class ReconResult(StrictModel):
     coverage: ReconCoverage | None = None
     observations: tuple[EndpointObservation, ...] = ()
     attack_surface_inventory: AttackSurfaceInventory | None = None
+    worker_status: Literal["RUNNING", "COMPLETED", "FAILED", "CANCELLED"] | None = None
+    handoff_ready: bool = False

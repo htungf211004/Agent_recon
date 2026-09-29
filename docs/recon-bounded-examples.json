@@ -1,0 +1,216 @@
+{
+  "note": "Independent examples generated from strict models and a fake planner with mock HTTP; no provider credentials.",
+  "task": {
+    "id": "lab-01",
+    "run_id": "lab-01",
+    "scope_version": "1",
+    "policy_version": "recon-3.0",
+    "scope": {
+      "allowed_ips": [
+        "127.0.0.1"
+      ],
+      "allowed_ports": [
+        8000,
+        8080
+      ],
+      "capabilities": [
+        "nmap_scan",
+        "http_probe",
+        "whatweb",
+        "http_fetch",
+        "browser_explore",
+        "browser_request",
+        "content_discovery"
+      ],
+      "allowed_paths": [
+        "/"
+      ],
+      "allowed_methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    "expires_at": "2026-09-29T08:43:52.004707Z",
+    "discovery_limits": {
+      "max_rounds": 2,
+      "max_requests": 24,
+      "max_sources": 16,
+      "max_endpoints": 64,
+      "max_depth": 2
+    },
+    "discovery_seeds": [],
+    "execution_budget": {
+      "max_requests": 64,
+      "max_requests_per_second": 100,
+      "max_timeout_seconds": 60.0,
+      "max_body_bytes": 65536
+    }
+  },
+  "planning_context": {
+    "task_id": "day2",
+    "run_id": "run2",
+    "inventory_version": "1.0",
+    "planning_round": 1,
+    "planning": {
+      "current_round": 1,
+      "max_rounds": 2,
+      "future_rounds_remaining": 1
+    },
+    "scope": {
+      "targets": [
+        "127.0.0.1"
+      ],
+      "ports": [
+        8000
+      ],
+      "allowed_paths": [
+        "/"
+      ],
+      "allowed_methods": [
+        "GET",
+        "HEAD"
+      ],
+      "capabilities": [
+        "http_fetch"
+      ],
+      "scope_version": "1",
+      "policy_version": "recon-3.0"
+    },
+    "capabilities": [
+      "http_fetch"
+    ],
+    "coverage": {
+      "routes": 1,
+      "observations": 1,
+      "fuzz_ready": 1,
+      "limitations": [],
+      "static_status": "COMPLETE",
+      "browser_status": "INCOMPLETE"
+    },
+    "services": [],
+    "technologies": [],
+    "checklist_version": "recon-checklist-v1",
+    "checklist": [
+      {
+        "id": "RECON-SERVICE-DISCOVERY",
+        "status": "NOT_APPLICABLE",
+        "reason": "capability not authorized"
+      },
+      {
+        "id": "RECON-WEB-PROBE",
+        "status": "NOT_APPLICABLE",
+        "reason": "capability not authorized"
+      },
+      {
+        "id": "RECON-TECH-FINGERPRINT",
+        "status": "NOT_APPLICABLE",
+        "reason": "capability not authorized"
+      },
+      {
+        "id": "RECON-ROBOTS",
+        "status": "PENDING",
+        "reason": "no qualifying evidence"
+      },
+      {
+        "id": "RECON-SITEMAP",
+        "status": "PENDING",
+        "reason": "no qualifying evidence"
+      },
+      {
+        "id": "RECON-WELL-KNOWN",
+        "status": "PENDING",
+        "reason": "no qualifying evidence"
+      },
+      {
+        "id": "RECON-API-DOCS",
+        "status": "PENDING",
+        "reason": "no qualifying evidence"
+      },
+      {
+        "id": "RECON-STATIC-ROUTES",
+        "status": "COMPLETE",
+        "reason": "static sources terminal"
+      },
+      {
+        "id": "RECON-BROWSER-DYNAMIC",
+        "status": "NOT_APPLICABLE",
+        "reason": "capability not authorized"
+      },
+      {
+        "id": "RECON-CONTENT-DISCOVERY",
+        "status": "NOT_APPLICABLE",
+        "reason": "capability not authorized"
+      }
+    ],
+    "available_actions": [
+      "safe_http_probe",
+      "stop"
+    ],
+    "trusted_wordlists": [],
+    "routes": [
+      {
+        "method": "GET",
+        "path": "/seed",
+        "origin": "http://127.0.0.1:8000",
+        "status": "FUZZ_READY",
+        "parameters": [],
+        "last_status_code": 200,
+        "baseline_verified": true,
+        "baseline_blocker": null,
+        "redirect": {
+          "present": false,
+          "target_scheme": null,
+          "target_port": null,
+          "same_target_ip": false,
+          "scope_status": "NONE"
+        },
+        "requires_manual_input": false,
+        "required_inputs": false
+      }
+    ],
+    "previous_actions": [
+      {
+        "request_id": "3689b8f6-9591-5de3-aac7-b323bab87954",
+        "capability": "http_fetch",
+        "target_ip": "127.0.0.1",
+        "port": 8000,
+        "method": "GET",
+        "path": "/seed",
+        "status": "SUCCEEDED"
+      }
+    ],
+    "remaining_budget": {
+      "requests": 127,
+      "actions": 8
+    },
+    "context_truncated": false
+  },
+  "content_discovery_params": {
+    "kind": "content_discovery",
+    "port": 8000,
+    "scheme": "http",
+    "path_prefix": "/",
+    "wordlist_id": "web-common-small-v1"
+  },
+  "checklist_item": {
+    "id": "RECON-CONTENT-DISCOVERY",
+    "phase": "adaptive",
+    "title": "Discover bounded hidden paths",
+    "purpose": "Discover bounded hidden paths with durable evidence",
+    "applicable_when": "capability_authorized",
+    "recommended_capabilities": [
+      "content_discovery"
+    ],
+    "required_capabilities": [
+      "content_discovery"
+    ],
+    "risk": "R1",
+    "safe_default": true,
+    "evidence_requirement": "verified_terminal_evidence",
+    "status_rule": "capability",
+    "source_reference": "PT_01_Checklist_Pentest_Web.docx; group 1; STT 2, 11 (Active Recon; Hidden Endpoints); bounded subset",
+    "notes": "Trusted small FFUF wordlists and separate baselines only; no recursion, auto-calibration or VHost fuzzing. Planning knowledge only; does not authorize execution. See docs/recon-checklist-source-mapping.md.",
+    "paths": []
+  },
+  "wordlist_sha256": "4bd4dc119cff35c4a9c31e131043f8a8a1a5466d0a382ae71d9be8f52347b7a9"
+}

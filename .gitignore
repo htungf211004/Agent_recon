@@ -30,6 +30,8 @@ Thumbs.db
 
 # Data (never commit large data)
 data/
+!src/recon/data/
+!src/recon/data/**
 *.db
 *.sqlite3
 

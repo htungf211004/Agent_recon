@@ -24,6 +24,7 @@ from src.recon.models import (
 )
 from src.recon.urls import match_route_template
 from src.recon.web_models import BaselineRequest, DiscoverySource, EndpointObservation, ReconCoverage, WebEndpointEntry
+from src.recon.wordlists import request_units
 from src.storage.migrations import migrate
 
 MAX_EVIDENCE_BYTES = 262_144
@@ -135,12 +136,20 @@ class ReconRepository:
         if task.expires_at <= self.clock():
             return "task expired"
         budget = task.execution_budget
+        # FFUF's fixed rate applies across its whole short batch. Serialize it with
+        # other task dispatches so concurrent callers cannot multiply that rate.
+        active = [ToolRun.model_validate_json(row[0]) for row in connection.execute(
+            "SELECT payload FROM tool_runs WHERE task_id = ?", (task.id,))]
+        active = [run for run in active if run.state == ToolRunState.RUNNING and run.request_payload]
+        if active and (request.capability == Capability.CONTENT_DISCOVERY or any(
+                CapabilityRequest.model_validate_json(run.request_payload).capability == Capability.CONTENT_DISCOVERY for run in active)):
+            return "content discovery requires exclusive task dispatch"
         total, fetches, recent = connection.execute(
-            "SELECT COUNT(*), COALESCE(SUM(capability = ?), 0), COALESCE(SUM(started_at > ?), 0) "
+            "SELECT COALESCE(SUM(request_units), 0), COALESCE(SUM(capability = ?), 0), COALESCE(SUM(CASE WHEN started_at > ? THEN request_units ELSE 0 END), 0) "
             "FROM execution_reservations WHERE task_id = ?",
             (Capability.HTTP_FETCH.value, (self.clock() - timedelta(seconds=1)).isoformat(), task.id),
         ).fetchone()
-        if total >= budget.max_requests:
+        if total + request_units(request) > budget.max_requests:
             return "task request budget exhausted"
         if request.capability == Capability.HTTP_FETCH and fetches >= task.discovery_limits.max_requests:
             return "HTTP_FETCH discovery request budget exhausted"
@@ -154,7 +163,7 @@ class ReconRepository:
 
     def budget_usage(self, task_id: str) -> int:
         with self._connect() as connection:
-            return connection.execute("SELECT COUNT(*) FROM execution_reservations WHERE task_id = ?", (task_id,)).fetchone()[0]
+            return connection.execute("SELECT COALESCE(SUM(request_units), 0) FROM execution_reservations WHERE task_id = ?", (task_id,)).fetchone()[0]
 
     @staticmethod
     def _save_decision(connection, decision):
@@ -181,8 +190,8 @@ class ReconRepository:
                 decision = decision.model_copy(update={"allowed": False, "outcome": PolicyOutcome.DENY, "reason": reason})
             self._save_decision(connection, decision)
             if decision.allowed:
-                connection.execute("INSERT INTO execution_reservations VALUES (?, ?, ?, ?)",
-                                   (request.id, request.task_id, request.capability.value, self.clock().isoformat()))
+                connection.execute("INSERT INTO execution_reservations VALUES (?, ?, ?, ?, ?)",
+                                   (request.id, request.task_id, request.capability.value, self.clock().isoformat(), request_units(request)))
                 current = current.model_copy(update={"state": ToolRunState.RUNNING, "started_at": self.clock()})
                 connection.execute("UPDATE tool_runs SET payload = ? WHERE request_id = ?", (current.model_dump_json(), current.request_id))
         return decision

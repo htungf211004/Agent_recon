@@ -50,10 +50,11 @@ jobs:
         run: |
           docker run --rm agent-recon-final python -c "import os; assert os.getuid() != 0"
           docker run --rm agent-recon-final python -m src.recon.browser_runtime --probe
-      - name: Require Nmap and WhatWeb binaries
+      - name: Require Nmap, WhatWeb and pinned FFUF binaries
         run: |
           docker run --rm agent-recon-final nmap --version
           docker run --rm agent-recon-final whatweb --version
+          docker run --rm agent-recon-final ffuf -V
       - name: Require exact capability manifest and real localhost adapter execution
         run: docker run --rm agent-recon-final python -m scripts.check_recon_runtime
       - name: Check default FastAPI startup

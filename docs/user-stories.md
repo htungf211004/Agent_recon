@@ -21,7 +21,7 @@
 
 | ID | User story | Tiêu chí chấp nhận |
 | --- | --- | --- |
-| US-10 | Là **Approver**, tôi muốn nhận đề xuất kiểm chứng có cấu trúc từ Exploit Agent để có đủ thông tin quyết định. | Yêu cầu nêu mục tiêu, hành động, tham số, lý do, ảnh hưởng dự kiến, rủi ro và hạn hiệu lực. Trước phê duyệt hợp lệ, lớp thực thi không gọi công cụ rủi ro. |
+| US-10 | Là **Approver**, tôi muốn nhận đề xuất kiểm chứng có cấu trúc từ Validation Agent để có đủ thông tin quyết định. | Yêu cầu nêu mục tiêu, hành động, tham số, lý do, ảnh hưởng dự kiến, rủi ro và hạn hiệu lực. Trước phê duyệt hợp lệ, lớp thực thi không gọi công cụ rủi ro. |
 | US-11 | Là **Approver**, tôi muốn duyệt hoặc từ chối hành động rủi ro để kiểm soát việc thực thi. | Chỉ Approver hợp lệ được quyết định. Hệ thống lưu người quyết định, thời gian, nội dung yêu cầu và kết quả; lưu ghi chú nếu được cung cấp. Từ chối hoặc hết hạn không dẫn tới thực thi. |
 | US-12 | Là **Approver**, tôi muốn phê duyệt chỉ áp dụng cho đúng hành động đã xem xét để tránh tái sử dụng sai mục đích. | Phê duyệt gắn với một request cụ thể. Đổi mục tiêu, hành động hoặc tham số buộc tạo yêu cầu phê duyệt mới; phê duyệt cũ không cho phép thực thi nội dung đã đổi. |
 | US-13 | Là **Approver**, tôi muốn sự kiện phê duyệt lặp không làm hành động rủi ro chạy nhiều lần. | Callback lặp hoặc gửi lại cùng quyết định không tạo lần thực thi thứ hai; trạng thái quyết định và số lần thực thi đối chiếu được bằng log. |

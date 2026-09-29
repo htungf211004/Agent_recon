@@ -1,14 +1,64 @@
 """Bounded summaries only: never raw evidence, HTML, cookies, headers or query values."""
 
+import json
+import re
+from urllib.parse import urljoin, urlsplit
+
 from src.contracts.recon_planning import (
     PlanningAction,
     PlanningBudget,
     PlanningCoverage,
+    PlanningProgress,
+    PlanningRedirect,
     PlanningRoute,
     PlanningScope,
+    PlanningService,
+    PlanningTechnology,
     ReconPlanningContext,
 )
+from src.recon.checklist import project_checklist
 from src.recon.models import Capability, CapabilityRequest
+from src.recon.urls import canonical_url, path_allowed
+from src.recon.wordlists import TRUSTED
+
+
+def safe_fact(value):
+    # Facts are identifiers, never arbitrary banners. Drop suspicious long tokens/assignments.
+    if len(value) > 100 or not re.fullmatch(r"[A-Za-z0-9 ._+/():-]{0,100}", value):
+        return "unknown"
+    if re.search(r"(?i)(bearer|cookie|password|secret|api.?key|authorization|sk-|AIza)", value):
+        return "redacted"
+    return value
+
+
+def planning_route(entry, task, repository, evidence):
+    route = repository.get_endpoint(entry.id)
+    observations = [o for o in repository.list_observations(task.id) if o.endpoint_id == entry.id and o.evidence_verified]
+    observations.sort(key=lambda o: (o.observed_at.isoformat() if o.observed_at else "", o.id))
+    latest = observations[-1] if observations else None
+    status = latest.response.status_code if latest and latest.response else None
+    redirect = PlanningRedirect()
+    if latest and latest.evidence_id and status and 300 <= status < 400:
+        try:
+            location = json.loads(evidence.read(latest.evidence_id)).get("location", "")
+            if location:
+                target = urlsplit(canonical_url(urljoin(latest.url, location)))
+                allowed = (target.hostname in task.scope.allowed_ips and target.port in task.scope.allowed_ports
+                           and path_allowed(target.path, task.scope.allowed_paths))
+                redirect = PlanningRedirect(present=True, target_scheme=target.scheme, target_port=target.port,
+                    same_target_ip=target.hostname == entry.resolved_ip, scope_status="IN_SCOPE" if allowed else "OUT_OF_SCOPE")
+        except (ValueError, TypeError, KeyError, OSError):
+            redirect = PlanningRedirect(present=True, scope_status="INVALID")
+    blocker = None
+    if not entry.has_verified_baseline:
+        blocker = ("MANUAL_INPUT" if route.requires_manual_input else "REQUIRED_INPUT" if entry.has_unresolved_required_input
+                   else "NO_RESPONSE" if status is None else "NON_2XX" if not 200 <= status < 300
+                   else "TRUNCATED" if latest.response.truncated else "NO_VERIFIED_BASELINE")
+    return PlanningRoute(method=entry.method, path=entry.canonical_path,
+        origin=f"{entry.scheme}://{entry.authority}", status=entry.status,
+        parameters=tuple(p.name[:80] for p in entry.parameters[:16]), last_status_code=status,
+        baseline_verified=entry.has_verified_baseline, baseline_blocker=blocker, redirect=redirect,
+        requires_manual_input=route.requires_manual_input, required_inputs=entry.has_unresolved_required_input)
 
 
 def assemble_context(task, repository, service, limits, round_number, actions_used):
@@ -16,6 +66,16 @@ def assemble_context(task, repository, service, limits, round_number, actions_us
     entries = result.attack_surface_inventory.entries
     available = set(service.gateway.registry.available_capabilities()) & set(task.scope.capabilities)
     available.discard(Capability.BROWSER_REQUEST)
+    if Capability.BROWSER_REQUEST not in task.scope.capabilities:
+        available.discard(Capability.BROWSER_EXPLORE)
+    verified_facts = set()
+    for item in result.tool_results:
+        if item.status == "success" and item.evidence_id:
+            try:
+                service.gateway.evidence.read(item.evidence_id)
+                verified_facts.add(item.evidence_id)
+            except (ValueError, OSError):
+                pass
     previous = []
     for run in repository.list_tool_runs(task.id):
         if not run.request_payload:
@@ -27,20 +87,32 @@ def assemble_context(task, repository, service, limits, round_number, actions_us
             path=getattr(params, "path", None), status=run.state.value))
     context = ReconPlanningContext(
         task_id=task.id, run_id=task.run_id, planning_round=round_number,
+        planning=PlanningProgress(current_round=round_number, max_rounds=limits.max_llm_rounds,
+                                  future_rounds_remaining=max(0, limits.max_llm_rounds - round_number)),
         scope=PlanningScope(targets=tuple(sorted(task.scope.allowed_ips)), ports=tuple(sorted(task.scope.allowed_ports)),
-                            allowed_paths=task.scope.allowed_paths, allowed_methods=task.scope.allowed_methods),
+                            allowed_paths=task.scope.allowed_paths, allowed_methods=task.scope.allowed_methods,
+                            capabilities=tuple(sorted(task.scope.capabilities)), scope_version=task.scope_version,
+                            policy_version=task.policy_version),
         capabilities=tuple(sorted(available)),
+        available_actions=tuple(action for cap, action in ((Capability.HTTP_FETCH, "safe_http_probe"),
+            (Capability.BROWSER_EXPLORE, "browser_explore"), (Capability.CONTENT_DISCOVERY, "content_discovery"))
+            if cap in available) + ("stop",),
+        checklist=project_checklist(task, repository, service),
+        trusted_wordlists=tuple(sorted(TRUSTED)) if Capability.CONTENT_DISCOVERY in available else (),
         coverage=PlanningCoverage(routes=len(entries), observations=len(result.observations),
             fuzz_ready=sum(entry.status == "FUZZ_READY" for entry in entries),
-            limitations=tuple(item[:160] for item in result.coverage.limitations[:16]) if result.coverage else ()),
-        services=tuple(sorted({f"{entry.target_ip}:{entry.port} {entry.service[:80]}" for entry in result.attack_surface})[:32]),
-        technologies=tuple(sorted({entry.name[:80] for entry in result.technologies})[:32]),
-        routes=tuple(PlanningRoute(method=entry.method, path=entry.canonical_path,
-            origin=f"{entry.scheme}://{entry.authority}", status=entry.status,
-            parameters=tuple(p.name[:80] for p in entry.parameters[:16])) for entry in sorted(entries, key=lambda e: e.id)[:64]),
+            limitations=tuple(item[:160] for item in result.coverage.limitations[:16]) if result.coverage else (),
+            static_status="COMPLETE" if result.coverage and result.coverage.static_complete else "INCOMPLETE",
+            browser_status="COMPLETE" if result.coverage and result.coverage.browser_complete else "INCOMPLETE"),
+        services=tuple(PlanningService(target_ip=e.target_ip, port=e.port, protocol=e.protocol,
+            service=safe_fact(e.service.lower()), version=safe_fact(e.version), evidence_ref=e.evidence_id)
+            for e in result.attack_surface[:32] if e.evidence_id in verified_facts),
+        technologies=tuple(PlanningTechnology(technology=safe_fact(e.name), version=safe_fact(e.version),
+            source=e.source.value, evidence_ref=e.evidence_id) for e in result.technologies[:32] if e.evidence_id in verified_facts),
+        routes=tuple(planning_route(entry, task, repository, service.gateway.evidence)
+                     for entry in sorted(entries, key=lambda e: e.id)[:64]),
         previous_actions=tuple(previous[-64:]),
         remaining_budget=PlanningBudget(requests=max(0, task.execution_budget.max_requests - repository.budget_usage(task.id)),
-            planning_rounds=max(0, limits.max_llm_rounds - round_number),
             actions=max(0, limits.max_total_llm_actions - actions_used)),
         context_truncated=len(entries) > 64 or len(previous) > 64,
     )

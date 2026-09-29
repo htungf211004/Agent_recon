@@ -425,6 +425,15 @@ def test_adaptive_browser_proposal_uses_real_boundary_and_baseline(tmp_path, bro
     port, calls = browser_server
     repository, gateway, engine, task = browser_agent(tmp_path, port, BrowserLimits(), http=True)
     model = FakeModel({"proposals": [proposal("/browser-only", kind="browser_explore", port=port)]}, STOP)
+    original_invoke = model.invoke
+
+    def checked_invoke(messages):
+        if not model.contexts:
+            assert not any(r.capability == Capability.BROWSER_EXPLORE for r in repository.list_tool_results(task.id))
+            assert not any(e.canonical_path == "/dynamic" for e in engine.service.snapshot(task.id).attack_surface_inventory.entries)
+        return original_invoke(messages)
+
+    model.invoke = checked_invoke
     agent = AdaptiveReconAgent(engine, LLMReconPlanner(model, planner_id="fake-browser-v1"))
     result = agent.run(task.id)
     dynamic = next(e for e in result.attack_surface_inventory.entries if e.canonical_path == "/dynamic")

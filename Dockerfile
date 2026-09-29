@@ -23,7 +23,7 @@ RUN python -m playwright install --with-deps chromium \
 
 # Security: run as non-root user
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends nmap whatweb \
+    && apt-get install -y --no-install-recommends nmap whatweb ffuf=1.1.0-1+b8 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m appuser
@@ -31,6 +31,7 @@ RUN useradd -m appuser
 # Copy application code
 COPY src ./src
 COPY scripts/check_recon_runtime.py ./scripts/check_recon_runtime.py
+COPY scripts/run_recon_live.py ./scripts/run_recon_live.py
 
 # Create data directory with correct ownership
 RUN mkdir -p /app/data && chown -R appuser:appuser /app

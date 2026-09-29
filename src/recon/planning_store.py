@@ -83,11 +83,11 @@ class ReconPlanningStore:
                 (decision.model_dump_json(), task_id, number, owner, self.repository.clock().isoformat(), task_id))
             return cursor.rowcount == 1
 
-    def fail_model(self, task_id, number, owner, reason):
+    def fail_model(self, task_id, number, owner, reason, error_code="MODEL_ERROR"):
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            cursor = connection.execute("UPDATE recon_planning_rounds SET state = 'FAILED' WHERE task_id = ? AND number = ? AND owner = ? AND state = 'PLANNING'",
-                                        (task_id, number, owner))
+            cursor = connection.execute("UPDATE recon_planning_rounds SET state = 'FAILED', error_code = ? WHERE task_id = ? AND number = ? AND owner = ? AND state = 'PLANNING'",
+                                        (error_code, task_id, number, owner))
             if cursor.rowcount:
                 connection.execute("UPDATE recon_planning_sessions SET stop_reason = COALESCE(stop_reason, ?) WHERE task_id = ?",
                                    (reason, task_id))

@@ -42,7 +42,7 @@
 
 ### 2.2 Chưa có
 
-- Supervisor, Recon Agent, Fuzzing Agent hoặc Exploit Agent.
+- Supervisor, Recon Agent, Fuzzing Agent hoặc Validation Agent.
 - Frontend, đăng nhập hoặc phân quyền Operator/Approver.
 - Database nghiệp vụ, quản lý staging/scope, workflow phê duyệt HITL.
 - Công cụ pentest hoặc lab đã kết nối.
@@ -61,7 +61,7 @@ Vì vậy, nội dung từ phần 3 trở đi là thiết kế TO-BE cho MVP, kh
 
 ### 3.2 Tuyên bố sản phẩm
 
-PentestSyndicate là web app cho phép Operator chọn ứng dụng staging và phạm vi được phép. Supervisor AI điều phối Recon, Fuzzing và Exploit Agent. Hành động rủi ro phải dừng trước khi thực thi để Approver là con người ra quyết định. Hệ thống lưu trạng thái, bằng chứng, lỗi và tạo báo cáo có thể đối chiếu.
+PentestSyndicate là web app cho phép Operator chọn ứng dụng staging và phạm vi được phép. Supervisor AI điều phối Recon, Fuzzing và Validation Agent. Hành động rủi ro phải dừng trước khi thực thi để Approver là con người ra quyết định. Hệ thống lưu trạng thái, bằng chứng, lỗi và tạo báo cáo có thể đối chiếu.
 
 Sản phẩm không nhằm thay thế pentester hoặc tự động khai thác mục tiêu tùy ý.
 

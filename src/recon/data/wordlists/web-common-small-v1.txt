@@ -1,0 +1,6 @@
+robots.txt
+sitemap.xml
+openapi.json
+swagger.json
+health
+hidden

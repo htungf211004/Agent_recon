@@ -296,7 +296,7 @@ Các giá trị trong wireframe chỉ là dữ liệu minh họa, không phải 
 ├────────────────────────────────────────────────────────────────────────┤
 │ Run                 RUN-2026-0042                                      │
 │ Application         Juice Shop — Staging                               │
-│ Requested by        Exploit Agent                                      │
+│ Requested by        Validation Agent                                      │
 │ Target              POST /api/profile/image                            │
 │ Proposed action     Upload harmless test payload                       │
 │ Parameters          content-type=image/svg+xml; size=2 KB              │

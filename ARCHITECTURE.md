@@ -77,6 +77,7 @@ Stop existing Recon workers before upgrading the database; running old and new w
 5. Mark declared path templates and discard historical placeholder observations that were never concrete requests.
 6. Add the trusted `policy_version` task snapshot, assigning `recon-2.2` to historical tasks lacking the field. This migration does not rewrite historical runs, decisions, action fingerprints or evidence. Migration v4 explicitly binds old tasks with `recon-2.2` when upgrading older databases.
 7. Add optional adaptive-planning sessions and rounds. These tables persist model claims, bounded contexts, decisions, validated plans and action counts, without changing task fingerprints or ToolRuns.
+8. Add frozen adaptive stage plans, sanitized provider error codes and FFUF request units. Historical reservations retain cost 1.
 
 Task, plan, source, result, policy and evidence history is preserved. Only derived Recon snapshots/coverage are invalidated during the route migration. Old readiness is reverified from original evidence on the next snapshot. Evidence bytes and their SHA-256 values are unchanged.
 
@@ -112,9 +113,19 @@ Chromium can follow a redirect after `route.continue_()` without a second Playwr
 
 Parent and child ToolRuns contain `parent_request_id`; evidence metadata additionally records resource type and page sequence. Child evidence is typed `http_exchange`. Fixed DOM link/form observations are included in the successful document's evidence envelope before finalization. Network and DOM provenance enter the existing `EndpointObservation`, template reconciliation and `AttackSurfaceInventory v1.0` path. Browser projection preserves prior verified HTTP observations/baselines and is repairable from persisted evidence after a crash. A separate promotion phase can then obtain complete HTTP baseline evidence.
 
-## Optional adaptive planning
+## Bounded adaptive planning
 
-The optional `AdaptiveReconAgent` runs the unchanged engine first, then wraps bounded LLM planning/validation/execution/refresh stages in LangGraph. Only shared typed proposals cross the model boundary. SQLite owns planning durability, while the existing Gateway owns all target execution. See [adaptive planning](docs/recon-adaptive-planning.md) for the graph, strict model boundary, persistent limits and recovery behavior. The default `ReconAgent` does not call a model.
+The optional adaptive worker explicitly orchestrates `load_task -> service_discovery -> web_service_discovery -> technology_fingerprinting -> static_discovery -> refresh_inventory -> llm_plan -> validate_proposals -> execute_recon_actions -> refresh_adaptive_inventory -> should_continue`. The final edge loops for at most three rounds or returns the result. It does not invoke the full compatibility `ReconAgent.run()` before planning.
+
+Nmap uses only authorized ports. Persisted open-service facts select HTTP candidates; verified HTTP origins select WhatWeb and static discovery. Browser and bounded FFUF require persisted validated model proposals and the unchanged Policy/Gateway boundary. Browser children retain external dispatch, cancellation and late-result fencing. FFUF reserves the whole wordlist count, uses fixed HEAD and never follows redirects. A separate HTTP baseline is required for readiness.
+
+Planning uses a discriminated union with an exclusive target-free STOP, a safe checklist, evidence-backed context and a provider/model/version/prompt/schema fingerprint. SQLite owns plans, claims, contexts, decisions, projection and budgets. LangGraph carries only stage references. Model errors preserve ASI with a sanitized code and limitation.
+
+Migration v8 adds `recon_stages`, `recon_planning_rounds.error_code`, and `execution_reservations.request_units` (historical default 1). ASI v1.0 and historical fingerprints remain unchanged. `ReconResult.worker_status` and `handoff_ready` are additive. Completion requires no pending work; a future FuzzTask also requires a FUZZ_READY entry.
+
+Public runtime: `http_probe`, `http_fetch`, `nmap_scan`, `whatweb`, `browser_explore`, `content_discovery`. `browser_request` remains internal. The deterministic `ReconAgent.run()` retains its optional automatic browser phase; adaptive Browser always follows the model decision.
+
+See the [full graph and contracts](docs/recon-bounded-adaptive.md), [ADR 0004](docs/adr/0004-bounded-adaptive-runtime.md), and [verification](docs/recon-bounded-verification.md).
 
 ## Browser baseline promotion
 
@@ -129,7 +140,7 @@ ReconAgent → static discovery → BrowserDiscovery → BrowserBaselinePromotio
 
 Every promotion is a separate bounded `HTTP_FETCH` authorized by the existing Gateway. The HTTP result must succeed with complete, verified 2xx evidence. It replaces the observation's primary response while merging browser network provenance with `kind=BROWSER, relation=baseline`. Browser headers-only evidence is never used directly as a baseline. Forms/manual inputs, writes, unresolved parameters, browser errors, redirects, truncated responses and denied requests cannot qualify. Evidence corruption revokes readiness. Stored results repair projection after a crash; restart does not send another baseline request or choose a different URL.
 
-Promotion creates no `DiscoverySource` and does not add to static discovery round/source counts. Its real requests still consume the shared execution and HTTP_FETCH budgets. The final image must expose exactly HTTP_PROBE, HTTP_FETCH, NMAP_SCAN, WHATWEB and BROWSER_EXPLORE; BROWSER_REQUEST remains internal. `scripts/check_recon_runtime.py` requires that manifest and executes all five real adapters against localhost through the production Gateway, including a WhatWeb redirect sink check.
+Promotion creates no `DiscoverySource` and does not add to static discovery round/source counts. Its real requests still consume the shared execution and HTTP_FETCH budgets. The final image exposes HTTP_PROBE, HTTP_FETCH, NMAP_SCAN, WHATWEB, BROWSER_EXPLORE and CONTENT_DISCOVERY; BROWSER_REQUEST remains internal. `scripts/check_recon_runtime.py` requires this manifest and executes all six real adapters through the production Gateway, including redirect isolation, separate FFUF baselines and sequential sensing of web/non-web/closed ports.
 
 Browser network projection uses the explicit allowlist `document`, `xhr`, `fetch`. Scripts, stylesheets, images, fonts, manifests and other resources retain their child ToolRuns, policy and evidence but do not create inventory observations/routes. This is an execution-resource filter, not a filename heuristic or a change to route identity. CDP Network request IDs correlate resource types with Fetch response pauses so simultaneous requests for the same URL cannot exchange evidence.
 

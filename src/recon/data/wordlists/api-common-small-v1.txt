@@ -1,0 +1,6 @@
+openapi.json
+swagger.json
+api-docs
+v3/api-docs
+health
+status

@@ -7,7 +7,7 @@ from threading import Event
 
 import httpx
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from src.contracts.recon_planning import ReconPlanningDecision, ReconPlanningLimits, ReconProposal
 from src.recon.adaptive_agent import AdaptiveReconAgent
@@ -29,7 +29,7 @@ def proposal(path="/new", **updates):
             "rationale": "inspect an uncovered route", "priority": 1, **updates}
 
 
-STOP = {"proposals": [{"kind": "stop", "rationale": "coverage sufficient", "priority": 1}]}
+STOP = {"proposals": [{"kind": "stop", "reason_code": "COVERAGE_SUFFICIENT", "rationale": "coverage sufficient", "priority": 1}]}
 
 
 class FakeModel:
@@ -87,7 +87,7 @@ def test_adaptive_http_updates_inventory_and_restart_replays_without_model_or_ne
 ])
 def test_shared_schema_rejects_execution_payloads_and_coercion(updates):
     with pytest.raises(ValidationError):
-        ReconProposal.model_validate(proposal(**updates))
+        TypeAdapter(ReconProposal).validate_python(proposal(**updates))
 
 
 @pytest.mark.parametrize("updates,reason", [
@@ -98,7 +98,6 @@ def test_shared_schema_rejects_execution_payloads_and_coercion(updates):
     ({"path": "/api/%2e%2e/write"}, "invalid proposal"),
     ({"path": "//outside.test/"}, "invalid proposal"),
     ({"path": "/users/{id}"}, "invalid proposal"),
-    ({"kind": "content_discovery"}, "unsupported capability"),
     ({"kind": "browser_explore"}, "browser child capability"),
 ])
 def test_invalid_suggestions_never_dispatch(tmp_path, updates, reason):
@@ -284,7 +283,7 @@ def test_model_factory_only_binds_structured_output_with_no_retries(monkeypatch)
 
     monkeypatch.setattr("langchain_openai.ChatOpenAI", FakeChat)
     planner = configured_planner(model_name="configured-model", api_key="test")
-    assert planner.planner_id == "structured-v1:configured-model"
+    assert len(planner.planner_id) == 64 and planner.identity["model"] == "configured-model"
     assert captured["max_retries"] == 0 and captured["max_tokens"] == 2048
     assert captured["strict"] is True and captured["method"] == "json_schema"
 

@@ -105,7 +105,7 @@ Swagger UI: <http://localhost:8000/docs>
 
 ## Kiểm tra
 
-Kết quả local sau adaptive planning: **300 tests passed, không skip, gồm Chromium thật; Ruff PASS**. Giữ toàn bộ 258 test P0 và thêm 42 test. Docker build và smoke 5 adapter thật qua Gateway trong image mới đều PASS. CI bắt buộc Chromium và các gate container; GitHub Actions cho bản sửa mới chưa chạy vì thay đổi đang giữ local theo yêu cầu. Chưa tuyên bố freeze MVP khi remote gate chưa được xác nhận.
+Verified baseline `8295fea`: **309 tests PASS**, [remote CI PASS](https://github.com/htungf211004/Agent_recon/actions/runs/36514030963). The bounded adaptive update has **356 tests PASS, zero skips, Ruff PASS** locally. See the [current verification report](docs/recon-bounded-verification.md) for Docker gates and publication status. Changes remain local; this revision is not marked FROZEN.
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m ruff check --no-cache src tests scripts/check_recon_runtime.py
@@ -146,16 +146,24 @@ See [final hardening verification](docs/recon-final-hardening.md) and [container
 - `ReconAgent` chạy `BrowserBaselinePromotion` sau passive browser discovery. Browser-observed GET/HEAD hợp lệ được chọn xác định, rồi baseline bằng một request `HTTP_FETCH` riêng qua Policy/Gateway.
 - Chỉ complete 2xx evidence hợp lệ mới tạo `BaselineRequest` và đạt `FUZZ_READY`; giữ browser provenance, không tạo fake discovery source. Restart không gửi lại baseline hoặc đổi concrete URL đã chọn.
 - Trusted task snapshot dùng `recon-3.0`; migration v6 gắn `recon-2.2` cho task cũ. Completed request cũ vẫn replay đúng fingerprint; action mới trên policy cũ bị DENY.
-- Final container có Nmap, WhatWeb và Chromium; manifest bắt buộc đúng 5 public capabilities. `BROWSER_REQUEST` là child execution nội bộ. WhatWeb dùng `--follow-redirect=never`, đã kiểm tra với sink server thật.
+- Final container manifest requires six public capabilities, including bounded `content_discovery`; `browser_request` remains internal.
 - Xem [báo cáo P0 và các gate](docs/recon-final-p0.md).
 
-## Optional adaptive Recon planning
+## Bounded adaptive Recon worker
 
-`AdaptiveReconAgent` bọc engine deterministic bằng LangGraph theo stage: ASI/context → LLM proposal có schema → deterministic validator → Policy/Gateway → evidence → ASI refresh. Mặc định tối đa 2 round, hard cap 3 round, 5 proposal/round và 8 action root/task; SQLite migration v7 lưu quyết định và budget planning để restart không gọi lại model hoặc reset giới hạn.
+`AdaptiveReconAgent` performs sequential service discovery, HTTP verification, technology fingerprinting and static discovery before bounded LLM planning. Browser runs only after a persisted validated proposal. All execution passes through Policy/Gateway and produces durable evidence.
 
-Model chỉ có thể đề xuất safe HTTP (GET/HEAD qua `HTTP_FETCH`), bounded browser, hoặc stop. `content_discovery` bị từ chối vì FFUF chưa có capability/adapter trong scope hiện tại. Context không chứa raw evidence/body/header/cookie/query values. Core `ReconAgent` vẫn deterministic; kết nối model thật là opt-in riêng.
+The model proposes scoped HTTP verification, passive Browser exploration, trusted-wordlist `CONTENT_DISCOVERY`, or an exclusive typed STOP. A curated checklist provides coverage gaps without granting permissions. Default planning is two rounds, hard maximum three, with at most eight accepted adaptive root actions.
 
-Xem [đánh giá thiết kế, cách bật, giới hạn và kiểm chứng](docs/recon-adaptive-planning.md).
+```powershell
+python -m scripts.run_recon_live --target-ip 127.0.0.1 --ports 8000,8080 --provider gemini --browser --content-discovery
+```
+
+Use only an authorized lab/staging target. `--url` retains the earlier HTTP-only profile. Domain/VHost support remains a separate gate.
+
+Migration v8 persists stage plans, safe provider errors and FFUF request units. The runner exports an audit bundle. Worker completion is separate from `handoff_ready`; zero FUZZ_READY entries never justify a future FuzzTask.
+
+See the [guide](docs/recon-bounded-adaptive.md), [examples](docs/recon-bounded-examples.json), [PT_01 source mapping](docs/recon-checklist-source-mapping.md), and [verification](docs/recon-bounded-verification.md).
 
 ## AI usage logging
 

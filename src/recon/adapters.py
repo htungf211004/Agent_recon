@@ -5,9 +5,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import subprocess
 import tempfile
 import time
+from pathlib import Path
+from shutil import which
 from urllib.parse import urlunsplit
 
 import httpx
@@ -125,13 +128,14 @@ class HttpProbeAdapter:
         )
 
 
-def _run_fixed(command: list[str], timeout: int) -> AdapterOutput:
+def _run_fixed(command: list[str], timeout: int, *, env=None, cwd=None) -> AdapterOutput:
     # Send process output to a file so an unbounded tool response cannot fill RAM.
     with tempfile.TemporaryFile(mode="w+b") as output_file:
         try:
             completed = subprocess.run(
                 command, stdout=output_file, stderr=subprocess.STDOUT,
                 timeout=timeout, check=False, shell=False,
+                env=env, cwd=cwd, stdin=subprocess.DEVNULL,
             )
         except subprocess.TimeoutExpired:
             output_file.seek(0)
@@ -179,3 +183,45 @@ class WhatWebAdapter:
             status=output.status, timed_out=output.timed_out, raw_output=output.raw_output, message=output.message,
             technologies=technologies,
         )
+
+
+class FfufAdapter:
+    """HEAD-only small path discovery; no bodies, redirects, calibration or recursion."""
+
+    def execute(self, request):
+        from src.recon.content_discovery import parse_ffuf
+        from src.recon.models import ContentDiscoveryParams
+        from src.recon.wordlists import load_wordlist
+
+        params = request.parameters
+        if not isinstance(params, ContentDiscoveryParams):
+            raise TypeError("content discovery parameters required")
+        binary = which("ffuf")
+        if not binary:
+            return AdapterOutput(status="error", message="ffuf unavailable")
+        wordlist = load_wordlist(params.wordlist_id)
+        with tempfile.TemporaryDirectory(prefix="recon-ffuf-") as directory:
+            # No inherited proxy, credentials, FFUF config, or history; fixed literal-IP URL.
+            env = {key: value for key, value in os.environ.items() if key in {"PATH", "SYSTEMROOT", "WINDIR"}}
+            env.update(HOME=directory, USERPROFILE=directory, XDG_CONFIG_HOME=directory,
+                       XDG_DATA_HOME=directory, XDG_CACHE_HOME=directory)
+            output_path = Path(directory) / "results.json"
+            command = [binary, "-w", str(wordlist.path.resolve()), "-u",
+                       request_url(request.target_ip, params.scheme, params.port, params.path_prefix + "FUZZ"),
+                       "-X", "HEAD", "-t", "1", "-p", "0.5", "-timeout", "2", "-maxtime", "15",
+                       "-ignore-body", "-H", "Connection: close",
+                       "-r=false", "-recursion=false", "-ac=false", "-s", "-mc", "all", "-fc", "404",
+                       "-of", "json", "-o", str(output_path)]
+            output = _run_fixed(command, timeout=20, env=env, cwd=directory)
+            if output.status != "success":
+                return AdapterOutput(status="error", timed_out=output.timed_out, message="content discovery failed")
+            try:
+                with output_path.open("rb") as stream:
+                    raw = stream.read(MAX_OUTPUT_BYTES + 1)
+                candidates = parse_ffuf(raw, request)
+            except (OSError, ValueError, TypeError, KeyError):
+                return AdapterOutput(status="error", message="invalid or oversized ffuf result")
+            # Persist only typed bounded facts, not FFUF command/config dumps.
+            envelope = {"wordlist_id": wordlist.id, "wordlist_sha256": wordlist.sha256,
+                        "method": "HEAD", "candidates": candidates}
+            return AdapterOutput(status="success", raw_output=json.dumps(envelope, separators=(",", ":")).encode())

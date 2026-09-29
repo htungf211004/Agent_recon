@@ -38,11 +38,12 @@ class EndpointDiscovery:
         self.service = service
         self.limit_reason = "exhausted"
 
-    def run(self, task: ReconTask):
+    def run(self, task: ReconTask, origins=None):
+        self.verified_origins = None if origins is None else set(origins)
         self.repository.recover_expired_runs(task.id)
         previous = self.repository.get_coverage(task.id)
         self.limit_reason = previous.stop_reason if previous else "exhausted"
-        self._seed(task)
+        self._seed(task, origins)
         while True:
             sources = self.repository.list_sources(task.id)
             pending = tuple(source for source in sources if source.status == SourceStatus.PENDING)
@@ -109,18 +110,23 @@ class EndpointDiscovery:
         self._coverage(task)
         return self.service.snapshot(task.id)
 
-    def _seed(self, task):
+    def _seed(self, task, origins=None):
         defaults = ("/", "/robots.txt", "/sitemap.xml", "/openapi.json", "/swagger.json")
-        for target in sorted(set(task.scope.allowed_ips)):
-            for port in sorted(set(task.scope.allowed_ports)):
-                base = request_url(target, scheme_for_port(port), port, "/")
-                for value in task.discovery_seeds or defaults:
-                    url = normalize_candidate(value, base)
-                    if url:
-                        source = DiscoverySource(task_id=task.id, url=url)
-                        self._candidate(task, Candidate(url, relation="seed"), source, depth=0)
+        bases = origins if origins is not None else tuple(
+            request_url(target, scheme_for_port(port), port, "/")
+            for target in sorted(set(task.scope.allowed_ips)) for port in sorted(set(task.scope.allowed_ports)))
+        for base in bases:
+            for value in task.discovery_seeds or defaults:
+                url = normalize_candidate(value, base)
+                if url:
+                    source = DiscoverySource(task_id=task.id, url=url)
+                    self._candidate(task, Candidate(url, relation="seed"), source, depth=0)
 
     def _candidate(self, task, candidate, source, depth):
+        candidate_parts = urlsplit(candidate.url)
+        if (getattr(self, "verified_origins", None) is not None
+                and request_url(candidate_parts.hostname, candidate_parts.scheme, candidate_parts.port, "/") not in self.verified_origins):
+            return
         observation_id = stable_id(task.id, candidate.method, candidate.url)
         path = urlsplit(candidate.url).path
         unresolved_path = any(char in path for char in "{}")

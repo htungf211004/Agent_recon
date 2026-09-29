@@ -39,10 +39,16 @@ class ReconService:
         inventory = build_inventory(task, self.repository, self.gateway.evidence)
         endpoints = self.repository.list_endpoints(task_id)
         coverage = self.repository.get_coverage(task_id)
+        with self.repository._connect() as connection:
+            session = connection.execute("SELECT stop_reason FROM recon_planning_sessions WHERE task_id = ?", (task.id,)).fetchone()
+        if coverage is None and session:
+            coverage = ReconCoverage(task_id=task.id)
         if coverage is None and Capability.BROWSER_EXPLORE in task.scope.capabilities:
             static_enabled = Capability.HTTP_FETCH in task.scope.capabilities
             coverage = ReconCoverage(task_id=task_id, converged=not static_enabled, complete=not static_enabled)
         if coverage is not None:
+            if session and session[0] in {"model_error", "model_outcome_unknown", "context_limit"}:
+                coverage = coverage.model_copy(update={"limitations": tuple(sorted(set((*coverage.limitations, "adaptive:" + session[0]))))})
             coverage = coverage.model_copy(update={
                 **self._browser_coverage(task, coverage, results),
                 "route_count": len(endpoints), "endpoints": len(endpoints),
@@ -100,7 +106,8 @@ class ReconService:
         complete = configured and bool(requests) and reasons == {"converged"}
         static_converged = coverage.converged if coverage.static_converged is None else coverage.static_converged
         static_complete = coverage.complete if coverage.static_complete is None else coverage.static_complete
-        limitations = {f"browser:{reason}" for reason in reasons if reason != "converged"}
+        limitations = {item for item in coverage.limitations if item.startswith(("adaptive:", "handoff:"))}
+        limitations.update(f"browser:{reason}" for reason in reasons if reason != "converged")
         if requested and not available and not requests:
             limitations.add("browser:unavailable")
         if not static_complete:

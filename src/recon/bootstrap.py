@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from shutil import which
 
-from src.recon.adapters import HttpFetchAdapter, HttpProbeAdapter, NmapAdapter, WhatWebAdapter
+from src.recon.adapters import FfufAdapter, HttpFetchAdapter, HttpProbeAdapter, NmapAdapter, WhatWebAdapter
 from src.recon.agent import ReconAgent
 from src.recon.browser_runtime import chromium_available
 from src.recon.gateway import CapabilityRegistry, ToolExecutionGateway
@@ -25,6 +25,8 @@ def create_recon_service(database_path: Path | str, evidence_dir: Path | str) ->
         registry.register(Capability.NMAP_SCAN, NmapAdapter())
     if which("whatweb"):
         registry.register(Capability.WHATWEB, WhatWebAdapter())
+    if which("ffuf"):
+        registry.register(Capability.CONTENT_DISCOVERY, FfufAdapter())
     registry.register(Capability.HTTP_FETCH, HttpFetchAdapter())
     gateway = ToolExecutionGateway(
         policy=PolicyService(repository),
