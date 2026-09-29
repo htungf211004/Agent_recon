@@ -6,12 +6,13 @@ import base64
 import hashlib
 import json
 import os
+import ssl
 import subprocess
 import tempfile
 import time
 from pathlib import Path
 from shutil import which
-from urllib.parse import urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -43,15 +44,19 @@ class HttpFetchAdapter:
         params = request.parameters
         if not isinstance(params, HttpFetchParams):
             raise TypeError("HTTP fetch parameters required")
-        url = request_url(request.target_ip, params.scheme, params.port, params.path, params.query)
+        url = request_url(request.target_ip, params.scheme, params.port, params.path, params.query, target_host=request.target_host)
+        transport_url = request_url(request.target_ip, params.scheme, params.port, params.path, params.query)
+        transport_options = ({"headers": {"Host": urlsplit(url).netloc},
+                              "extensions": {"sni_hostname": request.target_host}} if request.target_host else {})
         deadline = time.monotonic() + params.timeout_seconds
         body = bytearray()
         truncated = False
         message = ""
         try:
             with httpx.Client(transport=self.transport, follow_redirects=False, trust_env=False,
+                              verify=ssl.create_default_context() if request.target_host else True,
                               timeout=params.timeout_seconds, headers={"Accept-Encoding": "identity"}) as client:
-                with client.stream(params.method, url) as response:
+                with client.stream(params.method, transport_url, **transport_options) as response:
                     if response.headers.get("content-encoding", "identity").lower() not in {"", "identity"}:
                         truncated = True
                         message = "encoded response body not supported"
@@ -74,6 +79,7 @@ class HttpFetchAdapter:
                         "url": url, "method": params.method, "response": metadata.model_dump(),
                         "body_base64": base64.b64encode(body).decode("ascii"),
                         "location": response.headers.get("location", "")[:2048],
+                        **({"pinned_ip": request.target_ip, "authority": urlsplit(url).netloc} if request.target_host else {}),
                     }
                     return AdapterOutput(
                         status="error" if truncated else "success",
@@ -99,9 +105,13 @@ class HttpProbeAdapter:
         if not isinstance(params, HttpProbeParams):
             raise TypeError("HTTP probe parameters required")
         url = _url(request.target_ip, params.scheme, params.port)
+        origin = request_url(request.target_ip, params.scheme, params.port, "/", target_host=request.target_host)
+        options = ({"headers": {"Host": urlsplit(origin).netloc},
+                    "extensions": {"sni_hostname": request.target_host}} if request.target_host else {})
         try:
-            with httpx.Client(transport=self.transport, follow_redirects=False, trust_env=False, timeout=5.0) as client:
-                response = client.head(url)
+            with httpx.Client(transport=self.transport, follow_redirects=False, trust_env=False, timeout=5.0,
+                              verify=ssl.create_default_context() if request.target_host else True) as client:
+                response = client.head(url, **options)
         except httpx.HTTPError as exc:
             return AdapterOutput(status="error", timed_out=isinstance(exc, httpx.TimeoutException), message=f"HTTP probe failed: {type(exc).__name__}")
         lines = [f"HTTP {response.status_code}"]

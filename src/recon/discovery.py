@@ -90,7 +90,8 @@ class EndpointDiscovery:
             selected = []
             for action in plan.actions:
                 params = action.request.parameters
-                url = request_url(action.request.target_ip, params.scheme, params.port, params.path, params.query)
+                url = request_url(action.request.target_ip, params.scheme, params.port, params.path, params.query,
+                                  target_host=action.request.target_host)
                 source = by_url[(url, params.method)].model_copy(update={"request_id": action.request.id})
                 self.repository.save_source(source)
                 selected.append(source)
@@ -115,6 +116,9 @@ class EndpointDiscovery:
         bases = origins if origins is not None else tuple(
             request_url(target, scheme_for_port(port), port, "/")
             for target in sorted(set(task.scope.allowed_ips)) for port in sorted(set(task.scope.allowed_ports)))
+        if origins is None and task.scope.web_origin:
+            o = task.scope.web_origin
+            bases = (request_url(o.pinned_ip, o.scheme, o.port, "/", target_host=o.host),)
         for base in bases:
             for value in task.discovery_seeds or defaults:
                 url = normalize_candidate(value, base)

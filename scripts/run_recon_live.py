@@ -1,12 +1,16 @@
-"""Run a scoped literal-IP target with the configured real LLM and export evidence refs."""
+"""Run a scoped HTTP(S) URL or IP mission with the configured real LLM and evidence."""
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import platform
 import re
+import sqlite3
 import subprocess
+import sys
 from collections import Counter
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -19,21 +23,49 @@ from src.recon.bootstrap import create_recon_agent
 from src.recon.completion import completion
 from src.recon.execution import ExecutionBudget
 from src.recon.llm_planner import configured_planner
-from src.recon.models import BrowserLimits, Capability, ReconTask, Scope
+from src.recon.models import BrowserLimits, Capability, ReconTask, Scope, WebOrigin
 from src.recon.planner import scheme_for_port
-from src.recon.urls import canonical_url, path_allowed, validate_path
+from src.recon.urls import canonical_host, canonical_url, path_allowed, validate_path
 from src.recon.web_models import DiscoveryLimits
 
 
+def resolve_pin(host: str, port: int) -> str:
+    """Operator admission only: bound OS DNS lifetime and freeze one IP before Recon."""
+    host = canonical_host(host)
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        pass
+    script = ("import socket,json,sys;print(json.dumps(sorted({a[4][0] for a in "
+              "socket.getaddrinfo(sys.argv[1],int(sys.argv[2]),type=socket.SOCK_STREAM)})))")
+    try:
+        result = subprocess.run([sys.executable, "-c", script, host, str(port)], capture_output=True,
+                                timeout=8, check=True, shell=False,
+                                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+        ips = [ipaddress.ip_address(value) for value in json.loads(result.stdout)]
+        usable = [ip for ip in ips if not (ip.is_unspecified or ip.is_multicast or "%" in str(ip))]
+        return str(sorted(usable, key=lambda ip: (ip.version, int(ip)))[0])
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError, TypeError):
+        raise ValueError("DNS resolution failed or timed out; check hostname/network") from None
+
+
 def scoped_task(url: str, task_id: str, *, path_prefix: str | None = None, browser: bool = False,
-                ports: tuple[int, ...] | None = None, content_discovery: bool = False, full_profile: bool = False) -> ReconTask:
+                ports: tuple[int, ...] | None = None, content_discovery: bool = False, full_profile: bool = False,
+                pinned_ip: str | None = None) -> ReconTask:
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", task_id):
         raise ValueError("task-id must contain 1-64 letters, digits, hyphens or underscores")
-    if urlsplit(url).fragment:
-        raise ValueError("URL fragments are not supported")
-    target = urlsplit(canonical_url(url))  # Reject hostname, credentials and ambiguous paths.
-    if target.scheme != scheme_for_port(target.port):
-        raise ValueError("this engine uses HTTPS on 443/8443/9443 and HTTP on other ports")
+    target = urlsplit(canonical_url(url))  # Fragments are client-side, never sent in HTTP requests.
+    try:
+        target_ip = str(ipaddress.ip_address(target.hostname))
+        domain = False
+    except ValueError:
+        domain = True
+        target_ip = None
+    bound = domain or target.scheme != scheme_for_port(target.port)
+    if bound and (full_profile or content_discovery):
+        raise ValueError("hostname/explicit-scheme URLs support HTTP and Browser; use an IP mission for Nmap/WhatWeb/FFUF")
+    if pinned_ip and not domain and pinned_ip != target_ip:
+        raise ValueError("literal IP must match the supplied pin")
     prefix = validate_path(path_prefix if path_prefix is not None else target.path)
     if not path_allowed(target.path, (prefix,)):
         raise ValueError("target URL is outside the supplied path prefix")
@@ -46,11 +78,13 @@ def scoped_task(url: str, task_id: str, *, path_prefix: str | None = None, brows
         capabilities += (Capability.CONTENT_DISCOVERY,)
     if ports is not None and target.port not in ports:
         raise ValueError("URL port must be explicitly authorized")
+    target_ip = target_ip or pinned_ip or resolve_pin(target.hostname, target.port)
+    origin = WebOrigin(host=target.hostname, scheme=target.scheme, port=target.port, pinned_ip=target_ip) if bound else None
     seed = target.path + ("?" + target.query if target.query else "")
     return ReconTask(
         id=task_id, run_id=task_id,
-        scope=Scope(allowed_ips=(target.hostname,), allowed_ports=tuple(sorted(set(ports))) if ports else (target.port,),
-                    allowed_paths=(prefix,), allowed_methods=("GET", "HEAD"), capabilities=capabilities),
+        scope=Scope(allowed_ips=(target_ip,), allowed_ports=tuple(sorted(set(ports))) if ports else (target.port,),
+                    allowed_paths=(prefix,), allowed_methods=("GET", "HEAD"), capabilities=capabilities, web_origin=origin),
         discovery_seeds=() if full_profile and target.path == "/" else (seed,), expires_at=datetime.now(UTC) + timedelta(minutes=30),
         discovery_limits=DiscoveryLimits(max_rounds=2, max_requests=24, max_sources=16, max_endpoints=64, max_depth=2),
         execution_budget=ExecutionBudget(max_requests=64 if full_profile else 40, max_body_bytes=65536,
@@ -127,9 +161,10 @@ def export_run(agent, task_id, directory):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     target_group = parser.add_mutually_exclusive_group(required=True)
-    target_group.add_argument("--url", help="authorized HTTP(S) URL with a literal IP; legacy HTTP-only profile")
+    target_group.add_argument("--url", help="authorized HTTP(S) URL with a hostname or literal IP")
     target_group.add_argument("--target-ip", help="trusted full Recon mission for this literal IP")
     parser.add_argument("--ports", help="explicit comma-separated authorized ports; required with --target-ip")
+    parser.add_argument("--pinned-ip", help="trusted fixed IP for the URL hostname; otherwise resolve once at task creation")
     parser.add_argument("--content-discovery", action="store_true", help="authorize bounded packaged-wordlist HEAD discovery")
     parser.add_argument("--task-id", default=None, help="reuse the same ID and arguments to resume")
     parser.add_argument("--path-prefix", help="allowed path prefix; defaults to the URL path")
@@ -140,6 +175,15 @@ def main(argv=None):
     parser.add_argument("--output-root", type=Path, default=Path("data/live-recon"))
     args = parser.parse_args(argv)
     task_id = args.task_id or "live-" + uuid4().hex[:16]
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", task_id):
+        parser.error("invalid task-id")
+    directory = args.output_root / task_id
+    previous = None
+    if (directory / "recon.db").exists():
+        # Resume uses the frozen DNS pin, even if the resolver now returns another address.
+        with closing(sqlite3.connect((directory / "recon.db").resolve().as_uri() + "?mode=ro", uri=True)) as db:
+            row = db.execute("SELECT payload FROM recon_tasks WHERE id = ?", (task_id,)).fetchone()
+            previous = ReconTask.model_validate_json(row[0]) if row else None
     try:
         ports = tuple(int(port) for port in args.ports.split(",")) if args.ports else None
         if args.target_ip and not ports:
@@ -147,7 +191,8 @@ def main(argv=None):
         host = f"[{args.target_ip}]" if args.target_ip and ":" in args.target_ip else args.target_ip
         url = args.url or f"{scheme_for_port(ports[0])}://{host}:{ports[0]}/"
         proposed = scoped_task(url, task_id, path_prefix=args.path_prefix, browser=args.browser,
-            ports=ports, content_discovery=args.content_discovery, full_profile=args.target_ip is not None)
+            ports=ports, content_discovery=args.content_discovery, full_profile=args.target_ip is not None,
+            pinned_ip=args.pinned_ip or (previous.scope.web_origin.pinned_ip if previous and previous.scope.web_origin else None))
     except ValueError as error:
         parser.error(str(error))
     settings = get_settings()
@@ -160,7 +205,6 @@ def main(argv=None):
         base_url, key_name = settings.openai_base_url, "OPENAI_API_KEY"
     if not api_key:
         parser.error(f"{key_name} is missing; configure it locally in .env (never in command arguments)")
-    directory = args.output_root / task_id
     repository, engine = create_recon_agent(directory / "recon.db", directory / "evidence")
     if args.browser and engine.service.gateway.registry.get(Capability.BROWSER_EXPLORE) is None:
         parser.error("Chromium unavailable: install and probe the runtime before using --browser")

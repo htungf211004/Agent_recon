@@ -32,6 +32,7 @@ RUN useradd -m appuser
 COPY src ./src
 COPY scripts/check_recon_runtime.py ./scripts/check_recon_runtime.py
 COPY scripts/run_recon_live.py ./scripts/run_recon_live.py
+COPY scripts/recon_ui.py ./scripts/recon_ui.py
 
 # Create data directory with correct ownership
 RUN mkdir -p /app/data && chown -R appuser:appuser /app

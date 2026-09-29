@@ -18,7 +18,7 @@ from src.contracts.recon_planning import (
 )
 from src.recon.checklist import project_checklist
 from src.recon.models import Capability, CapabilityRequest
-from src.recon.urls import canonical_url, path_allowed
+from src.recon.urls import canonical_url, path_allowed, scoped_ip
 from src.recon.wordlists import TRUSTED
 
 
@@ -43,10 +43,11 @@ def planning_route(entry, task, repository, evidence):
             location = json.loads(evidence.read(latest.evidence_id)).get("location", "")
             if location:
                 target = urlsplit(canonical_url(urljoin(latest.url, location)))
-                allowed = (target.hostname in task.scope.allowed_ips and target.port in task.scope.allowed_ports
+                resolved = scoped_ip(task.scope, target.geturl())
+                allowed = (resolved is not None
                            and path_allowed(target.path, task.scope.allowed_paths))
                 redirect = PlanningRedirect(present=True, target_scheme=target.scheme, target_port=target.port,
-                    same_target_ip=target.hostname == entry.resolved_ip, scope_status="IN_SCOPE" if allowed else "OUT_OF_SCOPE")
+                    same_target_ip=resolved == entry.resolved_ip, scope_status="IN_SCOPE" if allowed else "OUT_OF_SCOPE")
         except (ValueError, TypeError, KeyError, OSError):
             redirect = PlanningRedirect(present=True, scope_status="INVALID")
     blocker = None

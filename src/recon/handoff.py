@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from src.contracts.attack_surface import AttackSurfaceEntry, AttackSurfaceInventory, Observation, Provenance
 from src.recon.endpoints import fuzz_ready, has_unresolved_required_input, is_testable
 from src.recon.models import Capability
-from src.recon.urls import path_allowed
+from src.recon.urls import path_allowed, scoped_ip
 from src.recon.web_models import EndpointLifecycle, stable_id
 
 
@@ -38,7 +38,7 @@ def build_inventory(task, repository, evidence):
             task.expires_at.tzinfo and task.expires_at > datetime.now(UTC)
             and (Capability.HTTP_FETCH in task.scope.capabilities
                  or {Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST}.issubset(task.scope.capabilities))
-            and origin.hostname in task.scope.allowed_ips and origin.port in task.scope.allowed_ports
+            and scoped_ip(task.scope, route.url) is not None
             and route.method in task.scope.allowed_methods and path_allowed(origin.path, task.scope.allowed_paths)
         )
         dtos = []
@@ -101,7 +101,8 @@ def build_inventory(task, repository, evidence):
         refs = tuple(sorted({p.evidence_ref for p in provenance}))
         entries.append(AttackSurfaceEntry(
             id=route.id, run_id=task.run_id, target_id=stable_id(task.run_id, origin.scheme, origin.netloc),
-            scheme=origin.scheme, authority=origin.netloc, resolved_ip=origin.hostname, method=route.method,
+            scheme=origin.scheme, authority=origin.netloc,
+            resolved_ip=scoped_ip(task.scope, route.url) or origin.hostname, method=route.method,
             canonical_path=origin.path, route_template=route.route_template,
             parameters=route.parameters, observations=tuple(dtos),
             baseline_ref=route.baseline_id, baseline_observation_ref=baseline.observation_id if baseline_valid else None,

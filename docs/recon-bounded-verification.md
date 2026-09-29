@@ -130,7 +130,7 @@ target or live model was contacted. Changes remain local, uncommitted and unpush
 - [Graph, mission and contracts](recon-bounded-adaptive.md).
 - [Generated strict ReconTask, complete planning context, FFUF params and checklist item](recon-bounded-examples.json).
 - [Python 3.11/product 3.12 compatibility ADR](adr/0004-bounded-adaptive-runtime.md).
-- Literal IP only; domain/DNS pinning/Host/TLS SNI integration remains separate.
+- At this verification revision, targets were literal IP only. Subsequent [hostname support](recon-domain-support.md) adds pinned HTTP/Browser origins and its own verification gates.
 - FFUF uses bounded HEAD candidates; GET-only behavior may be missed. It has no arbitrary lists, payloads or recursion.
 - Temporary process output is capped when read; it is not an OS filesystem quota.
 - Browser admission limits retain the documented transport/header buffering limits.

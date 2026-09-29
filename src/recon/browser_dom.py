@@ -54,7 +54,7 @@ def project_browser_response(repository, request: CapabilityRequest, result: Too
     params = request.parameters
     if params.resource_type not in INVENTORY_RESOURCE_TYPES:
         return
-    url = request_url(request.target_ip, params.scheme, params.port, params.path, params.query)
+    url = request_url(request.target_ip, params.scheme, params.port, params.path, params.query, target_host=request.target_host)
     if envelope.get("url") != url or envelope.get("method") != params.method:
         raise ValueError("browser evidence identity mismatch")
 

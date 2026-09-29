@@ -17,6 +17,7 @@ from src.recon.models import (
     ReconTask,
     WhatWebParams,
 )
+from src.recon.urls import scoped_ip
 from src.recon.web_models import DiscoverySource
 
 
@@ -29,7 +30,11 @@ class ReconPlanner:
         actions = []
         for source in sorted(sources, key=lambda item: (item.depth, item.url, item.method)):
             url = urlsplit(source.url)
-            actions.append(self._action(task, url.hostname, Capability.HTTP_FETCH, HttpFetchParams(
+            target = scoped_ip(task.scope, source.url)
+            if target is None:
+                # Keep literal-IP off-scope sources flowing through Policy for audit.
+                target = url.hostname
+            actions.append(self._action(task, target, Capability.HTTP_FETCH, HttpFetchParams(
                 port=url.port, scheme=url.scheme, path=url.path, query=url.query, method=source.method,
                 timeout_seconds=min(5.0, task.execution_budget.max_timeout_seconds),
                 max_body_bytes=task.execution_budget.max_body_bytes,
@@ -64,6 +69,7 @@ class ReconPlanner:
 
     @staticmethod
     def _action(task: ReconTask, target_ip: str, capability: Capability, parameters) -> ReconAction:
+        origin = task.scope.web_origin
         identity = json.dumps(
             [task.id, target_ip, capability.value, parameters.model_dump()],
             sort_keys=True,
@@ -75,6 +81,7 @@ class ReconPlanner:
             task_id=task.id,
             capability=capability,
             target_ip=target_ip,
+            target_host=origin.host if origin else None,
             parameters=parameters,
             run_id=task.run_id,
             scope_version=task.scope_version,

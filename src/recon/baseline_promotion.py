@@ -10,7 +10,7 @@ from src.recon.endpoints import baseline_eligible, fuzz_ready
 from src.recon.execution import ToolRunState
 from src.recon.models import Capability, CapabilityRequest, HttpFetchParams, ReconAction, ReconPlan, ReconTask
 from src.recon.policy import PolicyService
-from src.recon.urls import path_allowed, request_url
+from src.recon.urls import path_allowed, request_url, scoped_ip
 from src.recon.web_models import (
     BaselineRequest,
     DiscoveryKind,
@@ -51,10 +51,14 @@ class BrowserBaselinePromotion:
                     or not self._browser_observation(task, observation)):
                 continue
             parts = urlsplit(observation.url)
+            target = scoped_ip(task.scope, observation.url)
+            if target is None:
+                continue
             identity = PREFIX + stable_id("browser-baseline-v1", task.id, endpoint.id, observation.id,
                                           observation.url, endpoint.method)
             request = CapabilityRequest(
-                id=identity, task_id=task.id, capability=Capability.HTTP_FETCH, target_ip=parts.hostname,
+                id=identity, task_id=task.id, capability=Capability.HTTP_FETCH, target_ip=target,
+                target_host=task.scope.web_origin.host if task.scope.web_origin else None,
                 parameters=HttpFetchParams(port=parts.port, scheme=parts.scheme, method=endpoint.method,
                                            path=parts.path, query=parts.query,
                                            timeout_seconds=min(5.0, task.execution_budget.max_timeout_seconds),
@@ -81,7 +85,7 @@ class BrowserBaselinePromotion:
     @staticmethod
     def _observation_id(request):
         params = request.parameters
-        url = request_url(request.target_ip, params.scheme, params.port, params.path, params.query)
+        url = request_url(request.target_ip, params.scheme, params.port, params.path, params.query, target_host=request.target_host)
         return stable_id(request.task_id, params.method, url)
 
     def _verified_exchange(self, task, result, url, method):
@@ -101,7 +105,8 @@ class BrowserBaselinePromotion:
                     or artifact.tool_run_id != result.request_id or artifact.kind != "http_exchange"
                     or result.capability != request.capability or request.task_id != task.id
                     or request.action_fingerprint != decision.action_fingerprint
-                    or request_url(request.target_ip, params.scheme, params.port, params.path, params.query) != url
+                    or request_url(request.target_ip, params.scheme, params.port, params.path, params.query,
+                                   target_host=request.target_host) != url
                     or params.method != method):
                 return None
             envelope = json.loads(self.service.gateway.evidence.read(result.evidence_id))

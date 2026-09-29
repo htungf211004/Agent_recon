@@ -45,7 +45,7 @@ def project_action(repository, service, request):
     if request.capability != Capability.HTTP_FETCH or not result.evidence_id or not result.http_response:
         return
     params = request.parameters
-    url = request_url(request.target_ip, params.scheme, params.port, params.path, params.query)
+    url = request_url(request.target_ip, params.scheme, params.port, params.path, params.query, target_host=request.target_host)
     response = result.http_response
     try:
         envelope = json.loads(service.gateway.evidence.read(result.evidence_id))

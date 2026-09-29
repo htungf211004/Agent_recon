@@ -1,0 +1,66 @@
+# Recon with a hostname URL
+
+The local console accepts HTTP(S) domain/IP URLs. Restart the UI after updating:
+
+```powershell
+cd C:\VinAI\Agent_recon
+.\.venv\Scripts\python.exe -m scripts.recon_ui
+```
+
+Open `http://127.0.0.1:8765/`, select **HTTP + LLM**, and enter the intended URL,
+for example `https://juice-shop.herokuapp.com/#/`. Use `/` as path prefix for the
+whole authorized origin. Choose Gemini and optionally Browser, then start a new
+run. The runner reads the existing key/model from `.env`.
+
+CLI equivalent:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.run_recon_live --url "https://juice-shop.herokuapp.com/#/" --path-prefix / --provider gemini --browser --task-id juice-demo-01
+```
+
+These are invocation examples, not a claim that the public site's current response
+or deployment has been tested. Use the site only within the operator's authorization.
+
+## What changed
+
+- Hostnames are now supported instead of being rejected by IP parsing.
+- An eight-second DNS admission step selects and freezes one address. The UI passes
+  that pin to the CLI; the CLI records it in the trusted task. A resumed task uses
+  its saved pin, even if DNS changed.
+- `run-manifest.json` exposes `trusted_scope.web_origin` with the hostname, pinned
+  IP, scheme and port. Inventory shows the website authority and actual scoped IP.
+- HTTP uses the pinned address plus correct Host/TLS SNI; Chromium uses an explicit
+  resolver map. Certificate validation stays enabled. HTTP hostname transport uses
+  Python's default system trust context, including locally installed trusted roots;
+  it never sets `verify=False` or bypasses hostname checks.
+- Explicit URL schemes also work on nonstandard ports. `--target-ip` retains its
+  existing port-to-scheme heuristic and service-discovery behavior.
+
+## Limits to expect
+
+Only the submitted origin is authorized. Redirects are recorded but never followed
+automatically; submit the destination as a new task if appropriate. Another hostname
+on the same IP remains outside scope. A failed/stale DNS pin is not silently replaced.
+Nmap/WhatWeb/FFUF remain available for IP missions, not hostname missions.
+
+The fragment (`#...`) is removed from HTTP identity; it is not a server path.
+Root `/#/` works as root navigation. Arbitrary SPA hash-route exploration is not
+implemented. Large scripts, compressed or unknown-length Browser responses, required
+authentication, third-party assets and existing byte/time/request limits can still
+limit discovery. Accepting a URL does not guarantee full coverage or FUZZ_READY.
+
+## Verification
+
+The new fixtures cover hostname admission, DNS pin propagation, resume without DNS
+or model re-execution, Host/SNI and certificate validation, tampered bindings,
+exactly-once browser dispatch, POST/off-origin zero dispatch, domain inventory,
+separate baseline promotion and evidence integrity. The UI/CLI test uses an HTTP
+lab and an OpenAI-compatible provider fixture, both on localhost; no real provider
+quota or public-site scan is used.
+
+On the development Windows machine, Avast Web/Mail Shield replaces the self-signed
+TLS fixture certificate. The strict positive TLS test correctly fails there because
+the presented leaf is no longer issued by the fixture's trusted CA. Verification
+must run in an environment that presents the actual fixture certificate (Linux
+container/CI). Do not disable production TLS checks or trust the substituted
+self-signed chain to make this test pass.

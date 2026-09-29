@@ -45,7 +45,7 @@ Recon Day 1 đã có luồng thực thi từ task đến kết quả và bằng 
 - SQLite migration có version; evidence manifest có run/tool-run/kind/content type/redaction metadata.
 - Registry chỉ đăng ký Nmap/WhatWeb khi tìm thấy binary; HTTP probe/fetch luôn có trong runner Python.
 
-**Day 2 architecture: FROZEN; Recon → Fuzz contract: v1.0.** Request dùng `action_fingerprint` tách khỏi `request_id`, `Risk` là R0–R4; OpenAPI template có thể gộp path cụ thể khi khớp duy nhất. Python giữ **3.11** theo [ADR runtime](docs/adr/0001-mvp-python-runtime.md). [ADR Browser](docs/adr/0003-browser-execution-boundary.md) khóa đường thực thi và interception cho Day 03. Product API/Supervisor chưa nối; hostname/VHost là integration gate trước khi dùng lab có domain. Chi tiết handoff nằm trong tài liệu Day 2.
+**Day 2 architecture: FROZEN; Recon → Fuzz contract: v1.0.** Request dùng `action_fingerprint` tách khỏi `request_id`, `Risk` là R0–R4; OpenAPI template có thể gộp path cụ thể khi khớp duy nhất. Python giữ **3.11** theo [ADR runtime](docs/adr/0001-mvp-python-runtime.md). [ADR Browser](docs/adr/0003-browser-execution-boundary.md) khóa đường thực thi và interception cho Day 03; [ADR pinned origin](docs/adr/0005-pinned-web-origins.md) bổ sung HTTP/Browser cho hostname. Product API/Supervisor chưa nối. Chi tiết handoff nằm trong tài liệu Day 2.
 
 Xem [kiến trúc hiện tại](ARCHITECTURE.md) và [cách chạy, giới hạn Day 2](docs/day2-endpoint-discovery.md). Bộ kiểm tra gồm toàn bộ test Day 1 và các test Day 2; chạy bằng lệnh trong mục **Kiểm tra**.
 
@@ -103,6 +103,43 @@ uvicorn src.main:app --reload --port 8000
 
 Swagger UI: <http://localhost:8000/docs>
 
+## Giao diện Recon local (một file)
+
+```powershell
+cd C:\VinAI\Agent_recon
+.\.venv\Scripts\python.exe -m scripts.recon_ui
+```
+
+Mở **http://127.0.0.1:8765/**. Toàn bộ giao diện và server nằm trong
+[`scripts/recon_ui.py`](scripts/recon_ui.py), dùng dependencies sẵn có.
+
+1. Cấu hình Gemini (`GOOGLE_API_KEY` hoặc `GEMINI_API_KEY`, `GEMINI_MODEL`) trong `.env`.
+2. Bấm **Dùng lab localhost có sẵn**, hoặc nhập URL HTTP(S) dùng domain/IP của target được phép.
+3. Chọn provider/model, số round và capability khả dụng; bấm **Chạy Recon**.
+4. Xem Inventory, LLM planning, Summary; tải JSON và evidence đã kiểm tra SHA-256.
+
+Lab tích hợp phục vụ HTML, robots, sitemap, OpenAPI, JavaScript và hidden paths;
+không phục vụ thư mục repo. Lượt Recon gọi LLM thật và dùng quota của provider.
+Browser/FFUF là quyền tùy chọn; chỉ chạy khi planner đề xuất và policy chấp nhận.
+Chế độ service discovery cho phép nhập IP/ports để dùng Nmap/WhatWeb nếu có.
+Capability thiếu runtime được hiển thị rõ trên giao diện.
+
+URL domain (ví dụ `https://juice-shop.herokuapp.com/#/`) hỗ trợ HTTP và Browser:
+DNS được phân giải một lần, IP/hostname/scheme/port được lưu cố định trong scope;
+Host và TLS SNI giữ đúng hostname, chứng chỉ vẫn được xác minh. Phần `#...` được
+bỏ khỏi request HTTP; fragment route riêng của SPA chưa được duyệt riêng. Không
+tự theo redirect hoặc mở rộng sang domain khác. Nmap/WhatWeb/FFUF tiếp tục dùng
+profile IP. Xem [hỗ trợ URL domain và giới hạn](docs/recon-domain-support.md).
+
+UI gọi nguyên runner `scripts.run_recon_live` qua subprocess, không gọi adapter
+trực tiếp. Dữ liệu nằm tại `data/live-recon/<task-id>/`; mỗi lần chạy tạo task mới.
+Tiến độ ToolRun/stage được đọc từ SQLite; inventory và planning đầy đủ được export
+khi runner kết thúc. Giữ server UI chạy đến khi hoàn tất; đóng tab không hủy run.
+Lịch sử của tiến trình không do phiên UI hiện tại quản lý được ghi `UNTRACKED`;
+UI không tự retry/resume. API chỉ dành cho localhost và được bảo vệ bằng token phiên.
+Đổi cổng bằng `--port 8766` nếu cần. `/health` của backend starter không cần chạy
+để sử dụng giao diện này.
+
 ## Kiểm tra
 
 Verified baseline `8295fea`: **309 tests PASS**, [remote CI PASS](https://github.com/htungf211004/Agent_recon/actions/runs/36514030963). The bounded adaptive update has **356 tests PASS, zero skips, Ruff PASS** locally. See the [current verification report](docs/recon-bounded-verification.md) for Docker gates and publication status. Changes remain local; this revision is not marked FROZEN.
@@ -159,7 +196,7 @@ The model proposes scoped HTTP verification, passive Browser exploration, truste
 python -m scripts.run_recon_live --target-ip 127.0.0.1 --ports 8000,8080 --provider gemini --browser --content-discovery
 ```
 
-Use only an authorized lab/staging target. `--url` retains the earlier HTTP-only profile. Domain/VHost support remains a separate gate.
+Use only an authorized lab/staging target. `--url` supports HTTP(S) hostname/IP targets with optional Browser; hostname missions bind a fixed DNS pin and preserve Host/TLS SNI. See [domain support](docs/recon-domain-support.md).
 
 Migration v8 persists stage plans, safe provider errors and FFUF request units. The runner exports an audit bundle. Worker completion is separate from `handoff_ready`; zero FUZZ_READY entries never justify a future FuzzTask.
 

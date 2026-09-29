@@ -2,6 +2,10 @@
 
 Status: Day 03 Ver02 implemented for literal-IP lab targets; external-dispatch contracts preserved.
 
+Update: [ADR 0005](0005-pinned-web-origins.md) extends the literal-IP restriction
+below with an explicitly bound hostname transport. All existing external-dispatch,
+method, redirect, evidence, cancellation and byte-admission controls remain in force.
+
 Every Browser planner or agent proposes a typed capability request to the existing `ToolExecutionGateway`. `PolicyService` evaluates trusted run, target, scope, method, risk and budget before `BrowserAdapter` may create a navigation. Browser-Use has no independent execution authority.
 
 A navigation can trigger document, script, style, image, XHR/fetch and redirect requests. The Browser adapter must intercept **every outbound request before network continuation** and route it through a Gateway-controlled child request and policy decision. The adapter must not rely on checking the initial navigation URL alone. Child requests need stable request IDs, action fingerprints, durable ToolRuns, evidence and shared task budgets. Continuation must be available only to the adapter after the corresponding child request is allowed. A policy denial aborts that browser request.

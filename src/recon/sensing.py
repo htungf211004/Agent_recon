@@ -20,6 +20,9 @@ UNKNOWN_SERVICES = {"unknown", "tcpwrapped", "", "?"}
 
 
 def derive_web_candidates(task, nmap_results, requests):
+    if task.scope.web_origin:
+        o = task.scope.web_origin
+        return ((o.pinned_ip, o.port, o.scheme),)
     candidates = []
     for ip in sorted(set(task.scope.allowed_ips)):
         scanned, facts = set(), {}
@@ -86,7 +89,7 @@ class ReconSensing:
                 result.capability == Capability.HTTP_FETCH and result.http_response is not None
             ):
                 p = request.parameters
-                origins.add(request_url(request.target_ip, p.scheme, p.port, "/"))
+                origins.add(request_url(request.target_ip, p.scheme, p.port, "/", target_host=request.target_host))
         return tuple(sorted(origins))
 
     def run_stage(self, task_id, name, build):

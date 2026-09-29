@@ -36,11 +36,12 @@ class BrowserDiscovery:
             actions = []
             for ip in sorted(set(task.scope.allowed_ips)):
                 for port in sorted(set(task.scope.allowed_ports)):
-                    params = BrowserExploreParams(port=port, scheme=scheme_for_port(port), path=root.path,
+                    origin = task.scope.web_origin
+                    params = BrowserExploreParams(port=port, scheme=origin.scheme if origin else scheme_for_port(port), path=root.path,
                                                   query=root.query, limits=limits)
                     identity = "browser-discovery-" + stable_id(task.id, task.run_id, ip, params.model_dump_json())
                     request = CapabilityRequest(id=identity, task_id=task.id, capability=Capability.BROWSER_EXPLORE,
-                                                target_ip=ip, parameters=params)
+                                                target_ip=ip, target_host=origin.host if origin else None, parameters=params)
                     actions.append(ReconAction(id=identity, request=request))
             plans = (ReconPlan(task_id=task.id, actions=tuple(actions)),)
             # Persist all origins before execution, so restart does not change phase identity.

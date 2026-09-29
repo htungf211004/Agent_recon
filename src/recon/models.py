@@ -15,7 +15,7 @@ from src.contracts.attack_surface import AttackSurfaceInventory
 from src.contracts.evidence import EvidenceManifest
 from src.contracts.execution import CURRENT_RECON_POLICY_VERSION, Risk
 from src.recon.execution import BudgetContext, ExecutionBudget
-from src.recon.urls import validate_path, validate_query
+from src.recon.urls import canonical_host, validate_path, validate_query
 from src.recon.web_models import (
     DiscoveryLimits,
     EndpointObservation,
@@ -39,12 +39,44 @@ class Capability(StrEnum):
     CONTENT_DISCOVERY = "content_discovery"
 
 
+class WebOrigin(StrictModel):
+    host: str
+    scheme: Literal["http", "https"]
+    port: int = Field(ge=1, le=65535)
+    pinned_ip: str
+
+    _host = field_validator("host")(canonical_host)
+
+    @field_validator("pinned_ip")
+    @classmethod
+    def valid_pin(cls, value):
+        address = ipaddress.ip_address(value)
+        if "%" in value or address.is_unspecified or address.is_multicast:
+            raise ValueError("a concrete unicast IP is required")
+        return str(address)
+
+
 class Scope(StrictModel):
     allowed_ips: tuple[str, ...] = Field(min_length=1)
     allowed_ports: tuple[int, ...] = Field(min_length=1)
     capabilities: tuple[Capability, ...] = Field(min_length=1)
     allowed_paths: tuple[str, ...] = ()
     allowed_methods: tuple[Literal["GET", "HEAD"], ...] = ("GET", "HEAD")
+    web_origin: WebOrigin | None = None
+
+    @model_serializer(mode="wrap")
+    def compatible_payload(self, handler):
+        payload = handler(self)
+        if self.web_origin is None:
+            payload.pop("web_origin", None)
+        return payload
+
+    @model_validator(mode="after")
+    def pinned_origin(self):
+        if self.web_origin and (self.allowed_ips != (self.web_origin.pinned_ip,)
+                                or self.allowed_ports != (self.web_origin.port,)):
+            raise ValueError("web origin requires exactly its pinned IP and port")
+        return self
 
     @field_validator("allowed_paths")
     @classmethod
@@ -237,9 +269,22 @@ class CapabilityRequest(StrictModel):
     action_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     capability: Capability
     target_ip: str
+    target_host: str | None = None
     parameters: Parameters = Field(discriminator="kind")
     budget_context: BudgetContext | None = None
     parent_request_id: str | None = Field(default=None, min_length=1)
+
+    @field_validator("target_host")
+    @classmethod
+    def valid_host(cls, value):
+        return canonical_host(value) if value is not None else None
+
+    @model_serializer(mode="wrap")
+    def compatible_payload(self, handler):
+        payload = handler(self)
+        if self.target_host is None:
+            payload.pop("target_host", None)
+        return payload
 
     @field_validator("target_ip")
     @classmethod

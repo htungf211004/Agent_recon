@@ -23,7 +23,7 @@ def action_key(request):
         return (request.capability, request.target_ip, params.model_dump_json())
     if hasattr(params, "port"):
         return (request.capability, request_url(request.target_ip, params.scheme, params.port,
-                getattr(params, "path", "/"), getattr(params, "query", "")), getattr(params, "method", "GET"))
+                getattr(params, "path", "/"), getattr(params, "query", ""), target_host=request.target_host), getattr(params, "method", "GET"))
     return (request.capability, request.target_ip, params.model_dump_json())
 
 
@@ -55,7 +55,7 @@ class ReconProposalValidator:
                     raise ValueError("action_limit")
                 if proposal.target_ip is None or proposal.port is None:
                     raise ValueError("missing target")
-                if proposal.scheme != scheme_for_port(proposal.port):
+                if proposal.scheme != (task.scope.web_origin.scheme if task.scope.web_origin else scheme_for_port(proposal.port)):
                     raise ValueError("scheme/port mapping not allowed")
                 common = dict(port=proposal.port, scheme=proposal.scheme, path=getattr(proposal, "path", "/"))
                 if proposal.kind == "safe_http_probe":
@@ -86,7 +86,7 @@ class ReconProposalValidator:
                     from src.recon.content_discovery import candidate_urls
                     urls = candidate_urls(request)
                 else:
-                    urls = (request_url(request.target_ip, params.scheme, params.port, params.path),)
+                    urls = (request_url(request.target_ip, params.scheme, params.port, params.path, target_host=request.target_host),)
                 for url in urls:
                     matches = [endpoint for endpoint in self.repository.list_endpoints(task.id)
                                if endpoint.method == getattr(proposal, "method", "GET") and

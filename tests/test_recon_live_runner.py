@@ -16,11 +16,11 @@ def test_live_runner_scope_is_exact_and_does_not_add_scan_capabilities():
 
 
 @pytest.mark.parametrize("url,identifier,prefix", [
-    ("http://example.com/", "live", None),
+    ("ftp://example.com/", "live", None),
     ("http://user:password@127.0.0.1/", "live", None),
     ("http://127.0.0.1/", "../escape", None),
     ("http://127.0.0.1/admin", "live", "/api"),
-    ("https://127.0.0.1:8000/", "live", None),
+    ("http://127.1/", "live", None),
     ("http://127.0.0.1/../admin", "live", None),
 ])
 def test_live_runner_rejects_unsupported_or_ambiguous_scope(url, identifier, prefix):

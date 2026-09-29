@@ -43,6 +43,8 @@ class PolicyService:
     @classmethod
     def expected_fingerprint(cls, request: CapabilityRequest, task: ReconTask) -> str:
         parameters = request.parameters.model_dump(mode="json")
+        if request.target_host is not None:
+            parameters["target_host"] = request.target_host
         if request.parent_request_id is not None:
             parameters["parent_request_id"] = request.parent_request_id
         return action_fingerprint(
@@ -99,6 +101,16 @@ class PolicyService:
         if request.target_ip not in task.scope.allowed_ips:
             return "target not allowed"
         params = request.parameters
+        origin = task.scope.web_origin
+        if origin:
+            if request.capability not in {Capability.HTTP_FETCH, Capability.HTTP_PROBE,
+                                          Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST}:
+                return "capability has no pinned-origin transport"
+            if (request.target_ip, request.target_host, params.scheme, params.port) != (
+                    origin.pinned_ip, origin.host, origin.scheme, origin.port):
+                return "web origin binding does not match trusted scope"
+        elif request.target_host is not None:
+            return "hostname has no trusted origin binding"
         if isinstance(params, BrowserExploreParams):
             timeout = params.limits.max_runtime_seconds
         elif isinstance(params, (HttpFetchParams, BrowserRequestParams)):

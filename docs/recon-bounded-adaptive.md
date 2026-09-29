@@ -1,6 +1,7 @@
 # Bounded adaptive Recon worker
 
-Recon receives one immutable, authorized literal-IP lab/staging mission. Supervisor
+Recon receives one immutable, authorized lab/staging mission (literal IP or a
+[pinned web origin](recon-domain-support.md)). Supervisor
 consumes the worker result; it does not sequence individual tools. Actors remain
 Operator and Approver; future active verification is named Validation Agent.
 LLM planning is optional intelligence. Policy/Gateway remain the authorities.

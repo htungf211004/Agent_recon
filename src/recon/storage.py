@@ -74,6 +74,7 @@ class ReconRepository:
                         or parent.lease_expires_at <= now or parent_request is None
                         or parent_request.capability != Capability.BROWSER_EXPLORE
                         or parent_request.target_ip != request.target_ip
+                        or parent_request.target_host != request.target_host
                         or parent_request.parameters.port != request.parameters.port
                         or parent_request.parameters.scheme != request.parameters.scheme
                         or request.parameters.page_sequence >= parent_request.parameters.limits.max_pages

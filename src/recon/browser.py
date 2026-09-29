@@ -24,6 +24,9 @@ def child_request(parent: CapabilityRequest, url: str, method: str, resource_typ
         raise ValueError("browser parent required")
     normalized = canonical_url(url)
     parts = urlsplit(normalized)
+    if parent.target_host and (parts.hostname, parts.scheme, parts.port) != (
+            parent.target_host, parent.parameters.scheme, parent.parameters.port):
+        raise ValueError("browser child outside pinned origin")
     if method not in {"GET", "HEAD"}:
         raise ValueError("browser write method blocked")
     params = parent.parameters
@@ -34,7 +37,8 @@ def child_request(parent: CapabilityRequest, url: str, method: str, resource_typ
     return CapabilityRequest(
         id=f"browser-{identity}", task_id=parent.task_id, run_id=parent.run_id,
         scope_version=parent.scope_version, capability=Capability.BROWSER_REQUEST,
-        target_ip=parts.hostname, parent_request_id=parent.id,
+        target_ip=parent.target_ip if parent.target_host else parts.hostname,
+        target_host=parent.target_host, parent_request_id=parent.id,
         parameters=BrowserRequestParams(
             port=parts.port, scheme=parts.scheme, method=method, path=parts.path,
             query=parts.query, resource_type=resource_type, page_sequence=page_sequence,
@@ -60,7 +64,7 @@ class BrowserExploreAdapter:
             raise TypeError("browser adapter requires durable ReconRepository")
         task = repository.get_task(parent.task_id)
         limits = params.limits
-        initial = request_url(parent.target_ip, params.scheme, params.port, params.path, params.query)
+        initial = request_url(parent.target_ip, params.scheme, params.port, params.path, params.query, target_host=parent.target_host)
         deadline = time.monotonic() + limits.max_runtime_seconds
         origin = urlsplit(initial)[:2]
         pending: dict[object, ExternalDispatchPermit] = {}
@@ -93,13 +97,17 @@ class BrowserExploreAdapter:
                 url = canonical_url(request.url)
                 parts = urlsplit(url)
                 if parts[:2] != origin:
-                    raise ValueError("browser request outside current literal-IP origin")
+                    raise ValueError("browser request outside current authorized origin")
                 if request.is_navigation_request() and url != current_url:
                     raise ValueError("unplanned navigation or redirect blocked")
                 if getattr(request, "service_worker", None) is not None or request.frame != page.main_frame:
                     raise ValueError("unguarded worker, frame or popup blocked")
                 host = request.headers.get("host", "")
-                if host and host.lower() != parts.netloc.lower():
+                default_port = 443 if parts.scheme == "https" else 80
+                valid_hosts = {parts.netloc.lower()}
+                if parts.port == default_port:
+                    valid_hosts.add(parts.netloc.rsplit(":", 1)[0].lower())
+                if host and host.lower() not in valid_hosts:
                     raise ValueError("Host override blocked")
                 child = child_request(parent, url, method, request.resource_type, page_sequence)
                 outcome = self.gateway.begin_external_dispatch(child)
@@ -162,7 +170,13 @@ class BrowserExploreAdapter:
             factory = sync_playwright
         try:
             with factory() as playwright:
-                browser = playwright.chromium.launch(headless=True, timeout=remaining_ms())
+                launch = {}
+                if parent.target_host:
+                    # Host/SNI remain the authorized hostname; all DNS is pinned or blocked.
+                    address = f"[{parent.target_ip}]" if ":" in parent.target_ip else parent.target_ip
+                    launch["args"] = [f"--host-resolver-rules=MAP {parent.target_host} {address}, MAP * ~NOTFOUND",
+                                      "--no-proxy-server", "--disable-quic", "--disable-background-networking"]
+                browser = playwright.chromium.launch(headless=True, timeout=remaining_ms(), **launch)
                 try:
                     context = browser.new_context(
                         service_workers="block", accept_downloads=False,

@@ -5,6 +5,29 @@ import re
 from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
 
 
+def canonical_host(value: str) -> str:
+    if not value or any(c in value for c in "%/\\@?#"):
+        raise ValueError("invalid host")
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        host = (value[:-1] if value.endswith(".") else value).encode("idna").decode("ascii").lower()
+        if (len(host) > 253 or not all(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", p)
+                                    for p in host.split("."))
+                or all(re.fullmatch(r"(?:[0-9]+|0x[0-9a-f]+)", p) for p in host.split("."))):
+            raise ValueError("invalid or ambiguous hostname")
+        return host
+
+
+def scoped_ip(scope, url: str) -> str | None:
+    """Resolve identity against the stored scope only; never perform DNS here."""
+    parts = urlsplit(canonical_url(url))
+    origin = scope.web_origin
+    if origin:
+        return origin.pinned_ip if (parts.hostname, parts.scheme, parts.port) == (origin.host, origin.scheme, origin.port) else None
+    return parts.hostname if parts.hostname in scope.allowed_ips and parts.port in scope.allowed_ports else None
+
+
 def validate_path(path: str) -> str:
     if not path.startswith("/") or path.startswith("//") or len(path) > 2048:
         raise ValueError("an absolute local path is required")
@@ -44,7 +67,7 @@ def canonical_url(url: str) -> str:
     parts = urlsplit(url)
     if parts.scheme not in {"http", "https"} or parts.username is not None or parts.password is not None:
         raise ValueError("only HTTP URLs without credentials are supported")
-    host = str(ipaddress.ip_address(parts.hostname or ""))
+    host = canonical_host(parts.hostname or "")
     port = parts.port if parts.port is not None else (443 if parts.scheme == "https" else 80)
     if not 1 <= port <= 65535:
         raise ValueError("invalid port")
@@ -114,7 +137,8 @@ def normalize_candidate(value: str, base_url: str) -> str | None:
         return None
 
 
-def request_url(target_ip: str, scheme: str, port: int, path: str, query: str = "") -> str:
+def request_url(target_ip: str, scheme: str, port: int, path: str, query: str = "", *, target_host: str | None = None) -> str:
+    target_ip = target_host or target_ip
     host = f"[{target_ip}]" if ":" in target_ip else target_ip
     # Templates are retained in inventory, but must never become HTTP requests.
     if any(c in path for c in "{}"):
