@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
-from src.contracts.recon_planning import ReconPlanningContext, ReconPlanningDecision
+from src.contracts.recon_planning import ReconPlanningContext, ReconPlanningDecision, StopProposal, StopReason
 
 SYSTEM_PROMPT = """You are a Recon planner, not an authorization authority, for an authorized lab/staging assessment.
 Use checklist gaps, verified assets, evidence-backed facts, and retrieved knowledge to prioritize safe reconnaissance.
@@ -75,6 +75,19 @@ class LLMReconPlanner:
         if len(json.dumps(output).encode()) > 16384:
             raise ValueError("model output limit")
         return ReconPlanningDecision.model_validate(output)
+
+
+class DeterministicReconPlanner:
+    """Finish the bounded evidence pipeline without a provider credential."""
+
+    def __init__(self):
+        self.identity = identity_components("local", "deterministic")
+        self.planner_id = hashlib.sha256(json.dumps(self.identity, sort_keys=True).encode()).hexdigest()
+
+    def plan(self, context: ReconPlanningContext) -> ReconPlanningDecision:
+        return ReconPlanningDecision(proposals=(StopProposal(
+            rationale="Bounded deterministic reconnaissance completed; no additional model actions requested",
+            priority=1, reason_code=StopReason.NO_SAFE_SUPPORTED_ACTION),))
 
 
 def configured_planner(*, model_name: str, api_key: str, base_url: str = "https://api.openai.com/v1",

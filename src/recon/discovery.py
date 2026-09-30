@@ -120,7 +120,9 @@ class EndpointDiscovery:
             for target in sorted(set(task.scope.allowed_ips)) for port in sorted(set(task.scope.allowed_ports)))
         if origins is None and task.scope.web_origin:
             o = task.scope.web_origin
-            bases = (request_url(o.pinned_ip, o.scheme, o.port, "/", target_host=o.host),)
+            bases = tuple(request_url(o.pinned_ip, scheme_for_port(port), port, "/", target_host=o.host)
+                          for port in task.scope.allowed_ports) if task.scope.multi_origin else (
+                              request_url(o.pinned_ip, o.scheme, o.port, "/", target_host=o.host),)
         for base in bases:
             for value in task.discovery_seeds or defaults:
                 url = normalize_candidate(value, base)

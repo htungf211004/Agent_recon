@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from src.recon.adapters import bounded_dns_answers
 from src.recon.execution import ExecutionBudget
 from src.recon.models import Capability, ReconTask, Scope, WebOrigin
+from src.recon.profile import ROOT_SEEDS
 from src.recon.scope.models import AuthorizationBoundary, AuthorizedTarget, DnsObservation
 from src.recon.urls import canonical_host
 from src.recon.web_models import DiscoveryLimits
@@ -38,7 +39,7 @@ def admit_target(value: str, task_id: str, *, resolver: Callable[[str, int], tup
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", task_id):
         raise ValueError("invalid task-id")
     if root.kind == "DOMAIN":
-        scheme, ports = "https", (443,)
+        scheme, ports = "https", (80, 443, 8080, 8443)
         addresses = pinned_addresses or resolver(root.value, 443)
         observation = DnsObservation(host=root.value, addresses=addresses)
         pin = observation.addresses[0]
@@ -51,7 +52,7 @@ def admit_target(value: str, task_id: str, *, resolver: Callable[[str, int], tup
         pin = root.value
         origin = None
         observation = None
-        capabilities = (Capability.NMAP_SCAN, Capability.HTTP_PROBE, Capability.WHATWEB,
+        capabilities = (Capability.DNS_RESOLVE, Capability.NMAP_SCAN, Capability.HTTP_PROBE, Capability.WHATWEB,
                         Capability.HTTP_FETCH, Capability.CONTENT_DISCOVERY,
                         Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST)
     boundary = AuthorizationBoundary(task_id=task_id, root=root,
@@ -59,12 +60,10 @@ def admit_target(value: str, task_id: str, *, resolver: Callable[[str, int], tup
     task = ReconTask(
         id=task_id, run_id=task_id,
         scope=Scope(allowed_ips=(pin,), allowed_ports=ports, capabilities=capabilities,
-                    allowed_paths=("/",), web_origin=origin),
-        discovery_seeds=("/", "/robots.txt", "/sitemap.xml", "/openapi.json", "/swagger.json",
-                         "/.well-known/security.txt", "/.well-known/openid-configuration",
-                         "/.well-known/jwks.json", "/.git/HEAD", "/graphql", "/service.wsdl"),
+                    allowed_paths=("/",), web_origin=origin, multi_origin=root.kind == "DOMAIN"),
+        discovery_seeds=ROOT_SEEDS,
         expires_at=datetime.now(UTC) + timedelta(minutes=30),
-        discovery_limits=DiscoveryLimits(max_rounds=2, max_requests=32, max_sources=32, max_endpoints=128, max_depth=2),
-        execution_budget=ExecutionBudget(max_requests=64, max_body_bytes=65536, max_timeout_seconds=60),
+        discovery_limits=DiscoveryLimits(max_rounds=4, max_requests=64, max_sources=64, max_endpoints=128, max_depth=2),
+        execution_budget=ExecutionBudget(max_requests=128, max_body_bytes=65536, max_timeout_seconds=60),
     )
     return task, boundary

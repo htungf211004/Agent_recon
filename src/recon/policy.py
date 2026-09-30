@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 from datetime import UTC, datetime
 from typing import Protocol
@@ -103,13 +104,22 @@ class PolicyService:
         if isinstance(params, DnsResolveParams):
             boundary = self.tasks.get_authorization(task.id)
             if (request.target_ip not in task.scope.allowed_ips or request.target_host != params.host
-                    or boundary is None or boundary.root.kind != "DOMAIN"
-                    or params.host == boundary.root.value
-                    or ScopeDeriver(boundary).classify_host(params.host) != "IN_SCOPE"):
+                    or boundary is None or params.host == boundary.root.value):
+                return "DNS candidate is not within root authorization"
+            try:
+                ipaddress.ip_address(params.host)
+            except ValueError:
+                pass
+            else:
+                return "DNS candidate must be a hostname"
+            classification = ScopeDeriver(boundary, self.tasks.list_dns_observations(task.id)).classify_host(params.host)
+            if classification != ("IN_SCOPE" if boundary.root.kind == "DOMAIN" else "MANUAL_REVIEW"):
                 return "DNS candidate is not within root authorization"
             assets = self.tasks.list_assets(task.id)
             if not any(asset.asset_type == "HOST" and asset.canonical_value == params.host
-                       and asset.scope_status == "IN_SCOPE" and asset.discovery_evidence_refs for asset in assets):
+                       and asset.scope_status == classification and asset.discovery_evidence_refs
+                       and any(self.tasks.get_evidence(ref) is not None for ref in asset.discovery_evidence_refs)
+                       for asset in assets):
                 return "DNS candidate lacks verified discovery provenance"
             if params.max_answers > boundary.max_dns_addresses_per_host:
                 return "DNS answer limit exceeds task policy"
@@ -129,8 +139,14 @@ class PolicyService:
                                           Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST,
                                           Capability.CONTENT_DISCOVERY}:
                 return "capability has no pinned-origin transport"
-            if (request.target_ip, request.target_host, params.scheme, params.port) != (
-                    origin.pinned_ip, origin.host, origin.scheme, origin.port):
+            root_transport = (request.target_ip == origin.pinned_ip and request.target_host == origin.host
+                              and (params.scheme, params.port) == (origin.scheme, origin.port))
+            if task.scope.multi_origin:
+                from src.recon.planner import scheme_for_port
+                root_transport = (request.target_ip == origin.pinned_ip and request.target_host == origin.host
+                                  and params.port in task.scope.allowed_ports
+                                  and params.scheme == scheme_for_port(params.port))
+            if not root_transport:
                 return "web origin binding does not match trusted scope"
         elif request.target_host is not None and not derived_allowed:
             return "hostname has no trusted origin binding"

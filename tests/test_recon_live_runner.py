@@ -2,6 +2,8 @@ import pytest
 
 from scripts.run_recon_live import scoped_task
 from src.config import Settings
+from src.contracts.recon_planning import StopReason
+from src.recon.llm_planner import DeterministicReconPlanner
 from src.recon.models import Capability
 
 
@@ -35,3 +37,9 @@ def test_gemini_settings_accept_existing_environment_key_names(name, monkeypatch
     settings = Settings(_env_file=None, **{name: "test-key"})
     assert settings.google_api_key == "test-key"
     assert settings.gemini_model == "gemini-3.1-flash-lite"
+
+
+def test_deterministic_planner_needs_no_provider_key():
+    decision = DeterministicReconPlanner().plan(None)
+    assert len(decision.proposals) == 1
+    assert decision.proposals[0].reason_code == StopReason.NO_SAFE_SUPPORTED_ACTION

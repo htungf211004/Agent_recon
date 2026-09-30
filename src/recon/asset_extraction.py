@@ -82,7 +82,7 @@ def extract_references(text: str, base_url: str, content_type: str = "") -> tupl
 
 def record_candidate(repository, task, boundary, base_url: str, evidence_ref: str,
                      value: str, relation: AssetRelation) -> DiscoveredAsset | None:
-    deriver = ScopeDeriver(boundary)
+    deriver = ScopeDeriver(boundary, repository.list_dns_observations(task.id))
     url = _canonical_reference(value, base_url)
     if not url:
         return None

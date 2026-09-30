@@ -19,7 +19,8 @@ def api_manual_review(assets) -> tuple[ManualReviewRecord, ...]:
     rows = []
     for asset in assets:
         path = asset.canonical_value.lower().split("?", 1)[0]
-        if asset.asset_type not in {"API", "DOCUMENT"}:
+        if (asset.asset_type not in {"API", "DOCUMENT"} or asset.scope_status != "IN_SCOPE"
+                or asset.verification_status != "VERIFIED" or not asset.verification_evidence_refs):
             continue
         category = ("GRAPHQL_ACTIVE_TESTING" if path.endswith("/graphql") else
                     "SOAP_ACTIVE_TESTING" if path.endswith(".wsdl") else

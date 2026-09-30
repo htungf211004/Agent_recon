@@ -52,21 +52,38 @@ def project_checklist_v2(task, repository, service, *, finalize=False) -> tuple[
                 verified.append(result)
             except (ValueError, OSError):
                 pass
+    verified_refs = {result.evidence_id for result in verified}
     def source_done(path):
-        return any(source.url.split("?", 1)[0].endswith(path) and source.evidence_id
+        return any(source.url.split("?", 1)[0].endswith(path) and source.evidence_id in verified_refs
                    and source.status in {"PARSED", "UNAVAILABLE"} for source in sources)
     def asset_done(*suffixes):
         return any(asset.canonical_value.lower().endswith(suffixes)
-                   and asset.verification_status == "VERIFIED" and asset.verification_evidence_refs for asset in assets)
+                   and asset.verification_status == "VERIFIED"
+                   and any(ref in verified_refs for ref in asset.verification_evidence_refs) for asset in assets)
+    def attempted(*suffixes):
+        return any(source.url.lower().split("?", 1)[0].endswith(suffixes)
+                   and source.evidence_id in verified_refs and source.status in {"PARSED", "UNAVAILABLE"}
+                   for source in sources) or any(
+                   asset.canonical_value.lower().split("?", 1)[0].endswith(suffixes)
+                   and any(ref in verified_refs for ref in asset.verification_evidence_refs)
+                   and asset.verification_status in {"VERIFIED", "UNREACHABLE"}
+                   for asset in assets)
     statuses = []
     for item in ITEMS:
+        finding = "NOT_TESTED"
         if item.mode == "UNSUPPORTED_ADAPTER":
             status, reason = "UNSUPPORTED", "external provider adapter unavailable"
         elif item.stt == 11 and task.scope.web_origin is None and service.gateway is not None and not getattr(
                 service.gateway.registry.get(Capability.CONTENT_DISCOVERY), "ip_available", True):
             status, reason = "UNSUPPORTED", "FFUF adapter unavailable for IP transport"
         elif item.mode == "MANUAL_HITL":
-            status, reason = "MANUAL_REVIEW", "active API testing deferred to Operator/Approver"
+            suffix = "/graphql" if item.stt == 8 else ".wsdl"
+            if asset_done(suffix):
+                status, reason, finding = "MANUAL_REVIEW", "verified API surface; active testing requires review", "FOUND"
+            elif attempted(suffix):
+                status, reason, finding = "NOT_APPLICABLE", "bounded candidate returned no API surface", "NOT_FOUND"
+            else:
+                status, reason = ("BLOCKED", "candidate was not checked") if finalize else ("PENDING", "candidate check remains")
         else:
             done = {
                 2: any(result.capability in {Capability.NMAP_SCAN, Capability.HTTP_PROBE, Capability.HTTP_FETCH}
@@ -77,17 +94,27 @@ def project_checklist_v2(task, repository, service, *, finalize=False) -> tuple[
                 6: all(source_done(path) for path in ("/.well-known/security.txt",
                                                        "/.well-known/openid-configuration",
                                                        "/.well-known/jwks.json")),
-                7: any(source.kind == "OPENAPI" and source.status == "PARSED" and source.evidence_id for source in sources),
+                7: any(source.kind == "OPENAPI" and source.status == "PARSED"
+                       and source.evidence_id in verified_refs for source in sources),
                 10: asset_done(".zip", ".tar", ".gz", ".sql", ".bak"),
                 11: any(result.capability == Capability.CONTENT_DISCOVERY for result in verified),
                 12: asset_done("/.git/head"),
                 13: asset_done(".map"),
             }.get(item.stt, False)
+            candidate_suffixes = {7: ("/openapi.json", "/swagger.json"),
+                                  10: (".zip", ".tar", ".gz", ".sql", ".bak"),
+                                  12: ("/.git/head",), 13: (".map",)}
+            checked = (all(attempted(suffix) for suffix in candidate_suffixes[item.stt]) if item.stt == 7
+                       else attempted(*candidate_suffixes[item.stt]) if item.stt in candidate_suffixes else False)
             if done:
-                status, reason = "COMPLETE", "verified Recon evidence"
+                status, reason, finding = "COMPLETE", "verified Recon evidence", "FOUND" if item.stt in candidate_suffixes else "NOT_TESTED"
+            elif checked:
+                status, reason, finding = "COMPLETE", "bounded candidate checked without finding", "NOT_FOUND"
+            elif item.stt == 13 and finalize and not any(asset.canonical_value.lower().endswith(".js") for asset in assets):
+                status, reason = "NOT_APPLICABLE", "no JavaScript asset found for source map check"
             elif finalize:
                 status, reason = "BLOCKED", "bounded run ended without qualifying evidence"
             else:
                 status, reason = "PENDING", "qualifying evidence or bounded attempt remains"
-        statuses.append(ChecklistSummary(id=item.id, status=status, reason=reason))
+        statuses.append(ChecklistSummary(id=item.id, status=status, reason=reason, finding=finding))
     return tuple(statuses)

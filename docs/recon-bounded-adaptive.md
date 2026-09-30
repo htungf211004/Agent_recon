@@ -20,8 +20,7 @@ flowchart TD
   technology_fingerprinting --> static_discovery
   static_discovery --> refresh_inventory
   refresh_inventory --> verify_assets
-  verify_assets --> retrieve_knowledge
-  retrieve_knowledge --> llm_plan
+  verify_assets --> llm_plan
   llm_plan --> validate_proposals
   validate_proposals --> execute_recon_actions
   execute_recon_actions --> PolicyService
@@ -37,6 +36,9 @@ flowchart TD
 The continuation is a conditional graph edge. Graph state contains only task ID,
 round and stop reason. SQLite owns frozen stage plans, claims, contexts, decisions,
 validated plans, ToolRuns and evidence.
+Knowledge retrieval runs inside `assemble_context` when `llm_plan` prepares a
+decision; it is not a separate graph node. The deterministic planner can stop
+after the bounded evidence pipeline without provider credentials.
 
 `ReconAgent` exposes `run_service_discovery`, `run_web_service_discovery`,
 `run_technology_fingerprinting`, `run_static_discovery(origins=...)`,

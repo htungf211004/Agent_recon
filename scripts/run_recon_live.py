@@ -1,4 +1,4 @@
-"""Run a scoped HTTP(S) URL or IP mission with the configured real LLM and evidence."""
+"""Run a scoped domain, IP or URL Recon mission with durable evidence."""
 
 import argparse
 import hashlib
@@ -29,7 +29,7 @@ from src.recon.checklist import project_checklist
 from src.recon.checklist_v2 import VERSION as CHECKLIST_V2_VERSION
 from src.recon.checklist_v2 import project_checklist_v2
 from src.recon.completion import completion
-from src.recon.llm_planner import configured_planner
+from src.recon.llm_planner import DeterministicReconPlanner, configured_planner
 from src.recon.models import BrowserLimits, Capability, ReconTask
 from src.recon.planner import scheme_for_port
 from src.recon.scope.admission import admit_target, parse_target
@@ -153,6 +153,7 @@ def main(argv=None):
     parser.add_argument("--path-prefix", help="allowed path prefix; defaults to the URL path")
     parser.add_argument("--browser", action="store_true", help="also allow bounded passive Chromium exploration")
     parser.add_argument("--provider", choices=("openai", "gemini"), default="openai")
+    parser.add_argument("--planner", choices=("auto", "deterministic", "llm"), default="auto")
     parser.add_argument("--model", help="override MODEL_NAME or GEMINI_MODEL for this run")
     parser.add_argument("--llm-rounds", type=int, choices=(1, 2, 3), default=2)
     parser.add_argument("--output-root", type=Path, default=Path("data/live-recon"))
@@ -202,7 +203,7 @@ def main(argv=None):
     else:
         api_key, model_name = settings.openai_api_key, args.model or settings.model_name
         base_url, key_name = settings.openai_base_url, "OPENAI_API_KEY"
-    if not api_key:
+    if args.planner == "llm" and not api_key:
         parser.error(f"{key_name} is missing; configure it locally in .env (never in command arguments)")
     repository, engine = create_recon_agent(directory / "recon.db", directory / "evidence")
     if args.browser and engine.service.gateway.registry.get(Capability.BROWSER_EXPLORE) is None:
@@ -224,11 +225,12 @@ def main(argv=None):
     engine.browser_limits = BrowserLimits(max_pages=2, max_depth=1, max_requests=8,
         max_runtime_seconds=10, max_response_bytes=65536, max_total_bytes=131072)
     limits = ReconPlanningLimits(max_llm_rounds=args.llm_rounds)
-    planner = configured_planner(model_name=model_name, api_key=api_key,
+    planner = (configured_planner(model_name=model_name, api_key=api_key,
         base_url=base_url, timeout_seconds=limits.model_timeout_seconds)
+        if args.planner == "llm" or args.planner == "auto" and api_key else DeterministicReconPlanner())
     agent = AdaptiveReconAgent(engine, planner, limits)
     export_run(agent, task_id, directory)
-    print(f"Running task {task_id}; provider={args.provider}; model={model_name}; GET/HEAD only", flush=True)
+    print(f"Running task {task_id}; planner={planner.planner_id}; GET/HEAD only", flush=True)
     try:
         agent.run(task_id)
     finally:

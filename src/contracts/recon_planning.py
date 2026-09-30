@@ -166,6 +166,7 @@ class ChecklistSummary(PlanningModel):
     id: str
     status: Literal["PENDING", "COMPLETE", "BLOCKED", "UNSUPPORTED", "NOT_APPLICABLE", "MANUAL_REVIEW"]
     reason: str
+    finding: Literal["FOUND", "NOT_FOUND", "NOT_TESTED"] = "NOT_TESTED"
 
 
 class ReconPlanningContext(PlanningModel):

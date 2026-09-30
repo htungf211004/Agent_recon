@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sqlite3
 from datetime import UTC, datetime, timedelta
@@ -68,7 +69,7 @@ class ReconRepository:
             row = connection.execute("SELECT payload FROM recon_authorizations WHERE task_id = ?", (task_id,)).fetchone()
         return AuthorizationBoundary.model_validate_json(row[0]) if row else None
 
-    def save_dns_observation(self, task_id: str, observation: DnsObservation) -> None:
+    def save_dns_observation(self, task_id: str, observation: DnsObservation, evidence_bytes: bytes) -> None:
         if not observation.evidence_ref:
             raise ValueError("derived DNS observation requires Gateway evidence")
         artifact = self.get_evidence(observation.evidence_ref)
@@ -79,6 +80,15 @@ class ReconRepository:
                 or result.capability != Capability.DNS_RESOLVE or result.evidence_id != artifact.id
                 or request is None or request.parameters.host != observation.host):
             raise ValueError("DNS observation lacks matching successful Gateway execution")
+        if hashlib.sha256(evidence_bytes).hexdigest() != artifact.sha256:
+            raise ValueError("DNS evidence digest mismatch")
+        try:
+            payload = json.loads(evidence_bytes)
+            matching = DnsObservation(host=payload["host"], addresses=tuple(payload["addresses"]))
+        except (KeyError, TypeError, ValueError):
+            raise ValueError("DNS evidence payload invalid") from None
+        if matching.host != observation.host or matching.addresses != observation.addresses:
+            raise ValueError("DNS observation differs from Gateway evidence")
         identity = hashlib.sha256((task_id + "\0" + observation.host + "\0" +
                                    ",".join(observation.addresses) + "\0" + observation.evidence_ref).encode()).hexdigest()
         with self._connect() as connection:
@@ -105,7 +115,7 @@ class ReconRepository:
 
     def save_binding(self, binding: DerivedBinding) -> ReconTask:
         boundary = self.get_authorization(binding.task_id)
-        if boundary is None or ScopeDeriver(boundary).classify_host(binding.host) != "IN_SCOPE":
+        if boundary is None or ScopeDeriver(boundary, self.list_dns_observations(binding.task_id)).classify_host(binding.host) != "IN_SCOPE":
             raise ValueError("derived host does not inherit root authorization")
         if not any(observation.host == binding.host and binding.address in observation.addresses
                    and observation.evidence_ref == binding.dns_evidence_ref
@@ -151,7 +161,9 @@ class ReconRepository:
                 current = DiscoveredAsset.model_validate_json(row[0])
                 terminal = {AssetVerificationStatus.VERIFIED, AssetVerificationStatus.UNREACHABLE,
                             AssetVerificationStatus.BLOCKED, AssetVerificationStatus.MANUAL_REVIEW}
-                status = current.verification_status if current.verification_status in terminal else asset.verification_status
+                reclassified = current.scope_status == "MANUAL_REVIEW" and asset.scope_status != current.scope_status
+                status = (asset.verification_status if reclassified else
+                          current.verification_status if current.verification_status in terminal else asset.verification_status)
                 asset = asset.model_copy(update={
                     "verification_status": status,
                     "first_seen_at": current.first_seen_at,

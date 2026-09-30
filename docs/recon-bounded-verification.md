@@ -1,5 +1,30 @@
 # Bounded adaptive Recon: implementation and verification
 
+> Historical verification record for the earlier bounded adaptive revision.
+> It is retained for traceability; its test counts, schema v8 statement and
+> publication status do not describe the current V2 tree. The current schema is
+> v9 (`recon_discovered_assets_v2`). For current behavior, see
+> [Recon V2](recon-domain-support.md) and the current `README.md`.
+
+## Current V2 verification (2026-09-30)
+
+The current branch has SQLite schema v9 and a deterministic planner path that
+does not require provider credentials. The default bare-domain profile probes
+HTTP/80, HTTPS/443, HTTP/8080 and HTTPS/8443 through its frozen IP pin. IP-root
+hostname inheritance requires a matching persisted Gateway DNS observation;
+an address mismatch keeps the hostname out of scope and sends no HTTP request.
+Derived hosts receive a bounded probe, fingerprint attempt and static seed checks.
+Checklist V2 reports coverage status and finding outcome separately. API handoff
+requires a positively verified in-scope asset.
+
+The complete test suite on the project Linux image passed: **420 passed**.
+Focused Windows V2 tests and Ruff also passed. One Windows-only TLS fixture test
+fails certificate trust validation in that host environment; the same test passes
+in the Linux image. No public target or provider was used for these checks.
+
+The record below describes the older bounded adaptive implementation and its
+original verification run.
+
 ## Baseline and publication
 
 Inspected HEAD and the complete diff before editing: HEAD was exactly

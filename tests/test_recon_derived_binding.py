@@ -10,7 +10,7 @@ from src.contracts.recon_assets import (
 )
 from src.recon.asset_verification import AssetVerifier
 from src.recon.gateway import AdapterOutput, CapabilityRegistry, ToolExecutionGateway
-from src.recon.models import Capability, HttpFetchParams
+from src.recon.models import Capability, HttpFetchParams, ReconPlan
 from src.recon.planner import ReconPlanner
 from src.recon.policy import PolicyService
 from src.recon.scope.admission import admit_target
@@ -46,12 +46,16 @@ def test_derived_host_is_evidence_bound_and_stales_old_actions(tmp_path):
     service = ReconService(repository, gateway)
     old = ReconPlanner._action(task, "127.0.0.1", Capability.HTTP_FETCH,
                                HttpFetchParams(port=443, scheme="https", path="/old")).request
+    discovery = ReconPlanner._action(task, "127.0.0.1", Capability.HTTP_FETCH,
+                                      HttpFetchParams(port=443, scheme="https", path="/", max_body_bytes=16384))
+    service.run(ReconPlan(task_id=task.id, actions=(discovery,)))
+    evidence = repository.get_tool_result(discovery.request.id).evidence_id
     for kind, value in ((AssetType.HOST, "api.example.test"),
                         (AssetType.PATH, "https://api.example.test/v1")):
         repository.upsert_asset(DiscoveredAsset(
             run_id=task.run_id, task_id=task.id, root_target="example.test", asset_type=kind,
             canonical_value=value, relation=AssetRelation.HTML_REFERENCE, discovered_from="https://example.test/",
-            discovery_evidence_refs=("target-evidence",), scope_status=AssetScopeStatus.IN_SCOPE,
+            discovery_evidence_refs=(evidence,), scope_status=AssetScopeStatus.IN_SCOPE,
             verification_status=AssetVerificationStatus.CLASSIFIED))
     AssetVerifier(repository, service).verify(task)
     binding = repository.get_binding(task.id, "api.example.test", "https", 443)

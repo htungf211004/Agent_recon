@@ -24,6 +24,10 @@ def scoped_ip(scope, url: str) -> str | None:
     parts = urlsplit(canonical_url(url))
     origin = scope.web_origin
     if origin:
+        if scope.multi_origin:
+            scheme = "https" if parts.port in {443, 8443, 9443} else "http"
+            return (origin.pinned_ip if parts.hostname == origin.host and parts.port in scope.allowed_ports
+                    and parts.scheme == scheme else None)
         return origin.pinned_ip if (parts.hostname, parts.scheme, parts.port) == (origin.host, origin.scheme, origin.port) else None
     return parts.hostname if parts.hostname in scope.allowed_ips and parts.port in scope.allowed_ports else None
 

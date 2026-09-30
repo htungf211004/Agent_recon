@@ -38,7 +38,7 @@ class ReconPlanner:
                 port=url.port, scheme=url.scheme, path=url.path, query=url.query, method=source.method,
                 timeout_seconds=min(5.0, task.execution_budget.max_timeout_seconds),
                 max_body_bytes=task.execution_budget.max_body_bytes,
-            )))
+            ), target_host=url.hostname if task.scope.web_origin else None))
         return ReconPlan(task_id=task.id, actions=tuple(actions))
 
     def initial_plan(self, task: ReconTask) -> ReconPlan:

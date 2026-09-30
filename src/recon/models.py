@@ -64,18 +64,22 @@ class Scope(StrictModel):
     allowed_paths: tuple[str, ...] = ()
     allowed_methods: tuple[Literal["GET", "HEAD"], ...] = ("GET", "HEAD")
     web_origin: WebOrigin | None = None
+    multi_origin: bool = False
 
     @model_serializer(mode="wrap")
     def compatible_payload(self, handler):
         payload = handler(self)
         if self.web_origin is None:
             payload.pop("web_origin", None)
+        if not self.multi_origin:
+            payload.pop("multi_origin", None)
         return payload
 
     @model_validator(mode="after")
     def pinned_origin(self):
         if self.web_origin and (self.allowed_ips != (self.web_origin.pinned_ip,)
-                                or self.allowed_ports != (self.web_origin.port,)):
+                                or (self.web_origin.port not in self.allowed_ports if self.multi_origin
+                                    else self.allowed_ports != (self.web_origin.port,))):
             raise ValueError("web origin requires exactly its pinned IP and port")
         return self
 

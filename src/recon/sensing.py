@@ -22,6 +22,8 @@ UNKNOWN_SERVICES = {"unknown", "tcpwrapped", "", "?"}
 def derive_web_candidates(task, nmap_results, requests):
     if task.scope.web_origin:
         o = task.scope.web_origin
+        if task.scope.multi_origin:
+            return tuple((o.pinned_ip, port, scheme_for_port(port)) for port in sorted(set(task.scope.allowed_ports)))
         return ((o.pinned_ip, o.port, o.scheme),)
     candidates = []
     for ip in sorted(set(task.scope.allowed_ips)):
@@ -122,15 +124,17 @@ class ReconSensing:
     def web_service_discovery(self, task_id):
         def build(task):
             for ip, port, scheme in self.candidates(task):
+                target_host = task.scope.web_origin.host if task.scope.web_origin else None
                 if self.available(task, Capability.HTTP_PROBE) and path_allowed("/", task.scope.allowed_paths):
-                    yield ReconPlanner._action(task, ip, Capability.HTTP_PROBE, HttpProbeParams(port=port, scheme=scheme))
+                    yield ReconPlanner._action(task, ip, Capability.HTTP_PROBE, HttpProbeParams(port=port, scheme=scheme),
+                                               target_host=target_host)
                 elif self.available(task, Capability.HTTP_FETCH):
                     seed = urlsplit((task.discovery_seeds or task.scope.allowed_paths or ("/",))[0])
                     yield ReconPlanner._action(task, ip, Capability.HTTP_FETCH, HttpFetchParams(
                         port=port, scheme=scheme, path=seed.path, query=seed.query,
                         method="GET" if "GET" in task.scope.allowed_methods else "HEAD",
                         timeout_seconds=min(5, task.execution_budget.max_timeout_seconds),
-                        max_body_bytes=task.execution_budget.max_body_bytes))
+                        max_body_bytes=task.execution_budget.max_body_bytes), target_host=target_host)
         return self.run_stage(task_id, "web_service_discovery", build)
 
     def technology_fingerprinting(self, task_id):

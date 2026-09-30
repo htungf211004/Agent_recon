@@ -140,7 +140,17 @@ UI không tự retry/resume. API chỉ dành cho localhost và được bảo v�
 
 ## Kiểm tra
 
-Verified baseline `8295fea`: **309 tests PASS**, [remote CI PASS](https://github.com/htungf211004/Agent_recon/actions/runs/36514030963). The bounded adaptive update has **356 tests PASS, zero skips, Ruff PASS** locally. See the [current verification report](docs/recon-bounded-verification.md) for Docker gates and publication status. Changes remain local; this revision is not marked FROZEN.
+The V2 Recon profile accepts a bare authorized domain or IP with `--target`. A
+domain probes bounded HTTP and HTTPS web ports using its frozen DNS pin. An IP
+root can inherit a hostname only after Gateway DNS evidence resolves it to that
+same IP. Checklist rows report attempted coverage separately from a finding;
+API manual review records require verified positive assets. The runner selects
+the deterministic planner when no provider key is configured (`--planner llm`
+requires a key). SQLite schema is v9. Run the commands below for current local
+results. The [earlier bounded adaptive report](docs/recon-bounded-verification.md)
+is a historical record for its original revision.
+The current V2 suite passed **420 tests** in the project Linux image on
+2026-09-30; Ruff passed. See the current section of that report for details.
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m ruff check --no-cache src tests scripts/check_recon_runtime.py
