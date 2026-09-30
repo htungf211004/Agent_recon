@@ -5,6 +5,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.recon.rag.models import KnowledgeReference, ReconKnowledgeQuery
+
 
 class PlanningModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -13,10 +15,12 @@ class PlanningModel(BaseModel):
 class ProposalBase(PlanningModel):
     rationale: str = Field(min_length=1, max_length=512)
     priority: int = Field(ge=1, le=5, strict=True)
+    knowledge_refs: tuple[str, ...] = Field(default=(), max_length=4)
 
 
 class TargetProposal(ProposalBase):
-    target_ip: str = Field(min_length=1, max_length=45)
+    asset_id: str | None = Field(default=None, max_length=64)
+    target_ip: str | None = Field(default=None, max_length=45)
     port: int = Field(ge=1, le=65535, strict=True)
     scheme: Literal["http", "https"] = "http"
 
@@ -150,9 +154,17 @@ class PlanningTechnology(PlanningModel):
     evidence_ref: str
 
 
+class PlanningAsset(PlanningModel):
+    asset_id: str
+    asset_type: str
+    value: str
+    scope_status: str
+    verification_status: str
+
+
 class ChecklistSummary(PlanningModel):
     id: str
-    status: Literal["PENDING", "COMPLETE", "BLOCKED", "UNSUPPORTED", "NOT_APPLICABLE"]
+    status: Literal["PENDING", "COMPLETE", "BLOCKED", "UNSUPPORTED", "NOT_APPLICABLE", "MANUAL_REVIEW"]
     reason: str
 
 
@@ -167,11 +179,16 @@ class ReconPlanningContext(PlanningModel):
     coverage: PlanningCoverage
     services: tuple[PlanningService, ...]
     technologies: tuple[PlanningTechnology, ...]
-    checklist_version: Literal["recon-checklist-v1"] = "recon-checklist-v1"
+    assets: tuple[PlanningAsset, ...] = ()
+    checklist_version: Literal["recon-checklist-v1", "recon-checklist-v2"] = "recon-checklist-v1"
     checklist: tuple[ChecklistSummary, ...]
     available_actions: tuple[str, ...]
     trusted_wordlists: tuple[str, ...] = ()
     routes: tuple[PlanningRoute, ...]
     previous_actions: tuple[PlanningAction, ...]
     remaining_budget: PlanningBudget
+    knowledge_query: ReconKnowledgeQuery | None = None
+    knowledge_refs: tuple[KnowledgeReference, ...] = ()
+    knowledge_excerpts: tuple[str, ...] = ()
+    retriever_id: str = "noop-v1"
     context_truncated: bool = False

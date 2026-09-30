@@ -28,6 +28,14 @@ def scoped_ip(scope, url: str) -> str | None:
     return parts.hostname if parts.hostname in scope.allowed_ips and parts.port in scope.allowed_ports else None
 
 
+def known_transport_ip(scope, url: str) -> str | None:
+    """Identify a previously pinned host or literal IP without granting URL scope or resolving DNS."""
+    host = urlsplit(canonical_url(url)).hostname
+    if scope.web_origin and host == scope.web_origin.host:
+        return scope.web_origin.pinned_ip
+    return host if host in scope.allowed_ips else None
+
+
 def validate_path(path: str) -> str:
     if not path.startswith("/") or path.startswith("//") or len(path) > 2048:
         raise ValueError("an absolute local path is required")

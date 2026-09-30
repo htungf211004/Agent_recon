@@ -17,8 +17,9 @@ class ReconPlanningStore:
         connection.row_factory = sqlite3.Row
         return connection
 
-    def open_session(self, task, limits, planner_id):
-        config = json.dumps({"limits": limits.model_dump(), "planner_id": planner_id}, sort_keys=True)
+    def open_session(self, task, limits, planner_id, retriever_id="noop-v1"):
+        config = json.dumps({"limits": limits.model_dump(), "planner_id": planner_id,
+                             "retriever_id": retriever_id}, sort_keys=True)
         binding = PolicyService.scope_fingerprint(task)
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")

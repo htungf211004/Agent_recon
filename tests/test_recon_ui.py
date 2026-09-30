@@ -121,6 +121,12 @@ def test_full_profile_uses_explicit_ports_and_production_scope_validation():
         ui.runner_args(ui.Launch(profile="full", target="127.0.0.1", ports="0"), "test-run")
 
 
+def test_primary_ui_target_uses_canonical_admission_without_tool_flags():
+    args = ui.runner_args(ui.Launch(target="example.test"), "test-run")
+    assert args[args.index("--target") + 1] == "example.test"
+    assert "--ports" not in args and "--browser" not in args and "--content-discovery" not in args
+
+
 @pytest.mark.parametrize("domain", [False, True])
 def test_real_ui_cli_lab_and_evidence_with_local_provider(client, monkeypatch, domain):
     calls = []

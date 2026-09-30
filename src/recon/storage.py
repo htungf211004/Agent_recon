@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
+from src.contracts.recon_assets import AssetVerificationStatus, DiscoveredAsset, ReconAssetInventory
 from src.recon.endpoints import merge_endpoints
 from src.recon.execution import ToolRun, ToolRunState
 from src.recon.models import (
@@ -22,6 +23,8 @@ from src.recon.models import (
     ReconTask,
     ToolResult,
 )
+from src.recon.scope.deriver import ScopeDeriver
+from src.recon.scope.models import AuthorizationBoundary, DerivedBinding, DnsObservation
 from src.recon.urls import match_route_template
 from src.recon.web_models import BaselineRequest, DiscoverySource, EndpointObservation, ReconCoverage, WebEndpointEntry
 from src.recon.wordlists import request_units
@@ -49,6 +52,147 @@ class ReconRepository:
         with self._connect() as connection:
             row = connection.execute("SELECT payload FROM recon_tasks WHERE id = ?", (task_id,)).fetchone()
         return ReconTask.model_validate_json(row[0]) if row else None
+
+    def save_authorization(self, boundary: AuthorizationBoundary) -> None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload FROM recon_authorizations WHERE task_id = ?",
+                                     (boundary.task_id,)).fetchone()
+            if row and AuthorizationBoundary.model_validate_json(row[0]) != boundary:
+                raise ValueError("root authorization is immutable")
+            connection.execute("INSERT OR IGNORE INTO recon_authorizations VALUES (?, ?)",
+                               (boundary.task_id, boundary.model_dump_json()))
+
+    def get_authorization(self, task_id: str) -> AuthorizationBoundary | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM recon_authorizations WHERE task_id = ?", (task_id,)).fetchone()
+        return AuthorizationBoundary.model_validate_json(row[0]) if row else None
+
+    def save_dns_observation(self, task_id: str, observation: DnsObservation) -> None:
+        if not observation.evidence_ref:
+            raise ValueError("derived DNS observation requires Gateway evidence")
+        artifact = self.get_evidence(observation.evidence_ref)
+        result = self.get_tool_result(artifact.request_id) if artifact else None
+        run = self.get_tool_run(artifact.request_id) if artifact else None
+        request = CapabilityRequest.model_validate_json(run.request_payload) if run and run.request_payload else None
+        if (artifact is None or artifact.task_id != task_id or result is None or result.status != "success"
+                or result.capability != Capability.DNS_RESOLVE or result.evidence_id != artifact.id
+                or request is None or request.parameters.host != observation.host):
+            raise ValueError("DNS observation lacks matching successful Gateway execution")
+        identity = hashlib.sha256((task_id + "\0" + observation.host + "\0" +
+                                   ",".join(observation.addresses) + "\0" + observation.evidence_ref).encode()).hexdigest()
+        with self._connect() as connection:
+            connection.execute("INSERT OR IGNORE INTO dns_observations VALUES (?, ?, ?)",
+                               (identity, task_id, observation.model_dump_json()))
+
+    def list_dns_observations(self, task_id: str) -> tuple[DnsObservation, ...]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT payload FROM dns_observations WHERE task_id = ? ORDER BY id",
+                                      (task_id,)).fetchall()
+        return tuple(DnsObservation.model_validate_json(row[0]) for row in rows)
+
+    def get_binding(self, task_id: str, host: str, scheme: str, port: int) -> DerivedBinding | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM derived_bindings WHERE task_id = ? AND host = ? AND scheme = ? AND port = ?",
+                                     (task_id, host, scheme, port)).fetchone()
+        return DerivedBinding.model_validate_json(row[0]) if row else None
+
+    def list_bindings(self, task_id: str) -> tuple[DerivedBinding, ...]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT payload FROM derived_bindings WHERE task_id = ? ORDER BY host, scheme, port",
+                                      (task_id,)).fetchall()
+        return tuple(DerivedBinding.model_validate_json(row[0]) for row in rows)
+
+    def save_binding(self, binding: DerivedBinding) -> ReconTask:
+        boundary = self.get_authorization(binding.task_id)
+        if boundary is None or ScopeDeriver(boundary).classify_host(binding.host) != "IN_SCOPE":
+            raise ValueError("derived host does not inherit root authorization")
+        if not any(observation.host == binding.host and binding.address in observation.addresses
+                   and observation.evidence_ref == binding.dns_evidence_ref
+                   for observation in self.list_dns_observations(binding.task_id)):
+            raise ValueError("binding lacks matching Gateway DNS evidence")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute("SELECT payload FROM derived_bindings WHERE task_id = ? AND host = ? AND scheme = ? AND port = ?",
+                                          (binding.task_id, binding.host, binding.scheme, binding.port)).fetchone()
+            if existing:
+                if DerivedBinding.model_validate_json(existing[0]) != binding:
+                    raise ValueError("existing transport pin cannot silently change")
+            else:
+                count = connection.execute("SELECT COUNT(DISTINCT host) FROM derived_bindings WHERE task_id = ?",
+                                           (binding.task_id,)).fetchone()[0]
+                if count >= boundary.max_derived_hosts:
+                    raise ValueError("derived host limit reached")
+                origins = connection.execute("SELECT COUNT(*) FROM derived_bindings WHERE task_id = ?",
+                                             (binding.task_id,)).fetchone()[0]
+                if origins >= boundary.max_new_origins:
+                    raise ValueError("new origin limit reached")
+                connection.execute("INSERT INTO derived_bindings VALUES (?, ?, ?, ?, ?)",
+                                   (binding.task_id, binding.host, binding.scheme, binding.port, binding.model_dump_json()))
+            rows = connection.execute("SELECT payload FROM derived_bindings WHERE task_id = ? ORDER BY host, scheme, port",
+                                      (binding.task_id,)).fetchall()
+            scope_version = "v2-" + hashlib.sha256("|".join(row[0] for row in rows).encode()).hexdigest()[:16]
+            row = connection.execute("SELECT payload FROM recon_tasks WHERE id = ?", (binding.task_id,)).fetchone()
+            if row is None:
+                raise ValueError("unknown task")
+            task = ReconTask.model_validate_json(row[0]).model_copy(update={"scope_version": scope_version})
+            connection.execute("UPDATE recon_tasks SET payload = ? WHERE id = ?", (task.model_dump_json(), task.id))
+            from src.recon.policy import PolicyService
+            connection.execute("UPDATE recon_planning_sessions SET binding = ? WHERE task_id = ?",
+                               (PolicyService.scope_fingerprint(task), task.id))
+        return task
+
+    def upsert_asset(self, asset: DiscoveredAsset) -> DiscoveredAsset:
+        """Merge repeated observations without losing terminal verification or provenance."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload FROM discovered_assets WHERE id = ?", (asset.id,)).fetchone()
+            if row:
+                current = DiscoveredAsset.model_validate_json(row[0])
+                terminal = {AssetVerificationStatus.VERIFIED, AssetVerificationStatus.UNREACHABLE,
+                            AssetVerificationStatus.BLOCKED, AssetVerificationStatus.MANUAL_REVIEW}
+                status = current.verification_status if current.verification_status in terminal else asset.verification_status
+                asset = asset.model_copy(update={
+                    "verification_status": status,
+                    "first_seen_at": current.first_seen_at,
+                    "discovery_evidence_refs": tuple(dict.fromkeys((*current.discovery_evidence_refs,
+                                                                    *asset.discovery_evidence_refs)))[:16],
+                    "verification_evidence_refs": tuple(dict.fromkeys((*current.verification_evidence_refs,
+                                                                       *asset.verification_evidence_refs)))[:16],
+                })
+            connection.execute("""INSERT INTO discovered_assets VALUES (?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET verification_status=excluded.verification_status, payload=excluded.payload""",
+                (asset.id, asset.task_id, asset.verification_status.value, asset.model_dump_json()))
+        return asset
+
+    def get_asset(self, asset_id: str) -> DiscoveredAsset | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM discovered_assets WHERE id = ?", (asset_id,)).fetchone()
+        return DiscoveredAsset.model_validate_json(row[0]) if row else None
+
+    def list_assets(self, task_id: str, *, status: AssetVerificationStatus | None = None) -> tuple[DiscoveredAsset, ...]:
+        query = "SELECT payload FROM discovered_assets WHERE task_id = ?"
+        args = (task_id,)
+        if status is not None:
+            query += " AND verification_status = ?"
+            args += (status.value,)
+        with self._connect() as connection:
+            rows = connection.execute(query + " ORDER BY id", args).fetchall()
+        return tuple(DiscoveredAsset.model_validate_json(row[0]) for row in rows)
+
+    def pending_verification_assets(self, task_id: str) -> tuple[DiscoveredAsset, ...]:
+        return tuple(asset for asset in self.list_assets(task_id)
+                     if asset.scope_status == "IN_SCOPE" and asset.verification_status in
+                     {AssetVerificationStatus.DISCOVERED, AssetVerificationStatus.CLASSIFIED,
+                      AssetVerificationStatus.QUEUED})
+
+    def asset_inventory(self, task_id: str) -> ReconAssetInventory:
+        return ReconAssetInventory(task_id=task_id, assets=self.list_assets(task_id))
+
+    def add_limitation(self, task_id: str, reason: str) -> None:
+        coverage = self.get_coverage(task_id) or ReconCoverage(task_id=task_id)
+        limitations = tuple(sorted(set((*coverage.limitations, reason[:160]))))
+        self.save_coverage(coverage.model_copy(update={"limitations": limitations}))
 
     def claim_request(self, request: CapabilityRequest) -> bool:
         return self.acquire_tool_run(request) is not None

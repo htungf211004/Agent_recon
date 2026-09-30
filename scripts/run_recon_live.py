@@ -2,94 +2,48 @@
 
 import argparse
 import hashlib
-import ipaddress
 import json
 import platform
 import re
 import sqlite3
 import subprocess
-import sys
 from collections import Counter
 from contextlib import closing
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlsplit
 from uuid import uuid4
 
 from src.config import get_settings
+from src.contracts.recon_assets import (
+    AssetRelation,
+    AssetScopeStatus,
+    AssetType,
+    AssetVerificationStatus,
+    DiscoveredAsset,
+)
+from src.contracts.recon_manual_review import api_manual_review
 from src.contracts.recon_planning import ReconPlanningLimits
 from src.recon.adaptive_agent import AdaptiveReconAgent
 from src.recon.bootstrap import create_recon_agent
+from src.recon.checklist import project_checklist
+from src.recon.checklist_v2 import VERSION as CHECKLIST_V2_VERSION
+from src.recon.checklist_v2 import project_checklist_v2
 from src.recon.completion import completion
-from src.recon.execution import ExecutionBudget
 from src.recon.llm_planner import configured_planner
-from src.recon.models import BrowserLimits, Capability, ReconTask, Scope, WebOrigin
+from src.recon.models import BrowserLimits, Capability, ReconTask
 from src.recon.planner import scheme_for_port
-from src.recon.urls import canonical_host, canonical_url, path_allowed, validate_path
-from src.recon.web_models import DiscoveryLimits
-
-
-def resolve_pin(host: str, port: int) -> str:
-    """Operator admission only: bound OS DNS lifetime and freeze one IP before Recon."""
-    host = canonical_host(host)
-    try:
-        return str(ipaddress.ip_address(host))
-    except ValueError:
-        pass
-    script = ("import socket,json,sys;print(json.dumps(sorted({a[4][0] for a in "
-              "socket.getaddrinfo(sys.argv[1],int(sys.argv[2]),type=socket.SOCK_STREAM)})))")
-    try:
-        result = subprocess.run([sys.executable, "-c", script, host, str(port)], capture_output=True,
-                                timeout=8, check=True, shell=False,
-                                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
-        ips = [ipaddress.ip_address(value) for value in json.loads(result.stdout)]
-        usable = [ip for ip in ips if not (ip.is_unspecified or ip.is_multicast or "%" in str(ip))]
-        return str(sorted(usable, key=lambda ip: (ip.version, int(ip)))[0])
-    except (OSError, subprocess.SubprocessError, ValueError, IndexError, TypeError):
-        raise ValueError("DNS resolution failed or timed out; check hostname/network") from None
+from src.recon.scope.admission import admit_target, parse_target
+from src.recon.scope.legacy import resolve_pin
+from src.recon.scope.legacy import scoped_task as _legacy_scoped_task
+from src.recon.scope.models import AuthorizationBoundary
 
 
 def scoped_task(url: str, task_id: str, *, path_prefix: str | None = None, browser: bool = False,
                 ports: tuple[int, ...] | None = None, content_discovery: bool = False, full_profile: bool = False,
                 pinned_ip: str | None = None) -> ReconTask:
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", task_id):
-        raise ValueError("task-id must contain 1-64 letters, digits, hyphens or underscores")
-    target = urlsplit(canonical_url(url))  # Fragments are client-side, never sent in HTTP requests.
-    try:
-        target_ip = str(ipaddress.ip_address(target.hostname))
-        domain = False
-    except ValueError:
-        domain = True
-        target_ip = None
-    bound = domain or target.scheme != scheme_for_port(target.port)
-    if bound and (full_profile or content_discovery):
-        raise ValueError("hostname/explicit-scheme URLs support HTTP and Browser; use an IP mission for Nmap/WhatWeb/FFUF")
-    if pinned_ip and not domain and pinned_ip != target_ip:
-        raise ValueError("literal IP must match the supplied pin")
-    prefix = validate_path(path_prefix if path_prefix is not None else target.path)
-    if not path_allowed(target.path, (prefix,)):
-        raise ValueError("target URL is outside the supplied path prefix")
-    capabilities = (Capability.HTTP_FETCH,)
-    if full_profile:
-        capabilities = (Capability.NMAP_SCAN, Capability.HTTP_PROBE, Capability.WHATWEB, Capability.HTTP_FETCH)
-    if browser:
-        capabilities += (Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST)
-    if content_discovery:
-        capabilities += (Capability.CONTENT_DISCOVERY,)
-    if ports is not None and target.port not in ports:
-        raise ValueError("URL port must be explicitly authorized")
-    target_ip = target_ip or pinned_ip or resolve_pin(target.hostname, target.port)
-    origin = WebOrigin(host=target.hostname, scheme=target.scheme, port=target.port, pinned_ip=target_ip) if bound else None
-    seed = target.path + ("?" + target.query if target.query else "")
-    return ReconTask(
-        id=task_id, run_id=task_id,
-        scope=Scope(allowed_ips=(target_ip,), allowed_ports=tuple(sorted(set(ports))) if ports else (target.port,),
-                    allowed_paths=(prefix,), allowed_methods=("GET", "HEAD"), capabilities=capabilities, web_origin=origin),
-        discovery_seeds=() if full_profile and target.path == "/" else (seed,), expires_at=datetime.now(UTC) + timedelta(minutes=30),
-        discovery_limits=DiscoveryLimits(max_rounds=2, max_requests=24, max_sources=16, max_endpoints=64, max_depth=2),
-        execution_budget=ExecutionBudget(max_requests=64 if full_profile else 40, max_body_bytes=65536,
-                                         max_timeout_seconds=60 if full_profile else 30),
-    )
+    return _legacy_scoped_task(url, task_id, path_prefix=path_prefix, browser=browser, ports=ports,
+                               content_discovery=content_discovery, full_profile=full_profile,
+                               pinned_ip=pinned_ip, resolver=resolve_pin)
 
 
 def export_run(agent, task_id, directory):
@@ -98,12 +52,28 @@ def export_run(agent, task_id, directory):
     result = result.model_copy(update={"worker_status": state["run_status"], "handoff_ready": state["handoff_ready"]})
     (directory / "result.json").write_text(result.model_dump_json(indent=2), encoding="utf-8")
     (directory / "inventory.json").write_text(result.attack_surface_inventory.model_dump_json(indent=2), encoding="utf-8")
+    boundary = agent.repository.get_authorization(task_id)
+    asset_inventory = agent.repository.asset_inventory(task_id)
+    (directory / "asset-inventory.json").write_text(asset_inventory.model_dump_json(indent=2), encoding="utf-8")
+    task = agent.repository.get_task(task_id)
+    checklist = (project_checklist_v2(task, agent.repository, agent.service, finalize=state["terminal"])
+                 if boundary else project_checklist(task, agent.repository, agent.service))
+    (directory / "checklist.json").write_text(json.dumps({
+        "version": CHECKLIST_V2_VERSION if boundary else "recon-checklist-v1",
+        "items": [item.model_dump(mode="json") for item in checklist],
+    }, indent=2), encoding="utf-8")
+    (directory / "manual-review.json").write_text(json.dumps({
+        "schema_version": "1.0", "items": [item.model_dump(mode="json") for item in api_manual_review(asset_inventory.assets)],
+    }, indent=2), encoding="utf-8")
     rows = agent.store.rounds(task_id)
     manifests = [agent.repository.get_evidence(reference).model_dump(mode="json") for reference in result.evidence_ids]
     (directory / "evidence-index.json").write_text(json.dumps(manifests, indent=2), encoding="utf-8")
     planning = [{key: row[key] for key in ("number", "state", "action_count", "error_code")} | {
         key: json.loads(row[key]) if row[key] else None for key in ("context", "decision", "plan", "rejections")
     } for row in rows]
+    for row in planning:
+        if row["context"]:
+            row["context"].pop("knowledge_excerpts", None)
     (directory / "planning.json").write_text(json.dumps(planning, indent=2, ensure_ascii=False), encoding="utf-8")
     verified = 0
     for reference in result.evidence_ids:
@@ -118,6 +88,13 @@ def export_run(agent, task_id, directory):
         "tool_results": dict(Counter(item.status for item in result.tool_results)),
         "evidence_recorded": len(result.evidence_ids), "evidence_verified": verified,
         "routes": len(result.attack_surface_inventory.entries),
+        "assets": len(asset_inventory.assets),
+        "verified_assets": sum(asset.verification_status == AssetVerificationStatus.VERIFIED
+                               for asset in asset_inventory.assets),
+        "external_references": sum(asset.scope_status == AssetScopeStatus.OUT_OF_SCOPE
+                                   for asset in asset_inventory.assets),
+        "manual_review_items": len(api_manual_review(asset_inventory.assets)),
+        "limitations": list(result.coverage.limitations) if result.coverage else [],
         "fuzz_ready": sum(item.status == "FUZZ_READY" for item in result.attack_surface_inventory.entries),
         "llm_rounds_recorded": len(rows), "llm_decisions_recorded": sum(bool(row["decision"]) for row in rows),
         "planning_stop_reason": agent.store.status(task_id),
@@ -131,10 +108,15 @@ def export_run(agent, task_id, directory):
         commit = "unavailable"
     with agent.repository._connect() as connection:
         schema = connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
-    task = agent.repository.get_task(task_id)
     now = datetime.now(UTC).isoformat()
     manifest = {"manifest_version": "1.0", "git_commit": commit, "python_version": platform.python_version(),
         "policy_version": task.policy_version, "database_schema_version": schema, "inventory_version": "1.0",
+        "asset_schema_version": asset_inventory.schema_version,
+        "checklist_version": CHECKLIST_V2_VERSION if boundary else "recon-checklist-v1",
+        "scope_model_version": boundary.schema_version if boundary else "1.0",
+        "authorized_root": boundary.root.model_dump(mode="json") if boundary else None,
+        "derived_bindings": [binding.model_dump(mode="json") for binding in agent.repository.list_bindings(task_id)],
+        "retriever_implementation_id": agent.retriever.implementation_id,
         **agent.planner.identity, "planner_fingerprint": agent.planner.planner_id,
         "proposal_schema_hash": agent.planner.identity["decision_schema_hash"],
         "planner_implementation_version": agent.planner.identity["implementation_version"],
@@ -148,7 +130,7 @@ def export_run(agent, task_id, directory):
     digest = hashlib.sha256()
     for folder in ("src", "scripts"):
         for path in sorted((root / folder).rglob("*")):
-            if path.is_file() and path.suffix in {".py", ".yaml", ".txt"}:
+            if path.is_file() and path.suffix in {".py", ".rb", ".yaml", ".txt"}:
                 digest.update(path.relative_to(root).as_posix().encode())
                 digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
     manifest["source_tree_sha256"] = digest.hexdigest()
@@ -161,8 +143,9 @@ def export_run(agent, task_id, directory):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     target_group = parser.add_mutually_exclusive_group(required=True)
-    target_group.add_argument("--url", help="authorized HTTP(S) URL with a hostname or literal IP")
-    target_group.add_argument("--target-ip", help="trusted full Recon mission for this literal IP")
+    target_group.add_argument("--target", help="bare authorized domain, IPv4, or IPv6 (default Recon profile)")
+    target_group.add_argument("--url", help="compatibility: authorized HTTP(S) URL")
+    target_group.add_argument("--target-ip", help="compatibility: literal IP mission")
     parser.add_argument("--ports", help="explicit comma-separated authorized ports; required with --target-ip")
     parser.add_argument("--pinned-ip", help="trusted fixed IP for the URL hostname; otherwise resolve once at task creation")
     parser.add_argument("--content-discovery", action="store_true", help="authorize bounded packaged-wordlist HEAD discovery")
@@ -179,20 +162,36 @@ def main(argv=None):
         parser.error("invalid task-id")
     directory = args.output_root / task_id
     previous = None
+    previous_boundary = None
     if (directory / "recon.db").exists():
         # Resume uses the frozen DNS pin, even if the resolver now returns another address.
         with closing(sqlite3.connect((directory / "recon.db").resolve().as_uri() + "?mode=ro", uri=True)) as db:
             row = db.execute("SELECT payload FROM recon_tasks WHERE id = ?", (task_id,)).fetchone()
             previous = ReconTask.model_validate_json(row[0]) if row else None
+            if args.target:
+                row = db.execute("SELECT payload FROM recon_authorizations WHERE task_id = ?", (task_id,)).fetchone()
+                previous_boundary = AuthorizationBoundary.model_validate_json(row[0]) if row else None
     try:
         ports = tuple(int(port) for port in args.ports.split(",")) if args.ports else None
+        if args.target:
+            if ports or args.pinned_ip or args.path_prefix:
+                raise ValueError("--ports, --pinned-ip and --path-prefix are legacy scope options; use a new target profile")
+            if previous:
+                if previous_boundary is None or previous_boundary.root != parse_target(args.target):
+                    raise ValueError("existing task root authorization differs; use a new task-id")
+                proposed, boundary = previous, previous_boundary
+            else:
+                proposed, boundary = admit_target(args.target, task_id)
+        else:
+            boundary = None
         if args.target_ip and not ports:
             raise ValueError("--target-ip requires --ports")
-        host = f"[{args.target_ip}]" if args.target_ip and ":" in args.target_ip else args.target_ip
-        url = args.url or f"{scheme_for_port(ports[0])}://{host}:{ports[0]}/"
-        proposed = scoped_task(url, task_id, path_prefix=args.path_prefix, browser=args.browser,
-            ports=ports, content_discovery=args.content_discovery, full_profile=args.target_ip is not None,
-            pinned_ip=args.pinned_ip or (previous.scope.web_origin.pinned_ip if previous and previous.scope.web_origin else None))
+        if not args.target:
+            host = f"[{args.target_ip}]" if args.target_ip and ":" in args.target_ip else args.target_ip
+            url = args.url or f"{scheme_for_port(ports[0])}://{host}:{ports[0]}/"
+            proposed = scoped_task(url, task_id, path_prefix=args.path_prefix, browser=args.browser,
+                ports=ports, content_discovery=args.content_discovery, full_profile=args.target_ip is not None,
+                pinned_ip=args.pinned_ip or (previous.scope.web_origin.pinned_ip if previous and previous.scope.web_origin else None))
     except ValueError as error:
         parser.error(str(error))
     settings = get_settings()
@@ -211,6 +210,15 @@ def main(argv=None):
     task = repository.get_task(task_id)
     if task is None:
         repository.save_task(proposed)
+        if boundary:
+            repository.save_authorization(boundary)
+            repository.upsert_asset(DiscoveredAsset(
+                run_id=proposed.run_id, task_id=proposed.id, root_target=boundary.root.value,
+                asset_type=AssetType.HOST if boundary.root.kind == "DOMAIN" else AssetType.IP,
+                canonical_value=boundary.root.value, relation=AssetRelation.ROOT,
+                discovered_from="operator", scope_status=AssetScopeStatus.IN_SCOPE,
+                verification_status=AssetVerificationStatus.CLASSIFIED,
+            ))
     elif task.scope != proposed.scope or task.discovery_seeds != proposed.discovery_seeds:
         parser.error("existing task scope/URL differs; use a new task-id")
     engine.browser_limits = BrowserLimits(max_pages=2, max_depth=1, max_requests=8,
@@ -225,7 +233,7 @@ def main(argv=None):
         agent.run(task_id)
     finally:
         summary = export_run(agent, task_id, directory)
-    completed = summary["planning_stop_reason"] in {"model_stop", "no_valid_actions", "round_limit", "action_limit"}
+    completed = summary["terminal"]
     return 0 if completed and summary["llm_decisions_recorded"] and summary["evidence_verified"] else 2
 
 

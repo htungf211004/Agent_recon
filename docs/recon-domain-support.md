@@ -1,13 +1,39 @@
-# Recon with a hostname URL
+# Domain and IP targets in Recon V2
 
-The local console accepts HTTP(S) domain/IP URLs. Restart the UI after updating:
+The primary CLI input is `python -m scripts.run_recon_live --target example.test`
+or `--target 10.10.10.5` (IPv6 literals also work). The local UI starts from the
+same Target field. The URL and explicit IP/ports forms below are compatibility
+paths. Submitting the root grants Recon authorization; the worker does not add an
+initial target Approval step.
+
+`AuthorizationBoundary` v2 persists an immutable domain or IP root. A domain
+includes descendant hostnames using exact label boundaries and a bounded depth.
+Lookalike and third-party hosts remain OUT_OF_SCOPE observations with zero active
+dispatch. A discovered descendant receives a Gateway DNS observation, a persisted
+transport pin, and a new scope version before any HTTP verification. Root admission
+records bounded A/AAAA answers; resume reuses the persisted binding. An IP root
+does not authorize arbitrary hostnames mentioned in content.
+
+The default domain profile uses HTTPS/443. The default IP profile uses bounded
+ports 80, 443, 8080 and 8443; it never sweeps all ports. A domain HTTP pin does
+not authorize Nmap scans of shared/CDN infrastructure. Bounded content discovery
+uses pinned HTTP requests for hostname targets. WhatWeb runs against the hostname
+with a process-local resolver pin. HTTP requests also pass through an exact-host
+loopback proxy; HTTPS uses WhatWeb's direct TLS path because its proxy implementation
+does not support a standard TLS CONNECT sequence. The initial HTTP probe validates
+TLS certificates before a hostname origin reaches technology fingerprinting;
+WhatWeb itself does not validate TLS certificates, so its output is a supplementary
+fingerprint rather than proof of certificate identity.
+
+The local console also accepts HTTP(S) domain/IP URLs through the advanced legacy
+profile. Restart the UI after updating:
 
 ```powershell
 cd C:\VinAI\Agent_recon
 .\.venv\Scripts\python.exe -m scripts.recon_ui
 ```
 
-Open `http://127.0.0.1:8765/`, select **HTTP + LLM**, and enter the intended URL,
+Open `http://127.0.0.1:8765/`, select **Legacy URL** under Advanced configuration, and enter the intended URL,
 for example `https://juice-shop.herokuapp.com/#/`. Use `/` as path prefix for the
 whole authorized origin. Choose Gemini and optionally Browser, then start a new
 run. The runner reads the existing key/model from `.env`.
@@ -21,10 +47,10 @@ CLI equivalent:
 These are invocation examples, not a claim that the public site's current response
 or deployment has been tested. Use the site only within the operator's authorization.
 
-## What changed
+## Legacy URL compatibility
 
 - Hostnames are now supported instead of being rejected by IP parsing.
-- An eight-second DNS admission step selects and freezes one address. The UI passes
+- The legacy eight-second DNS admission step selects and freezes one address. The UI passes
   that pin to the CLI; the CLI records it in the trusted task. A resumed task uses
   its saved pin, even if DNS changed.
 - `run-manifest.json` exposes `trusted_scope.web_origin` with the hostname, pinned
@@ -41,7 +67,7 @@ or deployment has been tested. Use the site only within the operator's authoriza
 Only the submitted origin is authorized. Redirects are recorded but never followed
 automatically; submit the destination as a new task if appropriate. Another hostname
 on the same IP remains outside scope. A failed/stale DNS pin is not silently replaced.
-Nmap/WhatWeb/FFUF remain available for IP missions, not hostname missions.
+Nmap, WhatWeb and FFUF remain available for the legacy explicit IP profile.
 
 The fragment (`#...`) is removed from HTTP identity; it is not a server path.
 Root `/#/` works as root navigation. Arbitrary SPA hash-route exploration is not

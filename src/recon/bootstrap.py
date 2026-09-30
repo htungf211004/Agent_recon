@@ -8,8 +8,10 @@ from shutil import which
 from src.recon.adapters import FfufAdapter, HttpFetchAdapter, HttpProbeAdapter, NmapAdapter, WhatWebAdapter
 from src.recon.agent import ReconAgent
 from src.recon.browser_runtime import chromium_available
+from src.recon.dns_adapter import DnsResolveAdapter
 from src.recon.gateway import CapabilityRegistry, ToolExecutionGateway
 from src.recon.models import Capability
+from src.recon.pinned_content import ContentDiscoveryAdapter
 from src.recon.planner import ReconPlanner
 from src.recon.policy import PolicyService
 from src.recon.service import ReconService
@@ -20,13 +22,14 @@ def create_recon_service(database_path: Path | str, evidence_dir: Path | str) ->
     """Build the trusted task store and the only production dispatch path."""
     repository = ReconRepository(database_path)
     registry = CapabilityRegistry()
+    registry.register(Capability.DNS_RESOLVE, DnsResolveAdapter())
     registry.register(Capability.HTTP_PROBE, HttpProbeAdapter())
     if which("nmap"):
         registry.register(Capability.NMAP_SCAN, NmapAdapter())
     if which("whatweb"):
         registry.register(Capability.WHATWEB, WhatWebAdapter())
-    if which("ffuf"):
-        registry.register(Capability.CONTENT_DISCOVERY, FfufAdapter())
+    registry.register(Capability.CONTENT_DISCOVERY, ContentDiscoveryAdapter(
+        FfufAdapter(), ip_available=bool(which("ffuf"))))
     registry.register(Capability.HTTP_FETCH, HttpFetchAdapter())
     gateway = ToolExecutionGateway(
         policy=PolicyService(repository),

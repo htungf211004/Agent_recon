@@ -27,6 +27,7 @@ from src.recon.models import (
 from src.recon.planner import ReconPlanner
 
 FINAL_CAPABILITIES = frozenset({
+    Capability.DNS_RESOLVE,
     Capability.HTTP_PROBE, Capability.HTTP_FETCH, Capability.NMAP_SCAN,
     Capability.WHATWEB, Capability.BROWSER_EXPLORE, Capability.CONTENT_DISCOVERY,
 })
@@ -149,7 +150,10 @@ def main():
 def check_sequential_bootstrap(root, repository, service, port):
     class SshBanner(BaseRequestHandler):
         def handle(self):
-            self.request.sendall(b"SSH-2.0-OpenSSH_9.2\r\n")
+            try:
+                self.request.sendall(b"SSH-2.0-OpenSSH_9.2\r\n")
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
     ssh = ThreadingTCPServer(("127.0.0.1", 0), SshBanner)
     thread = Thread(target=ssh.serve_forever, daemon=True)

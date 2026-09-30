@@ -1,5 +1,8 @@
 """Translate suggestions to existing typed actions; the Gateway remains authority."""
 
+from urllib.parse import urlsplit
+
+from src.contracts.recon_assets import AssetScopeStatus
 from src.contracts.recon_planning import ReconPlanningDecision, ReconPlanningLimits
 from src.recon.endpoints import baseline_eligible
 from src.recon.models import (
@@ -20,7 +23,7 @@ def action_key(request):
     """Ignore IDs, rationale and transport limits when detecting repeated actions."""
     params = request.parameters
     if isinstance(params, ContentDiscoveryParams):
-        return (request.capability, request.target_ip, params.model_dump_json())
+        return (request.capability, request.target_ip, request.target_host, params.model_dump_json())
     if hasattr(params, "port"):
         return (request.capability, request_url(request.target_ip, params.scheme, params.port,
                 getattr(params, "path", "/"), getattr(params, "query", ""), target_host=request.target_host), getattr(params, "method", "GET"))
@@ -31,7 +34,7 @@ class ReconProposalValidator:
     def __init__(self, repository, service, limits: ReconPlanningLimits):
         self.repository, self.service, self.limits = repository, service, limits
 
-    def validate(self, task, decision: ReconPlanningDecision, remaining_actions: int):
+    def validate(self, task, decision: ReconPlanningDecision, remaining_actions: int, knowledge_ids=()):
         trusted = self.repository.get_task(task.id)
         if trusted is None or trusted != task:
             return ReconPlan(task_id=task.id), ("trusted task changed",)
@@ -53,7 +56,27 @@ class ReconProposalValidator:
             try:
                 if len(actions) >= remaining_actions:
                     raise ValueError("action_limit")
-                if proposal.target_ip is None or proposal.port is None:
+                if self.repository.get_authorization(task.id) and not proposal.asset_id:
+                    raise ValueError("asset_id required for V2 actions")
+                if not set(proposal.knowledge_refs) <= set(knowledge_ids):
+                    raise ValueError("unknown knowledge reference")
+                target_ip = proposal.target_ip
+                if proposal.asset_id:
+                    asset = self.repository.get_asset(proposal.asset_id)
+                    if asset is None or asset.task_id != task.id or asset.scope_status != AssetScopeStatus.IN_SCOPE:
+                        raise ValueError("unknown or out-of-scope asset")
+                    host = urlsplit(asset.canonical_value).hostname if "://" in asset.canonical_value else asset.canonical_value
+                    trusted_ip = (task.scope.web_origin.pinned_ip if task.scope.web_origin
+                                  and host == task.scope.web_origin.host else host if host in task.scope.allowed_ips else None)
+                    binding = (self.repository.get_binding(task.id, host, proposal.scheme, proposal.port)
+                               if trusted_ip is None else None)
+                    trusted_ip = trusted_ip or (binding.address if binding else None)
+                    if trusted_ip is None:
+                        raise ValueError("asset has no trusted transport binding")
+                    if target_ip is not None and target_ip != trusted_ip:
+                        raise ValueError("proposal target differs from trusted asset")
+                    target_ip = trusted_ip
+                if target_ip is None or proposal.port is None:
                     raise ValueError("missing target")
                 if proposal.scheme != (task.scope.web_origin.scheme if task.scope.web_origin else scheme_for_port(proposal.port)):
                     raise ValueError("scheme/port mapping not allowed")
@@ -78,8 +101,12 @@ class ReconProposalValidator:
                     ))
                 if self.service.gateway.registry.get(capability) is None:
                     raise ValueError("capability unavailable")
-                action = ReconPlanner._action(task, proposal.target_ip, capability, params)
+                action = ReconPlanner._action(task, target_ip, capability, params,
+                    target_host=host if proposal.asset_id and binding else None)
                 request = action.request
+                adapter = self.service.gateway.registry.get(capability)
+                if hasattr(adapter, "supports") and not adapter.supports(request):
+                    raise ValueError("capability unavailable for bound transport")
                 if request_units(request) > remaining_requests:
                     raise ValueError("request_limit")
                 if capability == Capability.CONTENT_DISCOVERY:

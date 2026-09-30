@@ -6,6 +6,7 @@ from urllib.parse import urljoin, urlsplit
 
 from src.contracts.recon_planning import (
     PlanningAction,
+    PlanningAsset,
     PlanningBudget,
     PlanningCoverage,
     PlanningProgress,
@@ -17,8 +18,13 @@ from src.contracts.recon_planning import (
     ReconPlanningContext,
 )
 from src.recon.checklist import project_checklist
+from src.recon.checklist_v2 import VERSION as CHECKLIST_V2_VERSION
+from src.recon.checklist_v2 import project_checklist_v2
 from src.recon.models import Capability, CapabilityRequest
-from src.recon.urls import canonical_url, path_allowed, scoped_ip
+from src.recon.rag.models import KnowledgeReference
+from src.recon.rag.query_builder import build_query
+from src.recon.rag.retriever import NoopKnowledgeRetriever
+from src.recon.urls import canonical_url, known_transport_ip, path_allowed, scoped_ip
 from src.recon.wordlists import TRUSTED
 
 
@@ -43,11 +49,11 @@ def planning_route(entry, task, repository, evidence):
             location = json.loads(evidence.read(latest.evidence_id)).get("location", "")
             if location:
                 target = urlsplit(canonical_url(urljoin(latest.url, location)))
-                resolved = scoped_ip(task.scope, target.geturl())
-                allowed = (resolved is not None
+                known_ip = known_transport_ip(task.scope, target.geturl())
+                allowed = (scoped_ip(task.scope, target.geturl()) is not None
                            and path_allowed(target.path, task.scope.allowed_paths))
                 redirect = PlanningRedirect(present=True, target_scheme=target.scheme, target_port=target.port,
-                    same_target_ip=resolved == entry.resolved_ip, scope_status="IN_SCOPE" if allowed else "OUT_OF_SCOPE")
+                    same_target_ip=known_ip == entry.resolved_ip, scope_status="IN_SCOPE" if allowed else "OUT_OF_SCOPE")
         except (ValueError, TypeError, KeyError, OSError):
             redirect = PlanningRedirect(present=True, scope_status="INVALID")
     blocker = None
@@ -62,7 +68,7 @@ def planning_route(entry, task, repository, evidence):
         requires_manual_input=route.requires_manual_input, required_inputs=entry.has_unresolved_required_input)
 
 
-def assemble_context(task, repository, service, limits, round_number, actions_used):
+def assemble_context(task, repository, service, limits, round_number, actions_used, retriever=None):
     result = service.snapshot(task.id)
     entries = result.attack_surface_inventory.entries
     available = set(service.gateway.registry.available_capabilities()) & set(task.scope.capabilities)
@@ -98,7 +104,9 @@ def assemble_context(task, repository, service, limits, round_number, actions_us
         available_actions=tuple(action for cap, action in ((Capability.HTTP_FETCH, "safe_http_probe"),
             (Capability.BROWSER_EXPLORE, "browser_explore"), (Capability.CONTENT_DISCOVERY, "content_discovery"))
             if cap in available) + ("stop",),
-        checklist=project_checklist(task, repository, service),
+        checklist_version=CHECKLIST_V2_VERSION if repository.get_authorization(task.id) else "recon-checklist-v1",
+        checklist=project_checklist_v2(task, repository, service) if repository.get_authorization(task.id)
+                  else project_checklist(task, repository, service),
         trusted_wordlists=tuple(sorted(TRUSTED)) if Capability.CONTENT_DISCOVERY in available else (),
         coverage=PlanningCoverage(routes=len(entries), observations=len(result.observations),
             fuzz_ready=sum(entry.status == "FUZZ_READY" for entry in entries),
@@ -110,6 +118,9 @@ def assemble_context(task, repository, service, limits, round_number, actions_us
             for e in result.attack_surface[:32] if e.evidence_id in verified_facts),
         technologies=tuple(PlanningTechnology(technology=safe_fact(e.name), version=safe_fact(e.version),
             source=e.source.value, evidence_ref=e.evidence_id) for e in result.technologies[:32] if e.evidence_id in verified_facts),
+        assets=tuple(PlanningAsset(asset_id=a.id, asset_type=a.asset_type.value, value=a.canonical_value[:200],
+                                   scope_status=a.scope_status.value, verification_status=a.verification_status.value)
+                     for a in repository.list_assets(task.id)[:64]),
         routes=tuple(planning_route(entry, task, repository, service.gateway.evidence)
                      for entry in sorted(entries, key=lambda e: e.id)[:64]),
         previous_actions=tuple(previous[-64:]),
@@ -117,7 +128,18 @@ def assemble_context(task, repository, service, limits, round_number, actions_us
             actions=max(0, limits.max_total_llm_actions - actions_used)),
         context_truncated=len(entries) > 64 or len(previous) > 64,
     )
-    for field in ("previous_actions", "routes", "services", "technologies"):
+    retriever = retriever or NoopKnowledgeRetriever()
+    query = build_query(context, repository.list_assets(task.id))
+    chunks = tuple(retriever.retrieve(query, limit=4))[:4]
+    context = context.model_copy(update={
+        "knowledge_query": query,
+        "knowledge_refs": tuple(KnowledgeReference(knowledge_id=chunk.knowledge_id, source_id=chunk.source_id,
+                                                     content_hash=chunk.content_hash, namespace=chunk.namespace)
+                                for chunk in chunks),
+        "knowledge_excerpts": tuple(chunk.excerpt for chunk in chunks),
+        "retriever_id": retriever.implementation_id,
+    })
+    for field in ("knowledge_excerpts", "knowledge_refs", "assets", "previous_actions", "routes", "services", "technologies"):
         while len(context.model_dump_json().encode()) > limits.max_context_bytes and getattr(context, field):
             context = context.model_copy(update={field: getattr(context, field)[:-1], "context_truncated": True})
     if len(context.model_dump_json().encode()) > limits.max_context_bytes:

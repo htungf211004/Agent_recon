@@ -1,11 +1,13 @@
 # Bounded adaptive Recon worker
 
-Recon receives one immutable, authorized lab/staging mission (literal IP or a
-[pinned web origin](recon-domain-support.md)). Supervisor
+Recon receives one immutable authorized domain/IP root and a deterministically
+growing set of concrete execution bindings. See [domain support](recon-domain-support.md). Supervisor
 consumes the worker result; it does not sequence individual tools. Actors remain
 Operator and Approver; future active verification is named Validation Agent.
 LLM planning is optional intelligence. Policy/Gateway remain the authorities.
-No vector RAG, Browser-Use, Fuzzing, Validation, Approval or Finding subsystem is added.
+The provider-neutral RAG boundary supplies bounded planning knowledge without
+granting scope or execution permission. Real KB ingestion and the Fuzzing,
+Validation, Approval and Finding subsystems remain outside this worker.
 
 ## Internal graph
 
@@ -17,7 +19,9 @@ flowchart TD
   web_service_discovery --> technology_fingerprinting
   technology_fingerprinting --> static_discovery
   static_discovery --> refresh_inventory
-  refresh_inventory --> llm_plan
+  refresh_inventory --> verify_assets
+  verify_assets --> retrieve_knowledge
+  retrieve_knowledge --> llm_plan
   llm_plan --> validate_proposals
   validate_proposals --> execute_recon_actions
   execute_recon_actions --> PolicyService
@@ -26,7 +30,7 @@ flowchart TD
   Adapter --> Evidence
   Evidence --> refresh_adaptive_inventory
   refresh_adaptive_inventory --> should_continue{More bounded work?}
-  should_continue -->|Yes, at most 3 rounds| llm_plan
+  should_continue -->|Yes, at most 3 rounds| verify_assets
   should_continue -->|Terminal| ReconResult_and_ASI
 ```
 
@@ -46,7 +50,21 @@ no WhatWeb. Failed scans can use common authorized web-port fallbacks. Without
 Nmap, bounded HTTP sensing can verify explicitly scoped ports. WhatWeb and static
 discovery require verified HTTP origins. Existing parsers and ASI v1.0 remain intact.
 
-## Explicit trusted mission
+## Canonical target admission
+
+```powershell
+python -m scripts.run_recon_live --target example.test
+```
+
+The root authorization is immutable. Evidence-backed references become durable
+`DiscoveredAsset` records before scope classification. Out-of-scope references
+remain visible without dispatch. In-scope candidates are verified through
+PolicyService and ToolExecutionGateway. Derived descendant bindings require a
+Gateway DNS observation and change `scope_version`; arbitrary LLM targets are
+denied. The default IP profile uses a conservative port set. `--url` and
+`--target-ip` remain compatibility paths.
+
+## Legacy explicit mission
 
 ```powershell
 python -m scripts.run_recon_live --target-ip 127.0.0.1 --ports 8000,8080 --provider gemini --browser --content-discovery --task-id lab-01
@@ -96,7 +114,9 @@ replace the ambiguous old remaining-round budget. A final round can still execut
 actions. Complete generated task/context/FFUF/checklist examples are in
 [recon-bounded-examples.json](recon-bounded-examples.json).
 
-The ten-item curated registry is `src/recon/data/recon_checklist_v1.yaml`.
+The ten-item legacy registry is `src/recon/data/recon_checklist_v1.yaml`.
+New roots use `recon-checklist-v2`, which represents PT_01 STT 1–16 with explicit
+MANUAL_REVIEW and UNSUPPORTED states. Missing evidence is never silently COMPLETE.
 PENDING/COMPLETE/BLOCKED/UNSUPPORTED/NOT_APPLICABLE are computed from trusted scope,
 runtime, results and verified evidence. The model cannot mark completion or gain
 permissions from the checklist. The supplied PT_01 document has been reconciled

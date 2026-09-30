@@ -3,10 +3,12 @@
 import json
 from urllib.parse import urlsplit
 
+from src.contracts.recon_assets import AssetRelation
+from src.recon.asset_extraction import record_candidate
 from src.recon.endpoints import baseline_eligible
 from src.recon.models import Capability, HttpFetchParams, ReconPlan
 from src.recon.planner import ReconPlanner
-from src.recon.urls import canonical_url, path_allowed, request_url
+from src.recon.urls import canonical_url, path_allowed, request_url, scoped_ip
 from src.recon.web_models import (
     DiscoveryKind,
     EndpointLifecycle,
@@ -19,7 +21,7 @@ from src.recon.wordlists import load_wordlist
 
 def candidate_urls(request):
     p = request.parameters
-    return {request_url(request.target_ip, p.scheme, p.port, p.path_prefix + word)
+    return {request_url(request.target_ip, p.scheme, p.port, p.path_prefix + word, target_host=request.target_host)
             for word in load_wordlist(p.wordlist_id).entries}
 
 
@@ -59,6 +61,10 @@ def project_content(repository, service, request):
             url = canonical_url(candidate["url"])
             if url not in permitted or not path_allowed(urlsplit(url).path, task.scope.allowed_paths):
                 continue
+            boundary = repository.get_authorization(task.id)
+            if boundary:
+                record_candidate(repository, task, boundary, url, result.evidence_id, url,
+                                 AssetRelation.CONTENT_DISCOVERY)
             endpoint = WebEndpointEntry(task_id=task.id, url=url)
             if repository.get_endpoint(endpoint.id) is None and len(repository.list_endpoints(task.id)) >= task.discovery_limits.max_endpoints:
                 break
@@ -86,9 +92,15 @@ def baseline_content(repository, service, task):
         if not baseline_eligible(endpoint, endpoint.url):
             continue
         url = urlsplit(endpoint.url)
-        actions.append(ReconPlanner._action(task, url.hostname, Capability.HTTP_FETCH, HttpFetchParams(
+        target_ip = scoped_ip(task.scope, endpoint.url)
+        binding = repository.get_binding(task.id, url.hostname, url.scheme, url.port) if target_ip is None else None
+        target_ip = target_ip or (binding.address if binding else None)
+        if target_ip is None:
+            continue
+        actions.append(ReconPlanner._action(task, target_ip, Capability.HTTP_FETCH, HttpFetchParams(
             port=url.port, scheme=url.scheme, path=url.path,
-            timeout_seconds=min(5, task.execution_budget.max_timeout_seconds), max_body_bytes=task.execution_budget.max_body_bytes)))
+            timeout_seconds=min(5, task.execution_budget.max_timeout_seconds), max_body_bytes=task.execution_budget.max_body_bytes),
+            target_host=url.hostname if binding else None))
     # Stable HTTP identity also reuses an existing static/adaptive verification; no extra network on restart.
     if actions:
         plan = ReconPlan(task_id=task.id, actions=tuple(actions))

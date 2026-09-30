@@ -1,6 +1,6 @@
 # PentestSyndicate
 
-PentestSyndicate là đề tài VSOC-04 của nhóm P-077: một web app điều phối nhiều AI agent để hỗ trợ kiểm thử bảo mật trong môi trường staging hoặc lab đã được cấp phép. Operator tạo phiên kiểm tra; Supervisor điều phối Recon, Fuzzing và Exploit; Approver là con người quyết định trước hành động rủi ro; hệ thống tổng hợp bằng chứng và tạo báo cáo.
+PentestSyndicate là đề tài VSOC-04 của nhóm P-077: một web app điều phối nhiều AI agent để hỗ trợ kiểm thử bảo mật trong môi trường staging hoặc lab đã được cấp phép. Operator tạo phiên kiểm tra; Supervisor điều phối Recon, Fuzzing và Validation Agent; Approver là con người quyết định trước hành động rủi ro; hệ thống tổng hợp bằng chứng và tạo báo cáo.
 
 ## Gate 1 — Chốt bài toán và thiết kế
 
@@ -58,14 +58,14 @@ Xem [kiến trúc hiện tại](ARCHITECTURE.md) và [cách chạy, giới hạn
 | Supervisor | AI agent | Lập kế hoạch, điều phối, đối chiếu |
 | Recon | AI agent | Khảo sát trong allowlist |
 | Fuzzing | AI agent | Kiểm tra hữu hạn các điểm đã tìm thấy |
-| Exploit | AI agent | Đề xuất bước kiểm chứng; không tự vượt approval |
+| Validation Agent | AI agent | Đề xuất bước kiểm chứng; không tự vượt approval |
 
 ## Workflow mục tiêu
 
 ```mermaid
 flowchart LR
     A[Operator chọn staging và scope] --> B[Supervisor]
-    B --> C[Recon / Fuzzing / Exploit đề xuất tool call]
+    B --> C[Recon / Fuzzing / Validation Agent đề xuất tool call]
     C --> G{Guard: quyền + scope + tool + budget + risk}
     G -->|Ngoài scope/cấm| J[Chặn và audit]
     G -->|An toàn| I[Runner thực thi]
@@ -114,22 +114,20 @@ Mở **http://127.0.0.1:8765/**. Toàn bộ giao diện và server nằm trong
 [`scripts/recon_ui.py`](scripts/recon_ui.py), dùng dependencies sẵn có.
 
 1. Cấu hình Gemini (`GOOGLE_API_KEY` hoặc `GEMINI_API_KEY`, `GEMINI_MODEL`) trong `.env`.
-2. Bấm **Dùng lab localhost có sẵn**, hoặc nhập URL HTTP(S) dùng domain/IP của target được phép.
-3. Chọn provider/model, số round và capability khả dụng; bấm **Chạy Recon**.
-4. Xem Inventory, LLM planning, Summary; tải JSON và evidence đã kiểm tra SHA-256.
+2. Nhập domain hoặc IP của target được phép vào ô **Target**. Nút lab localhost là đường chạy tương thích URL.
+3. Bấm **Start Recon**; cấu hình provider/model và profile cũ nằm trong Advanced configuration.
+4. Xem Routes, Assets, Checklist, Manual review, Planning và Evidence; tải JSON và evidence đã kiểm tra SHA-256.
 
 Lab tích hợp phục vụ HTML, robots, sitemap, OpenAPI, JavaScript và hidden paths;
 không phục vụ thư mục repo. Lượt Recon gọi LLM thật và dùng quota của provider.
-Browser/FFUF là quyền tùy chọn; chỉ chạy khi planner đề xuất và policy chấp nhận.
-Chế độ service discovery cho phép nhập IP/ports để dùng Nmap/WhatWeb nếu có.
+Browser/content discovery chỉ chạy khi runtime, planner và policy cho phép.
+Profile IP mặc định dùng một bộ port nhỏ; chế độ IP/ports cũ còn trong Advanced configuration.
 Capability thiếu runtime được hiển thị rõ trên giao diện.
 
-URL domain (ví dụ `https://juice-shop.herokuapp.com/#/`) hỗ trợ HTTP và Browser:
-DNS được phân giải một lần, IP/hostname/scheme/port được lưu cố định trong scope;
-Host và TLS SNI giữ đúng hostname, chứng chỉ vẫn được xác minh. Phần `#...` được
-bỏ khỏi request HTTP; fragment route riêng của SPA chưa được duyệt riêng. Không
-tự theo redirect hoặc mở rộng sang domain khác. Nmap/WhatWeb/FFUF tiếp tục dùng
-profile IP. Xem [hỗ trợ URL domain và giới hạn](docs/recon-domain-support.md).
+Domain root dùng DNS quan sát có giới hạn và HTTP transport pin. Subdomain hợp lệ
+chỉ được thêm sau khi có evidence và scope derivation xác định; bên thứ ba chỉ là
+observation OUT_OF_SCOPE. Không tự theo redirect. Xem
+[hỗ trợ domain và giới hạn](docs/recon-domain-support.md).
 
 UI gọi nguyên runner `scripts.run_recon_live` qua subprocess, không gọi adapter
 trực tiếp. Dữ liệu nằm tại `data/live-recon/<task-id>/`; mỗi lần chạy tạo task mới.
@@ -196,9 +194,15 @@ The model proposes scoped HTTP verification, passive Browser exploration, truste
 python -m scripts.run_recon_live --target-ip 127.0.0.1 --ports 8000,8080 --provider gemini --browser --content-discovery
 ```
 
-Use only an authorized lab/staging target. `--url` supports HTTP(S) hostname/IP targets with optional Browser; hostname missions bind a fixed DNS pin and preserve Host/TLS SNI. See [domain support](docs/recon-domain-support.md).
+Use only an authorized lab/staging target. The primary command is
+`python -m scripts.run_recon_live --target example.test` (or a literal IPv4/IPv6
+address). `--url` and `--target-ip` remain compatibility paths. V2 records an
+immutable root, evidence-backed discovered assets, bounded derived host bindings,
+checklist STT 1–16, and a provider-neutral RAG boundary. LLM and RAG never grant
+scope. Active API security testing is manual/HITL. See
+[domain support](docs/recon-domain-support.md).
 
-Migration v8 persists stage plans, safe provider errors and FFUF request units. The runner exports an audit bundle. Worker completion is separate from `handoff_ready`; zero FUZZ_READY entries never justify a future FuzzTask.
+Migration v9 adds root authorization, DNS observations, derived bindings and discovered assets. The runner exports ASI v1.0 and companion V2 audit artifacts. Worker completion is separate from `handoff_ready`; zero FUZZ_READY entries never justify a future FuzzTask.
 
 See the [guide](docs/recon-bounded-adaptive.md), [examples](docs/recon-bounded-examples.json), [PT_01 source mapping](docs/recon-checklist-source-mapping.md), and [verification](docs/recon-bounded-verification.md).
 

@@ -3,6 +3,8 @@
 from datetime import UTC, datetime
 from urllib.parse import parse_qsl
 
+from src.contracts.recon_assets import AssetRelation
+from src.recon.asset_extraction import record_candidate
 from src.recon.models import CapabilityRequest, ToolResult
 from src.recon.urls import normalize_candidate, request_url
 from src.recon.web_models import (
@@ -85,7 +87,12 @@ def project_browser_response(repository, request: CapabilityRequest, result: Too
         ), preserve_existing_response=True)
 
     save(url, params.method, "network_request", observed=True)
+    boundary = repository.get_authorization(request.task_id)
+    task = repository.get_task(request.task_id) if boundary else None
     for candidate in envelope.get("dom", []):
+        if boundary:
+            record_candidate(repository, task, boundary, url, result.evidence_id, candidate["url"],
+                             AssetRelation.BROWSER_REFERENCE)
         concrete = normalize_candidate(candidate["url"], url)
         method, relation = candidate["method"], candidate["relation"]
         if concrete is None or method not in {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE"}:

@@ -214,6 +214,23 @@ def _adaptive_stages(connection):
             connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
 
+def _recon_assets_v2(connection):
+    connection.execute("""CREATE TABLE IF NOT EXISTS recon_authorizations (
+        task_id TEXT PRIMARY KEY, payload TEXT NOT NULL
+    )""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS discovered_assets (
+        id TEXT PRIMARY KEY, task_id TEXT NOT NULL, verification_status TEXT NOT NULL, payload TEXT NOT NULL
+    )""")
+    connection.execute("CREATE INDEX IF NOT EXISTS assets_by_task_status ON discovered_assets(task_id, verification_status)")
+    connection.execute("""CREATE TABLE IF NOT EXISTS derived_bindings (
+        task_id TEXT NOT NULL, host TEXT NOT NULL, scheme TEXT NOT NULL, port INTEGER NOT NULL,
+        payload TEXT NOT NULL, PRIMARY KEY(task_id, host, scheme, port)
+    )""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS dns_observations (
+        id TEXT PRIMARY KEY, task_id TEXT NOT NULL, payload TEXT NOT NULL
+    )""")
+
+
 MIGRATIONS = (
     (1, "adopt_day1_day2_schema", _legacy_schema),
     (2, "route_observations", _route_observations),
@@ -223,6 +240,7 @@ MIGRATIONS = (
     (6, "v6_recon_policy_snapshot", _recon_policy_snapshot),
     (7, "bounded_adaptive_planning", _adaptive_planning),
     (8, "adaptive_stages_and_bounded_content_budget", _adaptive_stages),
+    (9, "recon_discovered_assets_v2", _recon_assets_v2),
 )
 
 

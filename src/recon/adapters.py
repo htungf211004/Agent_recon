@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import json
 import os
 import ssl
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -32,6 +34,25 @@ from src.recon.urls import request_url
 from src.recon.web_models import HttpResponseMetadata
 
 MAX_OUTPUT_BYTES = 262_144
+
+
+def bounded_dns_answers(host: str, port: int, *, limit: int = 8, timeout: float = 8) -> tuple[str, ...]:
+    """Trusted bounded resolver used by admission and the Gateway DNS adapter."""
+    script = ("import json,socket,sys; print(json.dumps(sorted({a[4][0] for a in "
+              "socket.getaddrinfo(sys.argv[1],int(sys.argv[2]),type=socket.SOCK_STREAM)})))")
+    try:
+        result = subprocess.run([sys.executable, "-c", script, host, str(port)], capture_output=True,
+                                timeout=timeout, check=True, shell=False,
+                                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+        addresses = sorted({str(ipaddress.ip_address(item)) for item in json.loads(result.stdout)},
+                           key=lambda item: (ipaddress.ip_address(item).version, int(ipaddress.ip_address(item))))
+        addresses = tuple(item for item in addresses if not (ipaddress.ip_address(item).is_unspecified
+                                                              or ipaddress.ip_address(item).is_multicast))
+        if not addresses or len(addresses) > limit:
+            raise ValueError("DNS answer count exceeds policy")
+        return addresses
+    except (OSError, subprocess.SubprocessError, TypeError, IndexError, ValueError):
+        raise ValueError("bounded DNS resolution failed") from None
 
 
 class HttpFetchAdapter:
@@ -79,6 +100,7 @@ class HttpFetchAdapter:
                         "url": url, "method": params.method, "response": metadata.model_dump(),
                         "body_base64": base64.b64encode(body).decode("ascii"),
                         "location": response.headers.get("location", "")[:2048],
+                        "source_map": (response.headers.get("x-sourcemap") or response.headers.get("sourcemap") or "")[:2048],
                         **({"pinned_ip": request.target_ip, "authority": urlsplit(url).netloc} if request.target_host else {}),
                     }
                     return AdapterOutput(
@@ -186,8 +208,33 @@ class WhatWebAdapter:
         params = request.parameters
         if not isinstance(params, WhatWebParams):
             raise TypeError("WhatWeb parameters required")
-        command = ["whatweb", "-a", "1", "--follow-redirect=never", _url(request.target_ip, params.scheme, params.port)]
-        output = _run_fixed(command, timeout=20)
+        command = ["whatweb", "-a", "1", "--follow-redirect=never"]
+        if request.target_host:
+            from src.recon.pinned_proxy import pinned_proxy
+
+            # WhatWeb resolves before consulting its proxy. The process-local
+            # resolver shim permits only the persisted binding. For HTTP, the
+            # loopback proxy enforces the same binding on each request.
+            env = dict(os.environ)
+            env.update(RECON_PIN_HOST=request.target_host, RECON_PIN_IP=request.target_ip,
+                       RUBYOPT="-r" + str(Path(__file__).with_name("whatweb_pin.rb")))
+            url = request_url(request.target_ip, params.scheme, params.port, "/",
+                              target_host=request.target_host)
+            if params.scheme == "http":
+                with pinned_proxy(request.target_host, request.target_ip, params.port) as proxy:
+                    output = _run_fixed([*command, "--proxy", proxy.removeprefix("http://"), url],
+                                        timeout=20, env=env)
+            else:
+                # WhatWeb 0.5.5 starts TLS before CONNECT when a proxy is set;
+                # use its direct TLS path with pinned DNS for correct SNI.
+                command.append(url)
+                output = _run_fixed(command, timeout=20, env=env)
+        else:
+            command.append(_url(request.target_ip, params.scheme, params.port))
+            output = _run_fixed(command, timeout=20)
+        if b"ERROR Opening:" in output.raw_output:
+            return AdapterOutput(status="error", timed_out=output.timed_out,
+                                 raw_output=output.raw_output, message="WhatWeb could not open target")
         technologies = parse_whatweb(output.raw_output.decode("utf-8", errors="replace"), request.target_ip)
         return AdapterOutput(
             status=output.status, timed_out=output.timed_out, raw_output=output.raw_output, message=output.message,

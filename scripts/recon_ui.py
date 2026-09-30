@@ -30,16 +30,18 @@ from scripts.run_recon_live import scoped_task
 from src.config import Settings
 from src.recon.browser_runtime import chromium_available
 from src.recon.planner import scheme_for_port
+from src.recon.scope.admission import parse_target
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "data" / "live-recon"
 ARTIFACTS = {"summary.json", "inventory.json", "planning.json", "result.json",
-             "run-manifest.json", "evidence-index.json"}
+             "run-manifest.json", "evidence-index.json", "asset-inventory.json",
+             "checklist.json", "manual-review.json"}
 
 
 class Launch(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    profile: Literal["url", "full"] = "url"
+    profile: Literal["target", "url", "full"] = "target"
     target: str = Field(min_length=1, max_length=2048)
     ports: str = Field(default="8080", max_length=200)
     path_prefix: str = Field(default="/", min_length=1, max_length=1024)
@@ -52,8 +54,18 @@ class Launch(BaseModel):
 
 def runner_args(spec: Launch, task_id: str) -> list[str]:
     """Validate with the production task builder before launching the existing CLI."""
+    profile = "url" if spec.profile == "target" and "://" in spec.target else spec.profile
+    if profile == "target":
+        parse_target(spec.target)
+        args = [sys.executable, "-u", "-m", "scripts.run_recon_live",
+                "--task-id", task_id, "--output-root", str(OUTPUT),
+                "--provider", spec.provider, "--llm-rounds", str(spec.rounds),
+                "--target", spec.target]
+        if spec.model:
+            args.append("--model=" + spec.model)
+        return args
     ports = None
-    if spec.profile == "full":
+    if profile == "full":
         ip = str(ipaddress.ip_address(spec.target))
         ports = tuple(int(p.strip()) for p in spec.ports.split(","))
         host = f"[{ip}]" if ":" in ip else ip
@@ -61,7 +73,7 @@ def runner_args(spec: Launch, task_id: str) -> list[str]:
     else:
         url = spec.target
     task = scoped_task(url, task_id, path_prefix=spec.path_prefix, browser=spec.browser,
-                       ports=ports, content_discovery=spec.content_discovery, full_profile=spec.profile == "full")
+                       ports=ports, content_discovery=spec.content_discovery, full_profile=profile == "full")
     args = [sys.executable, "-u", "-m", "scripts.run_recon_live",
             "--task-id", task_id, "--output-root", str(OUTPUT),
             "--provider", spec.provider, "--path-prefix", spec.path_prefix,
@@ -220,7 +232,7 @@ def create_app() -> FastAPI:
         try:
             args = runner_args(spec, task_id)
         except (ValueError, IndexError):
-            raise HTTPException(422, "URL/scope không hợp lệ hoặc DNS thất bại. Dùng HTTP(S), path hợp lệ; domain chỉ hỗ trợ chế độ HTTP/Browser, không FFUF.") from None
+            raise HTTPException(422, "Target không hợp lệ. Nhập domain hoặc địa chỉ IPv4/IPv6 được phép.") from None
         settings = Settings(_env_file=ROOT / ".env")
         if not (settings.google_api_key if spec.provider == "gemini" else settings.openai_api_key):
             raise HTTPException(422, "Thiếu API key của provider trong .env.")
@@ -266,6 +278,10 @@ def create_app() -> FastAPI:
         return {"task_id": task_id, "process_status": phase, "exit_code": code,
                 "summary": summary, "progress": progress(directory),
                 "inventory": read_json(safe_file(directory, "inventory.json"), {}),
+                "assets": read_json(safe_file(directory, "asset-inventory.json"), {}),
+                "checklist": read_json(safe_file(directory, "checklist.json"), {}),
+                "manual_review": read_json(safe_file(directory, "manual-review.json"), {}),
+                "manifest": read_json(safe_file(directory, "run-manifest.json"), {}),
                 "planning": read_json(safe_file(directory, "planning.json"), []),
                 "evidence": read_json(safe_file(directory, "evidence-index.json"), []),
                 "files": sorted(n for n in ARTIFACTS if safe_file(directory, n).is_file()),
@@ -335,9 +351,10 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 Consolas,monospace
 <header><div><h1>Recon<span style="color:#86c6a5">.</span> Local Console</h1><p>Khảo sát có giới hạn · Quyết định có bằng chứng</p></div><span class="tag">PENTESTSYNDICATE / LOCAL</span></header>
 <main><aside class="panel"><div class="eyebrow">01 / MISSION</div><h2>Tạo lượt Recon</h2><div class="muted">Chọn target lab/staging được phép kiểm thử. API key được đọc từ .env trên máy.</div>
 <button class="lab" id="lab">＋ Dùng lab localhost có sẵn</button>
-<label class="field">Chế độ<select id="profile"><option value="url">HTTP + LLM</option><option value="full">Service discovery + HTTP + LLM</option></select></label>
-<label class="field"><span id="targetLabel">URL website (domain hoặc IP)</span><input id="target" value="http://127.0.0.1:8080/" placeholder="https://juice-shop.herokuapp.com/#/"></label>
-<div class="muted">URL domain dùng HTTP/Browser, DNS pin theo task. Phần # không gửi qua HTTP; không tự chuyển sang domain khác.</div>
+<label class="field"><span id="targetLabel">Target</span><input id="target" value="example.test" placeholder="example.test or 10.10.10.5"></label>
+<div class="muted">Enter an authorized domain or IP. Recon selects a bounded default profile.</div>
+<details><summary>Advanced configuration</summary>
+<label class="field">Profile<select id="profile"><option value="target" selected>Default Recon</option><option value="url">Legacy URL</option><option value="full">Legacy IP + ports</option></select></label>
 <label class="field" id="portsField" hidden>Ports được phép<input id="ports" value="8080" placeholder="80,443,8080"></label>
 <label class="field">Path prefix được phép<input id="path" value="/"></label>
 <div class="row"><label class="field">Provider<select id="provider"><option value="gemini">Gemini</option><option value="openai">OpenAI compatible</option></select></label>
@@ -345,14 +362,15 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 Consolas,monospace
 <label class="field">Model<input id="model" placeholder="Dùng cấu hình .env"></label><div class="muted" id="keyState"></div>
 <label class="check"><input type="checkbox" id="browser" disabled> Cho phép Browser thụ động</label>
 <label class="check"><input type="checkbox" id="content" disabled> Cho phép FFUF bounded</label>
+</details>
 <div class="caps" id="caps"></div><div id="message" class="notice" role="alert"></div>
-<button id="start" class="primary" disabled>Chạy Recon →</button>
+<button id="start" class="primary" disabled>Start Recon</button>
 <p class="muted">Gọi LLM thật, dùng quota của provider. Browser/FFUF chỉ chạy khi có đề xuất hợp lệ. Mỗi lần bấm tạo task mới.</p></aside>
 <section class="workspace"><div class="topline"><div><div class="eyebrow">02 / OBSERVATIONS</div><h2>Kết quả & bằng chứng</h2></div><select id="history" aria-label="Lịch sử run"><option value="">Chọn lượt chạy…</option></select></div>
 <div class="panel"><div class="topline" style="margin-bottom:0"><span id="runTitle">Chưa có lượt chạy</span><span id="state" class="state">READY</span></div>
 <div class="muted" id="progress">Bắt đầu với lab localhost hoặc target IP của bạn.</div><div class="notice" id="runMessage"></div></div>
 <div class="metrics"><div class="metric"><strong id="routes">—</strong><span>ENDPOINTS</span></div><div class="metric"><strong id="ready">—</strong><span>FUZZ_READY</span></div><div class="metric"><strong id="proof">—</strong><span>EVIDENCE VERIFIED</span></div><div class="metric"><strong id="decisions">—</strong><span>LLM DECISIONS</span></div></div>
-<div class="panel"><nav class="tabs" aria-label="Kết quả"><button class="active" data-tab="inventory">Inventory</button><button data-tab="planning">LLM planning</button><button data-tab="evidence">Evidence</button><button data-tab="summary">Summary</button></nav>
+<div class="panel"><nav class="tabs" aria-label="Kết quả"><button class="active" data-tab="inventory">Routes</button><button data-tab="assets">Assets</button><button data-tab="checklist">Checklist</button><button data-tab="manual">Manual review</button><button data-tab="planning">Planning</button><button data-tab="evidence">Evidence</button><button data-tab="summary">Summary</button></nav>
 <div id="view"><div class="empty">◎<b>Từ scope đến evidence</b>Endpoint, quyết định LLM và bằng chứng sẽ xuất hiện ở đây.</div></div>
 <div id="downloads" class="downloads"></div></div><footer id="location">HTTP GET/HEAD · Policy/Gateway kiểm soát mọi execution · SQLite lưu lịch sử</footer>
 <footer>Đóng tab không hủy run. Giữ cửa sổ terminal chạy đến khi hoàn tất.</footer></section></main>
@@ -360,9 +378,9 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 Consolas,monospace
 const token='__TOKEN__', el=id=>document.getElementById(id);let config=null,current='',snapshot=null,tab='inventory',busy=false,active='';
 async function api(path,options={}){const r=await fetch('/api/'+path,{...options,headers:{'X-Recon-Token':token,'Content-Type':'application/json',...(options.headers||{})}});if(!r.ok){let d=await r.json().catch(()=>({}));throw Error(typeof d.detail==='string'?d.detail:'Yêu cầu không hợp lệ ('+r.status+')');}return r.json();}
 function message(e){el('message').textContent=e.message||e;}
-function sync(){if(!config)return;const p=config.providers[el('provider').value];el('keyState').textContent=p.configured?'✓ Đã cấu hình API key':'Thiếu API key trong .env';el('model').placeholder=p.model;el('start').disabled=busy||!!active||!p.configured;el('start').textContent=busy?'Đang chuẩn bị…':active?'Run đang thực thi…':'Chạy Recon →';let domain=false;try{const h=new URL(el('target').value).hostname;domain=el('profile').value==='url'&&!h.includes(':')&&!/^\d{1,3}(\.\d{1,3}){3}$/.test(h);}catch{}el('content').disabled=domain||!config.capabilities.content_discovery;if(el('content').disabled)el('content').checked=false;}
+function sync(){if(!config)return;const p=config.providers[el('provider').value];el('keyState').textContent=p.configured?'✓ Đã cấu hình API key':'Thiếu API key trong .env';el('model').placeholder=p.model;el('start').disabled=busy||!!active||!p.configured;el('start').textContent=busy?'Đang chuẩn bị…':active?'Run đang thực thi…':'Start Recon';let domain=false;try{const raw=el('target').value,h=raw.includes('://')?new URL(raw).hostname:raw;domain=!h.includes(':')&&!/^\d{1,3}(\.\d{1,3}){3}$/.test(h);}catch{}el('content').disabled=domain||!config.capabilities.content_discovery;if(el('content').disabled)el('content').checked=false;}
 async function refreshConfig(){config=await api('config');el('caps').replaceChildren();for(const [name,ok] of Object.entries(config.capabilities)){const s=document.createElement('span');s.className='chip'+(ok?'':' off');s.textContent=name+(ok===null?' · checking':ok?' ✓':' —');el('caps').append(s);}el('browser').disabled=!config.capabilities.browser_explore;el('content').disabled=!config.capabilities.content_discovery;sync();}
-function profile(){const full=el('profile').value==='full';el('portsField').hidden=!full;el('targetLabel').textContent=full?'IP được phép':'URL website (domain hoặc IP)';}
+function profile(){const full=el('profile').value==='full';el('portsField').hidden=!full;el('targetLabel').textContent=full?'Authorized IP':el('profile').value==='url'?'Legacy URL':'Target';}
 el('profile').onchange=()=>{try{if(el('profile').value==='full'){const u=new URL(el('target').value);el('target').value=u.hostname;el('ports').value=u.port||(u.protocol==='https:'?'443':'80');}else{el('target').value='http://'+el('target').value+':'+el('ports').value.split(',')[0]+'/';}}catch{}profile();sync();};
 el('target').oninput=sync;
 el('provider').onchange=()=>{el('model').value='';sync();};
@@ -376,9 +394,13 @@ function jsonView(data){const pre=document.createElement('pre');pre.textContent=
 async function download(path,name){try{const r=await fetch('/api/runs/'+encodeURIComponent(current)+'/'+path,{headers:{'X-Recon-Token':token}});if(!r.ok){const d=await r.json();throw Error(d.detail||'Không tải được file');}const u=URL.createObjectURL(await r.blob()),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);}catch(e){message(e);}}
 function render(){if(!snapshot)return;const d=snapshot,s=d.summary;el('runTitle').textContent=current;el('state').textContent=d.process_status==='RUNNING'?'RUNNING':d.process_status==='UNTRACKED'?'UNTRACKED':d.exit_code===0?'FINISHED':'CHECK RESULT';el('state').className='state'+(d.exit_code!==null&&d.exit_code!==0?' error':'');
 el('progress').textContent=d.progress.stages.map(x=>x.name+': '+x.state).join(' · ')+' | Tools: '+JSON.stringify(d.progress.tools);
+if(d.manifest.authorized_root)el('progress').textContent='Authorized root: '+d.manifest.authorized_root.value+' | '+el('progress').textContent;
 el('runMessage').textContent=d.process_status==='UNTRACKED'?'Đây là run lưu trên đĩa; phiên UI này không theo dõi tiến trình của nó. Xem summary và planning.':d.exit_code!==null&&d.exit_code!==0?'Runner kết thúc với mã '+d.exit_code+'. Xem LLM planning/error_code; runner.log nằm trong thư mục run.':'';
 for(const [id,key] of [['routes','routes'],['ready','fuzz_ready'],['proof','evidence_verified'],['decisions','llm_decisions_recorded']])el(id).textContent=s[key]??'—';el('location').textContent=d.directory;
 if(tab==='inventory'){const rows=d.inventory.entries||[];if(!rows.length){const p=document.createElement('p');p.className='empty';p.textContent=d.process_status==='RUNNING'?'Đang chạy. Inventory đầy đủ được export khi kết thúc.':'Chưa có endpoint được export.';el('view').replaceChildren(p);}else{const t=table(['METHOD','ROUTE','LIFECYCLE','EVIDENCE']);for(const x of rows){const r=document.createElement('tr');cell(r,x.method);cell(r,x.authority+x.canonical_path,'path');cell(r,x.status);cell(r,x.evidence_refs.length);t.append(r);}}}
+else if(tab==='assets'){const t=table(['TYPE','VALUE','SCOPE','VERIFICATION','EVIDENCE']);for(const x of d.assets.assets||[]){const r=document.createElement('tr');cell(r,x.asset_type);cell(r,x.canonical_value,'path');cell(r,x.scope_status);cell(r,x.verification_status);cell(r,(x.discovery_evidence_refs||[]).concat(x.verification_evidence_refs||[]).join(', '),'path');t.append(r);}}
+else if(tab==='checklist'){const t=table(['ITEM','STATUS','REASON']);for(const x of d.checklist.items||[]){const r=document.createElement('tr');cell(r,x.id);cell(r,x.status);cell(r,x.reason);t.append(r);}}
+else if(tab==='manual')jsonView(d.manual_review.items||[]);
 else if(tab==='planning')jsonView(d.planning.length?d.planning:d.progress.rounds);
 else if(tab==='summary')jsonView(s);
 else{const t=table(['KIND / ID','BYTES','SHA-256','']);for(const x of d.evidence){const r=document.createElement('tr');cell(r,x.kind+' / '+x.id,'path');cell(r,x.size_bytes);cell(r,x.sha256,'path');const b=document.createElement('button');b.textContent='Tải .bin';b.onclick=()=>download('evidence/'+encodeURIComponent(x.id),x.id+'.bin');cell(r,'').append(b);t.append(r);}}

@@ -138,6 +138,10 @@ class ReconSensing:
             if self.available(task, Capability.WHATWEB):
                 for origin in self.verified_origins(task):
                     url = urlsplit(origin)
-                    yield ReconPlanner._action(task, url.hostname, Capability.WHATWEB,
-                                               WhatWebParams(port=url.port, scheme=url.scheme))
+                    web_origin = task.scope.web_origin
+                    target_host = url.hostname if web_origin and url.hostname == web_origin.host else None
+                    target_ip = web_origin.pinned_ip if target_host else url.hostname
+                    yield ReconPlanner._action(task, target_ip, Capability.WHATWEB,
+                                               WhatWebParams(port=url.port, scheme=url.scheme),
+                                               target_host=target_host)
         return self.run_stage(task_id, "technology_fingerprinting", build)

@@ -1,6 +1,38 @@
 # PT_01 source mapping for bounded Recon
 
-## Source and interpretation
+## Recon checklist V2
+
+`recon-checklist-v2` represents every Information Gathering STT 1–16. It projects
+status from ToolResults, verified Evidence, discovery sources and discovered assets.
+The V1 registry described below remains for compatibility. A COMPLETE state means
+the bounded Recon substep has qualifying Evidence, never that the full pentest row
+is finished.
+
+| STT | Item | Mode | Bounded behavior |
+|---:|---|---|---|
+| 1 | Passive Recon | UNSUPPORTED_ADAPTER | External OSINT provider absent. |
+| 2 | Active Recon | AUTO | Evidence-backed service or HTTP sensing. |
+| 3 | Fingerprinting | AUTO | WhatWeb or HTTP probe where applicable. |
+| 4 | Robots.txt | AUTO | Bounded fetch and reference extraction. |
+| 5 | Sitemap.xml | AUTO | Bounded fetch and scope classification. |
+| 6 | .well-known | AUTO | Three curated metadata paths; no exhaustive directory crawl. |
+| 7 | Swagger/OpenAPI | DISCOVERY_ONLY | Parse declarations; no declared write dispatch. |
+| 8 | GraphQL | MANUAL_HITL | Endpoint indicator only; no introspection or mutations. |
+| 9 | WSDL | MANUAL_HITL | Document indicator only; no SOAP operation or XXE test. |
+| 10 | Backup Files | DISCOVERY_ONLY | HEAD existence probe; no archive download. |
+| 11 | Hidden Endpoints | AUTO | Trusted bounded content discovery where supported. |
+| 12 | Git/SCM Exposure | DISCOVERY_ONLY | Bounded `.git/HEAD` marker; no repository dump. |
+| 13 | Source Map Files | DISCOVERY_ONLY | SourceMappingURL reference and bounded map probe. |
+| 14 | Shodan/FOFA/Censys | UNSUPPORTED_ADAPTER | No external provider integration. |
+| 15 | GitHub/GitLab Leak | UNSUPPORTED_ADAPTER | No public code host or secret search. |
+| 16 | Google Dorking | UNSUPPORTED_ADAPTER | No search scraping. |
+
+PENDING verification or discovery prevents terminal coverage. When bounded work
+ends, unproven supported items are BLOCKED with a reason. Missing external
+adapters are UNSUPPORTED; active API testing is MANUAL_REVIEW. Retrieved knowledge
+is never Evidence or authorization.
+
+## Legacy V1 mapping and source interpretation
 
 Reconciled on 2026-09-29 against the user-supplied
 `PT_01_Checklist_Pentest_Web.docx` (title: **BẢNG CHECKLIST KIỂM THỬ**).

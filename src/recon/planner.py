@@ -68,10 +68,14 @@ class ReconPlanner:
         return ReconPlan(task_id=task.id, actions=tuple(actions))
 
     @staticmethod
-    def _action(task: ReconTask, target_ip: str, capability: Capability, parameters) -> ReconAction:
+    def _action(task: ReconTask, target_ip: str, capability: Capability, parameters,
+                *, target_host: str | None = None) -> ReconAction:
         origin = task.scope.web_origin
+        host = target_host if target_host is not None else origin.host if origin else None
         identity = json.dumps(
-            [task.id, target_ip, capability.value, parameters.model_dump()],
+            [task.id, target_ip, capability.value, parameters.model_dump(),
+             *([host] if target_host is not None else []),
+             *([task.scope_version] if task.scope_version != "1" else [])],
             sort_keys=True,
             separators=(",", ":"),
         )
@@ -81,7 +85,7 @@ class ReconPlanner:
             task_id=task.id,
             capability=capability,
             target_ip=target_ip,
-            target_host=origin.host if origin else None,
+            target_host=host,
             parameters=parameters,
             run_id=task.run_id,
             scope_version=task.scope_version,

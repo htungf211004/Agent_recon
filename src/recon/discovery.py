@@ -9,6 +9,8 @@ from xml.etree.ElementTree import ParseError
 
 from yaml import YAMLError
 
+from src.contracts.recon_assets import AssetRelation
+from src.recon.asset_extraction import record_candidate, record_references
 from src.recon.discovery_parsers import Candidate, parse_document
 from src.recon.endpoints import baseline_eligible, fuzz_ready
 from src.recon.models import Capability, ReconTask, ToolResult
@@ -158,6 +160,8 @@ class EndpointDiscovery:
                 task_id=task.id, endpoint_id=endpoint.id, url=candidate.url, method=candidate.method,
                 provenance=tuple(p for p in endpoint.provenance if p.observation_id == observation_id),
             ))
+        if from_openapi:
+            return  # Declarations enter inventory; Recon never executes declared API operations.
         if not baseline_eligible(endpoint, candidate.url):
             return
         known = self.repository.list_sources(task.id)
@@ -228,6 +232,19 @@ class EndpointDiscovery:
                 }))
                 return
             self._observe(source, result)
+            boundary = self.repository.get_authorization(task.id)
+            if boundary:
+                record_candidate(self.repository, task, boundary, source.url, result.evidence_id,
+                                 source.url, AssetRelation.ROOT if source.depth == 0 else AssetRelation.SAME_ORIGIN)
+                if envelope.get("location"):
+                    record_candidate(self.repository, task, boundary, source.url, result.evidence_id,
+                                     envelope["location"], AssetRelation.REDIRECT)
+                if envelope.get("source_map"):
+                    record_candidate(self.repository, task, boundary, source.url, result.evidence_id,
+                                     envelope["source_map"], AssetRelation.JS_REFERENCE)
+                if 200 <= metadata.status_code < 300 and not metadata.truncated:
+                    record_references(self.repository, task, boundary, source.url, result.evidence_id,
+                                      body.decode("utf-8", errors="replace"), metadata.content_type)
         if result.status == "denied":
             status, message = SourceStatus.BLOCKED, result.message
         elif metadata and metadata.truncated:
@@ -271,4 +288,6 @@ class EndpointDiscovery:
             converged=converged,
             complete=converged and not any(counts.get(status, 0) for status in (SourceStatus.ERROR, SourceStatus.BLOCKED, SourceStatus.LIMITED)),
             stop_reason=self.limit_reason,
+            limitations=(self.repository.get_coverage(task.id).limitations
+                         if self.repository.get_coverage(task.id) else ()),
         ))

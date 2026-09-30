@@ -30,6 +30,7 @@ class StrictModel(BaseModel):
 
 
 class Capability(StrEnum):
+    DNS_RESOLVE = "dns_resolve"
     HTTP_PROBE = "http_probe"
     NMAP_SCAN = "nmap_scan"
     WHATWEB = "whatweb"
@@ -255,8 +256,17 @@ class ContentDiscoveryParams(StrictModel):
         return value
 
 
+class DnsResolveParams(StrictModel):
+    kind: Literal["dns_resolve"] = "dns_resolve"
+    host: str
+    max_answers: int = Field(default=8, ge=1, le=8)
+    timeout_seconds: float = Field(default=8, gt=0, le=8)
+
+    _host = field_validator("host")(canonical_host)
+
+
 Parameters = (HttpProbeParams | NmapScanParams | WhatWebParams | HttpFetchParams | BrowserExploreParams
-              | BrowserRequestParams | ContentDiscoveryParams)
+              | BrowserRequestParams | ContentDiscoveryParams | DnsResolveParams)
 
 
 class CapabilityRequest(StrictModel):

@@ -264,6 +264,8 @@ def parse_document(text: str, base: str, content_type: str, hint: DiscoveryKind)
     if len(text.encode("utf-8")) > 524288:
         raise ValueError("discovery document exceeds parser limit")
     path = urlsplit(base).path.lower()
+    if path.endswith(".wsdl"):
+        return ParseResult(hint, ())  # Record document evidence; never invoke SOAP operations.
     if hint == DiscoveryKind.ROBOTS or path.endswith("/robots.txt"):
         return parse_robots(text, base)
     if hint in {DiscoveryKind.SITEMAP, DiscoveryKind.SITEMAP_INDEX} or "xml" in content_type or path.endswith(".xml"):

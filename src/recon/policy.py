@@ -14,10 +14,12 @@ from src.recon.models import (
     Capability,
     CapabilityRequest,
     ContentDiscoveryParams,
+    DnsResolveParams,
     HttpFetchParams,
     PolicyDecision,
     ReconTask,
 )
+from src.recon.scope.deriver import ScopeDeriver
 from src.recon.urls import path_allowed
 
 
@@ -80,8 +82,7 @@ class PolicyService:
             risk=Risk.R1 if request.capability in {Capability.NMAP_SCAN, Capability.CONTENT_DISCOVERY} else Risk.R0,
         )
 
-    @staticmethod
-    def _denial_reason(request: CapabilityRequest, task: ReconTask | None) -> str | None:
+    def _denial_reason(self, request: CapabilityRequest, task: ReconTask | None) -> str | None:
         if task is None:
             return "unknown task"
         if task.policy_version != PolicyService.VERSION:
@@ -98,18 +99,40 @@ class PolicyService:
             return "task expired or has no timezone"
         if request.capability not in task.scope.capabilities:
             return "capability not allowed"
-        if request.target_ip not in task.scope.allowed_ips:
-            return "target not allowed"
         params = request.parameters
+        if isinstance(params, DnsResolveParams):
+            boundary = self.tasks.get_authorization(task.id)
+            if (request.target_ip not in task.scope.allowed_ips or request.target_host != params.host
+                    or boundary is None or boundary.root.kind != "DOMAIN"
+                    or params.host == boundary.root.value
+                    or ScopeDeriver(boundary).classify_host(params.host) != "IN_SCOPE"):
+                return "DNS candidate is not within root authorization"
+            assets = self.tasks.list_assets(task.id)
+            if not any(asset.asset_type == "HOST" and asset.canonical_value == params.host
+                       and asset.scope_status == "IN_SCOPE" and asset.discovery_evidence_refs for asset in assets):
+                return "DNS candidate lacks verified discovery provenance"
+            if params.max_answers > boundary.max_dns_addresses_per_host:
+                return "DNS answer limit exceeds task policy"
+            return None
         origin = task.scope.web_origin
-        if origin:
-            if request.capability not in {Capability.HTTP_FETCH, Capability.HTTP_PROBE,
-                                          Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST}:
+        derived = (self.tasks.get_binding(task.id, request.target_host, params.scheme, params.port)
+                   if request.target_host and hasattr(params, "scheme") and hasattr(params, "port")
+                   and hasattr(self.tasks, "get_binding") else None)
+        derived_allowed = (derived is not None and derived.address == request.target_ip
+                           and request.capability in {Capability.HTTP_FETCH, Capability.HTTP_PROBE, Capability.WHATWEB,
+                                                      Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST,
+                                                      Capability.CONTENT_DISCOVERY})
+        if request.target_ip not in task.scope.allowed_ips and not derived_allowed:
+            return "target not allowed"
+        if origin and not derived_allowed:
+            if request.capability not in {Capability.HTTP_FETCH, Capability.HTTP_PROBE, Capability.WHATWEB,
+                                          Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST,
+                                          Capability.CONTENT_DISCOVERY}:
                 return "capability has no pinned-origin transport"
             if (request.target_ip, request.target_host, params.scheme, params.port) != (
                     origin.pinned_ip, origin.host, origin.scheme, origin.port):
                 return "web origin binding does not match trusted scope"
-        elif request.target_host is not None:
+        elif request.target_host is not None and not derived_allowed:
             return "hostname has no trusted origin binding"
         if isinstance(params, BrowserExploreParams):
             timeout = params.limits.max_runtime_seconds

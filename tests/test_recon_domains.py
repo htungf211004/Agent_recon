@@ -21,7 +21,7 @@ from src.recon.planner import ReconPlanner
 from src.recon.policy import PolicyService
 from src.recon.service import ReconService
 from src.recon.storage import EvidenceStore, ReconRepository
-from src.recon.urls import canonical_url, scoped_ip
+from src.recon.urls import canonical_url, known_transport_ip, scoped_ip
 from tests.integration.test_recon_browser_local_e2e import chromium_gate, forbidden_sink  # noqa: F401
 
 TLS = Path(__file__).parent / "fixtures" / "tls"
@@ -105,6 +105,24 @@ def test_operator_url_supports_domain_fragment_and_explicit_scheme(monkeypatch):
     assert canonical_url("https://EXAMPLE.com/#/") == "https://example.com:443/"
     assert scoped_ip(task.scope, "https://juice-shop.herokuapp.com/") == "192.0.2.10"
     assert scoped_ip(task.scope, "https://other.herokuapp.com/") is None
+
+
+@pytest.mark.parametrize(("url", "known_ip", "in_scope"), [
+    ("https://recon.test/", "192.0.2.10", True),
+    ("https://recon.test:8443/", "192.0.2.10", False),
+    ("http://192.0.2.10/", "192.0.2.10", False),
+    ("https://192.0.2.10/", "192.0.2.10", False),
+    ("https://other.test/", None, False),
+    ("https://recon.test:bad/", None, False),
+])
+def test_known_redirect_transport_is_independent_of_execution_scope(url, known_ip, in_scope):
+    task = scoped_task("https://recon.test/", "redirect-facts", pinned_ip="192.0.2.10")
+    if known_ip is None and url.endswith(":bad/"):
+        with pytest.raises(ValueError):
+            known_transport_ip(task.scope, url)
+        return
+    assert known_transport_ip(task.scope, url) == known_ip
+    assert (scoped_ip(task.scope, url) is not None) == in_scope
 
 
 @pytest.mark.parametrize("url", ["http://127.1/", "http://2130706433/", "http://0x7f000001/",

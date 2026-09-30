@@ -80,3 +80,14 @@ def test_subprocess_output_is_bounded_and_timeout_keeps_partial_evidence(monkeyp
     result = NmapAdapter().execute(req(Capability.NMAP_SCAN, NmapScanParams(ports=(21,))))
     assert result.status == "error"
     assert result.raw_output == b"partial"
+
+
+def test_whatweb_open_error_is_not_successful_evidence(monkeypatch):
+    def fake_run(command, **kwargs):
+        kwargs["stdout"].write(b"ERROR Opening: http://example.test/ - no address for example.test")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("src.recon.adapters.subprocess.run", fake_run)
+    result = WhatWebAdapter().execute(req(Capability.WHATWEB, WhatWebParams(port=80)))
+    assert result.status == "error"
+    assert result.technologies == ()

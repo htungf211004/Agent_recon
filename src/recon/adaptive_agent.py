@@ -6,14 +6,16 @@ from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from src.contracts.recon_planning import ReconPlanningDecision, ReconPlanningLimits
+from src.contracts.recon_planning import ReconPlanningContext, ReconPlanningDecision, ReconPlanningLimits
 from src.recon.adaptive_projection import project_action
+from src.recon.asset_verification import AssetVerifier
 from src.recon.baseline_promotion import BrowserBaselinePromotion
 from src.recon.models import Capability, ReconPlan
 from src.recon.planning_context import assemble_context
 from src.recon.planning_store import ReconPlanningStore
 from src.recon.policy import PolicyService
 from src.recon.proposal_validator import ReconProposalValidator
+from src.recon.rag.retriever import NoopKnowledgeRetriever
 
 
 class ReconGraphState(TypedDict):
@@ -23,10 +25,11 @@ class ReconGraphState(TypedDict):
 
 
 class AdaptiveReconAgent:
-    def __init__(self, engine, planner, limits: ReconPlanningLimits | None = None):
+    def __init__(self, engine, planner, limits: ReconPlanningLimits | None = None, retriever=None):
         self.engine, self.planner = engine, planner
         self.repository, self.service = engine.repository, engine.service
         self.limits = limits or ReconPlanningLimits()
+        self.retriever = retriever or NoopKnowledgeRetriever()
         self.store = ReconPlanningStore(self.repository)
         self.validator = ReconProposalValidator(self.repository, self.service, self.limits)
         graph = StateGraph(ReconGraphState)
@@ -35,12 +38,13 @@ class AdaptiveReconAgent:
             graph.add_node(name, self._stage(name))
         graph.add_node("static_discovery", self._static)
         graph.add_node("refresh_inventory", lambda state: self._bootstrap_refresh(state))
+        graph.add_node("verify_assets", self._verify_assets)
         graph.add_node("llm_plan", self._plan)
         graph.add_node("validate_proposals", self._validate)
         graph.add_node("execute_recon_actions", self._execute)
         graph.add_node("refresh_adaptive_inventory", self._refresh)
         stages = [START, "load_task", "service_discovery", "web_service_discovery",
-                  "technology_fingerprinting", "static_discovery", "refresh_inventory", "llm_plan"]
+                  "technology_fingerprinting", "static_discovery", "refresh_inventory", "verify_assets", "llm_plan"]
         for before, after in zip(stages, stages[1:]):
             graph.add_edge(before, after)
         graph.add_conditional_edges("llm_plan", lambda s: "stop" if s["stop_reason"] else "validate",
@@ -48,14 +52,14 @@ class AdaptiveReconAgent:
         graph.add_edge("validate_proposals", "execute_recon_actions")
         graph.add_edge("execute_recon_actions", "refresh_adaptive_inventory")
         graph.add_conditional_edges("refresh_adaptive_inventory", lambda s: "stop" if s["stop_reason"] else "next",
-                                    {"stop": END, "next": "llm_plan"})
+                                    {"stop": END, "next": "verify_assets"})
         self.graph = graph.compile()  # SQLite owns durability; graph state only carries refs.
 
     def run(self, task_id):
         task = self.repository.get_task(task_id)
         if task is None:
             raise ValueError("unknown Recon task")
-        self.store.open_session(task, self.limits, self.planner.planner_id)
+        self.store.open_session(task, self.limits, self.planner.planner_id, self.retriever.implementation_id)
         self.graph.invoke({"task_id": task_id, "planning_round": 0, "stop_reason": None},
                           config={"recursion_limit": 32})
         from src.recon.completion import completion
@@ -86,6 +90,11 @@ class AdaptiveReconAgent:
 
     def _bootstrap_refresh(self, state):
         self.engine.refresh_inventory(state["task_id"])
+        return {}
+
+    def _verify_assets(self, state):
+        task = self.repository.get_task(state["task_id"])
+        AssetVerifier(self.repository, self.service).verify(task)
         return {}
 
     def _plan(self, state):
@@ -125,7 +134,7 @@ class AdaptiveReconAgent:
             self.store.stop(task.id, "request_limit")
             return {"stop_reason": "request_limit"}
         try:
-            context = assemble_context(task, self.repository, self.service, self.limits, number, used)
+            context = assemble_context(task, self.repository, self.service, self.limits, number, used, self.retriever)
         except ValueError:
             self.store.stop(task.id, "context_limit")
             return {"stop_reason": "context_limit"}
@@ -152,8 +161,10 @@ class AdaptiveReconAgent:
         row = self.store.get(state["task_id"], state["planning_round"])
         if row["state"] == "DECIDED":
             task = self.repository.get_task(state["task_id"])
+            context = ReconPlanningContext.model_validate_json(row["context"])
             plan, rejected = self.validator.validate(task, ReconPlanningDecision.model_validate_json(row["decision"]),
-                self.limits.max_total_llm_actions - self.store.actions_used(task.id))
+                self.limits.max_total_llm_actions - self.store.actions_used(task.id),
+                (ref.knowledge_id for ref in context.knowledge_refs))
             self.store.validate(task.id, row["number"], plan, rejected, self.limits)
         return {}
 
