@@ -18,14 +18,33 @@ def completion(agent, task_id, result):
     boundary = agent.repository.get_authorization(task_id)
     if boundary:
         pending_assets = agent.repository.pending_verification_assets(task_id)
+        origin_work = agent.repository.list_origin_work(task_id)
+        pending_origins = any(item.status in {"PENDING", "RUNNING"} for item in origin_work)
         checklist = project_checklist_v2(agent.repository.get_task(task_id), agent.repository, agent.service,
-                                         finalize=planning and static and not pending and not pending_assets)
+                                         finalize=planning and static and not pending and not pending_assets
+                                         and not pending_origins)
         checklist_terminal = all(item.status in {"COMPLETE", "BLOCKED", "UNSUPPORTED", "NOT_APPLICABLE", "MANUAL_REVIEW"}
                                  for item in checklist)
-        terminal = (bootstrap and static and not pending and not pending_assets and planning and checklist_terminal
+        terminal = (bootstrap and static and not pending and not pending_assets and not pending_origins
+                    and planning and checklist_terminal
                     and result.attack_surface_inventory is not None
                     and agent.repository.asset_inventory(task_id) is not None)
+        if not terminal:
+            coverage_outcome = None
+        elif (any(item.status == "LIMITED" for item in origin_work)
+              or any(source.status in {SourceStatus.LIMITED, SourceStatus.ERROR}
+                     for source in agent.repository.list_sources(task_id))
+              or result.coverage and any(not item.startswith("handoff:")
+                                         for item in result.coverage.limitations)):
+            coverage_outcome = "LIMITED"
+        elif any(item.status == "BLOCKED" or item.id == "PT_01-STT-11" and item.status == "UNSUPPORTED"
+                 for item in checklist):
+            coverage_outcome = "PARTIAL"
+        else:
+            coverage_outcome = "COMPLETE"
     else:
         terminal = bootstrap and static and not pending and planning and result.attack_surface_inventory is not None
+        coverage_outcome = None
     return {"terminal": terminal, "run_status": "COMPLETED" if terminal else "RUNNING",
-            "handoff_ready": any(e.status == "FUZZ_READY" for e in result.attack_surface_inventory.entries)}
+            "handoff_ready": any(e.status == "FUZZ_READY" for e in result.attack_surface_inventory.entries),
+            "coverage_outcome": coverage_outcome}

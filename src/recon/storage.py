@@ -24,6 +24,7 @@ from src.recon.models import (
     ReconTask,
     ToolResult,
 )
+from src.recon.origin_models import OriginReconWorkItem
 from src.recon.scope.deriver import ScopeDeriver
 from src.recon.scope.models import AuthorizationBoundary, DerivedBinding, DnsObservation
 from src.recon.urls import match_route_template
@@ -115,6 +116,8 @@ class ReconRepository:
 
     def save_binding(self, binding: DerivedBinding) -> ReconTask:
         boundary = self.get_authorization(binding.task_id)
+        source_asset = next((asset.id for asset in self.list_assets(binding.task_id)
+                             if asset.asset_type == "HOST" and asset.canonical_value == binding.host), None)
         if boundary is None or ScopeDeriver(boundary, self.list_dns_observations(binding.task_id)).classify_host(binding.host) != "IN_SCOPE":
             raise ValueError("derived host does not inherit root authorization")
         if not any(observation.host == binding.host and binding.address in observation.addresses
@@ -150,7 +153,33 @@ class ReconRepository:
             from src.recon.policy import PolicyService
             connection.execute("UPDATE recon_planning_sessions SET binding = ? WHERE task_id = ?",
                                (PolicyService.scope_fingerprint(task), task.id))
+            work = OriginReconWorkItem(task_id=task.id, host=binding.host, resolved_ip=binding.address,
+                                       scheme=binding.scheme, port=binding.port, derived_from_asset=source_asset,
+                                       scope_version=task.scope_version)
+            connection.execute("INSERT OR IGNORE INTO origin_recon_work VALUES (?, ?, ?, ?, ?, ?)",
+                               (task.id, binding.host, binding.scheme, binding.port, work.status, work.model_dump_json()))
         return task
+
+    def list_origin_work(self, task_id: str) -> tuple[OriginReconWorkItem, ...]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT payload FROM origin_recon_work WHERE task_id = ? ORDER BY host, scheme, port",
+                                      (task_id,)).fetchall()
+        return tuple(OriginReconWorkItem.model_validate_json(row[0]) for row in rows)
+
+    def ensure_origin_work(self, binding: DerivedBinding, scope_version: str) -> None:
+        source = next((asset.id for asset in self.list_assets(binding.task_id)
+                       if asset.asset_type == "HOST" and asset.canonical_value == binding.host), None)
+        item = OriginReconWorkItem(task_id=binding.task_id, host=binding.host, resolved_ip=binding.address,
+                                   scheme=binding.scheme, port=binding.port, derived_from_asset=source,
+                                   scope_version=scope_version)
+        with self._connect() as connection:
+            connection.execute("INSERT OR IGNORE INTO origin_recon_work VALUES (?, ?, ?, ?, ?, ?)",
+                               (item.task_id, item.host, item.scheme, item.port, item.status, item.model_dump_json()))
+
+    def save_origin_work(self, item: OriginReconWorkItem) -> None:
+        with self._connect() as connection:
+            connection.execute("UPDATE origin_recon_work SET status = ?, payload = ? WHERE task_id = ? AND host = ? AND scheme = ? AND port = ?",
+                               (item.status, item.model_dump_json(), item.task_id, item.host, item.scheme, item.port))
 
     def upsert_asset(self, asset: DiscoveredAsset) -> DiscoveredAsset:
         """Merge repeated observations without losing terminal verification or provenance."""

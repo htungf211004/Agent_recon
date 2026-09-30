@@ -146,11 +146,15 @@ root can inherit a hostname only after Gateway DNS evidence resolves it to that
 same IP. Checklist rows report attempted coverage separately from a finding;
 API manual review records require verified positive assets. The runner selects
 the deterministic planner when no provider key is configured (`--planner llm`
-requires a key). SQLite schema is v9. Run the commands below for current local
+requires a key). Derived hosts use the same recursive `EndpointDiscovery`
+pipeline as roots. Supported content discovery and browser checks run before
+optional model proposals. `coverage_outcome` distinguishes complete, partial
+and limited coverage from worker completion. SQLite schema is v10. Run the
+commands below for current local
 results. The [earlier bounded adaptive report](docs/recon-bounded-verification.md)
 is a historical record for its original revision.
-The current V2 suite passed **420 tests** in the project Linux image on
-2026-09-30; Ruff passed. See the current section of that report for details.
+`coverage_outcome=COMPLETE` covers supported, authorized checks; the checklist
+still marks external OSINT steps as `UNSUPPORTED` and active API tests for review.
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m ruff check --no-cache src tests scripts/check_recon_runtime.py
@@ -212,7 +216,7 @@ checklist STT 1–16, and a provider-neutral RAG boundary. LLM and RAG never gra
 scope. Active API security testing is manual/HITL. See
 [domain support](docs/recon-domain-support.md).
 
-Migration v9 adds root authorization, DNS observations, derived bindings and discovered assets. The runner exports ASI v1.0 and companion V2 audit artifacts. Worker completion is separate from `handoff_ready`; zero FUZZ_READY entries never justify a future FuzzTask.
+Migration v9 adds root authorization, DNS observations, derived bindings and discovered assets. Migration v10 adds durable derived-origin work items. The runner exports ASI v1.0 and companion V2 audit artifacts. Worker completion is separate from `coverage_outcome` and `handoff_ready`; zero FUZZ_READY entries never justify a future FuzzTask.
 
 See the [guide](docs/recon-bounded-adaptive.md), [examples](docs/recon-bounded-examples.json), [PT_01 source mapping](docs/recon-checklist-source-mapping.md), and [verification](docs/recon-bounded-verification.md).
 

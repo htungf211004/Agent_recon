@@ -4,4 +4,3 @@ ROOT_SEEDS = ("/", "/robots.txt", "/sitemap.xml", "/openapi.json", "/swagger.jso
               "/.well-known/security.txt", "/.well-known/openid-configuration",
               "/.well-known/jwks.json", "/.git/HEAD", "/graphql", "/service.wsdl")
 BACKUP_PROBE = "/backup.zip"
-DERIVED_HOST_SEEDS = ("/", "/robots.txt", "/sitemap.xml", "/openapi.json")

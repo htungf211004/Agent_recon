@@ -1,4 +1,4 @@
-"""Asset identity and v8 to v9 durable migration."""
+"""Asset identity and durable v8 to v10 migrations."""
 
 import sqlite3
 from datetime import UTC, datetime
@@ -51,6 +51,7 @@ def test_new_migration_preserves_v8_rows(tmp_path):
         connection.execute("INSERT INTO recon_results VALUES (?, ?)", ("old-task", '{"legacy": true}'))
     repository = ReconRepository(database)
     with repository._connect() as connection:
-        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 9
+        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 10
         assert connection.execute("SELECT payload FROM recon_tasks WHERE id = 'old-task'").fetchone()[0] == '{"legacy": true}'
         assert connection.execute("SELECT payload FROM recon_results WHERE task_id = 'old-task'").fetchone()[0] == '{"legacy": true}'
+        assert connection.execute("SELECT name FROM sqlite_master WHERE name = 'origin_recon_work'").fetchone()

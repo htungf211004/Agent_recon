@@ -40,15 +40,16 @@ class EndpointDiscovery:
         self.service = service
         self.limit_reason = "exhausted"
 
-    def run(self, task: ReconTask, origins=None):
+    def run(self, task: ReconTask, origins=None, *, max_origin_requests=20):
         self.verified_origins = None if origins is None else set(origins)
         self.repository.recover_expired_runs(task.id)
         previous = self.repository.get_coverage(task.id)
-        self.limit_reason = previous.stop_reason if previous else "exhausted"
+        self.limit_reason = previous.stop_reason if previous and origins is None else "exhausted"
         self._seed(task, origins)
         while True:
             sources = self.repository.list_sources(task.id)
-            pending = tuple(source for source in sources if source.status == SourceStatus.PENDING)
+            pending = tuple(source for source in sources if source.status == SourceStatus.PENDING
+                            and self._selected_origin(source.url))
             if not pending:
                 break
             resumed = tuple(source for source in pending if source.request_id is not None)
@@ -57,9 +58,12 @@ class EndpointDiscovery:
                 for source in resumed:
                     result = self.repository.get_tool_result(source.request_id)
                     if result is None:
-                        request = self.planner.fetch_plan(task, (source,)).actions[0].request
+                        request = self.planner.fetch_plan(task, (source,), self.repository.get_binding).actions[0].request
                         if request.id != source.request_id:
-                            raise RuntimeError("persisted source request identity mismatch")
+                            self.repository.save_source(source.model_copy(update={
+                                "status": SourceStatus.LIMITED, "message": "scope changed during source execution"}))
+                            self.limit_reason = "scope_changed"
+                            continue
                         self.service.gateway.execute(request)
                         result = self.repository.get_tool_result(source.request_id)
                     if result is None:
@@ -67,9 +71,10 @@ class EndpointDiscovery:
                         return self.service.snapshot(task.id)
                     self._process(task, source, result)
                 continue
-            rounds = self._round_count(task.id)
-            used = sum(source.request_id is not None for source in sources)
-            remaining = task.discovery_limits.max_requests - used
+            rounds = self._round_count(task.id, self.verified_origins)
+            used = sum(source.request_id is not None and self._selected_origin(source.url) for source in sources)
+            remaining = (task.discovery_limits.max_requests if origins is None else
+                         min(task.discovery_limits.max_requests, max_origin_requests * len(origins))) - used
             if rounds >= task.discovery_limits.max_rounds or remaining <= 0:
                 reason = "round_limit" if rounds >= task.discovery_limits.max_rounds else "request_limit"
                 self.limit_reason = reason
@@ -87,7 +92,7 @@ class EndpointDiscovery:
                     selected.append(source)
             if not selected:
                 continue
-            plan = self.planner.fetch_plan(task, tuple(selected))
+            plan = self.planner.fetch_plan(task, tuple(selected), self.repository.get_binding)
             by_url = {(source.url, source.method): source for source in selected}
             selected = []
             for action in plan.actions:
@@ -131,9 +136,7 @@ class EndpointDiscovery:
                     self._candidate(task, Candidate(url, relation="seed"), source, depth=0)
 
     def _candidate(self, task, candidate, source, depth):
-        candidate_parts = urlsplit(candidate.url)
-        if (getattr(self, "verified_origins", None) is not None
-                and request_url(candidate_parts.hostname, candidate_parts.scheme, candidate_parts.port, "/") not in self.verified_origins):
+        if not self._selected_origin(candidate.url):
             return
         observation_id = stable_id(task.id, candidate.method, candidate.url)
         path = urlsplit(candidate.url).path
@@ -270,10 +273,24 @@ class EndpointDiscovery:
                 status, message = SourceStatus.ERROR, f"parser/evidence error: {type(exc).__name__}"
         self.repository.save_source(source.model_copy(update={"status": status, "message": message}))
 
-    def _round_count(self, task_id):
-        return sum(any(action.request.capability == Capability.HTTP_FETCH
-                       and not action.request.id.startswith("browser-baseline-") for action in plan.actions)
-                   for plan in self.repository.list_plans(task_id))
+    def _selected_origin(self, url):
+        if getattr(self, "verified_origins", None) is None:
+            return True
+        parts = urlsplit(url)
+        return request_url(parts.hostname, parts.scheme, parts.port, "/") in self.verified_origins
+
+    def _round_count(self, task_id, origins=None):
+        source_requests = {source.request_id for source in self.repository.list_sources(task_id) if source.request_id}
+        batches = set()
+        for plan in self.repository.list_plans(task_id):
+            batch = frozenset(action.request.id for action in plan.actions
+                if action.request.id in source_requests and action.request.capability == Capability.HTTP_FETCH
+                and (origins is None or request_url(action.request.target_ip,
+                    action.request.parameters.scheme, action.request.parameters.port, "/",
+                    target_host=action.request.target_host) in origins))
+            if batch:
+                batches.add(batch)
+        return len(batches)
 
     def _coverage(self, task):
         sources = self.repository.list_sources(task.id)

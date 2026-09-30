@@ -11,6 +11,7 @@ from src.recon.planner import ReconPlanner
 from src.recon.urls import canonical_url, path_allowed, request_url, scoped_ip
 from src.recon.web_models import (
     DiscoveryKind,
+    DiscoverySource,
     EndpointLifecycle,
     EndpointObservation,
     EndpointProvenance,
@@ -76,6 +77,14 @@ def project_content(repository, service, request):
                                                    "lifecycle": EndpointLifecycle.OBSERVED})
             repository.save_endpoint(endpoint)
             repository.save_observation(observation.model_copy(update={"provenance": (provenance,)}), preserve_existing_response=True)
+            if boundary:
+                source = DiscoverySource(task_id=task.id, url=url, depth=1)
+                known = repository.list_sources(task.id)
+                if not any(item.id == source.id for item in known):
+                    if len(known) < task.discovery_limits.max_sources:
+                        repository.save_source(source)
+                    else:
+                        repository.add_limitation(task.id, "discovery:source_limit")
     except (ValueError, OSError, TypeError, KeyError):
         return
 

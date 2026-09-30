@@ -423,3 +423,4 @@ class ReconResult(StrictModel):
     attack_surface_inventory: AttackSurfaceInventory | None = None
     worker_status: Literal["RUNNING", "COMPLETED", "FAILED", "CANCELLED"] | None = None
     handoff_ready: bool = False
+    coverage_outcome: Literal["COMPLETE", "PARTIAL", "LIMITED"] | None = None

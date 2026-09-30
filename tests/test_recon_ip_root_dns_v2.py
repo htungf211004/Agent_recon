@@ -11,6 +11,7 @@ from src.recon.asset_extraction import record_candidate
 from src.recon.asset_verification import AssetVerifier
 from src.recon.gateway import AdapterOutput, CapabilityRegistry, ToolExecutionGateway
 from src.recon.models import Capability, HttpFetchParams, ReconPlan
+from src.recon.origin_recon import OriginReconCoordinator
 from src.recon.planner import ReconPlanner
 from src.recon.policy import PolicyService
 from src.recon.scope.admission import admit_target
@@ -53,6 +54,7 @@ def test_ip_leaked_hostname_requires_matching_dns(tmp_path, answer, expected_dis
     record_candidate(repository, task, boundary, "http://127.0.0.1:80/", evidence,
                      "https://api.example.test:443/v1", AssetRelation.HTML_REFERENCE)
     AssetVerifier(repository, service).verify(task)
+    OriginReconCoordinator(repository, service).run(repository.get_task(task.id))
     assets = repository.list_assets(task.id)
     target = next(asset for asset in assets if asset.canonical_value.endswith("/v1"))
     assert (target.scope_status == AssetScopeStatus.IN_SCOPE) == expected_dispatch
@@ -67,4 +69,5 @@ def test_ip_leaked_hostname_requires_matching_dns(tmp_path, answer, expected_dis
             [(asset.canonical_value, asset.verification_status) for asset in assets if "api.example" in asset.canonical_value])
     before = list(calls)
     AssetVerifier(repository, service).verify(repository.get_task(task.id))
+    OriginReconCoordinator(repository, service).run(repository.get_task(task.id))
     assert calls == before

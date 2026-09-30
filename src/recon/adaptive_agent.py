@@ -10,7 +10,9 @@ from src.contracts.recon_planning import ReconPlanningContext, ReconPlanningDeci
 from src.recon.adaptive_projection import project_action
 from src.recon.asset_verification import AssetVerifier
 from src.recon.baseline_promotion import BrowserBaselinePromotion
+from src.recon.deterministic_coverage import DeterministicCoverageExecutor
 from src.recon.models import Capability, ReconPlan
+from src.recon.origin_recon import OriginReconCoordinator
 from src.recon.planning_context import assemble_context
 from src.recon.planning_store import ReconPlanningStore
 from src.recon.policy import PolicyService
@@ -39,12 +41,15 @@ class AdaptiveReconAgent:
         graph.add_node("static_discovery", self._static)
         graph.add_node("refresh_inventory", lambda state: self._bootstrap_refresh(state))
         graph.add_node("verify_assets", self._verify_assets)
+        graph.add_node("recon_derived_origins", self._derived_origins)
+        graph.add_node("mandatory_coverage", self._mandatory_coverage)
         graph.add_node("llm_plan", self._plan)
         graph.add_node("validate_proposals", self._validate)
         graph.add_node("execute_recon_actions", self._execute)
         graph.add_node("refresh_adaptive_inventory", self._refresh)
         stages = [START, "load_task", "service_discovery", "web_service_discovery",
-                  "technology_fingerprinting", "static_discovery", "refresh_inventory", "verify_assets", "llm_plan"]
+                  "technology_fingerprinting", "static_discovery", "refresh_inventory", "verify_assets",
+                  "recon_derived_origins", "mandatory_coverage", "llm_plan"]
         for before, after in zip(stages, stages[1:]):
             graph.add_edge(before, after)
         graph.add_conditional_edges("llm_plan", lambda s: "stop" if s["stop_reason"] else "validate",
@@ -61,7 +66,7 @@ class AdaptiveReconAgent:
             raise ValueError("unknown Recon task")
         self.store.open_session(task, self.limits, self.planner.planner_id, self.retriever.implementation_id)
         self.graph.invoke({"task_id": task_id, "planning_round": 0, "stop_reason": None},
-                          config={"recursion_limit": 32})
+                          config={"recursion_limit": 48})
         from src.recon.completion import completion
         result = self.service.snapshot(task_id)
         state = completion(self, task_id, result)
@@ -70,7 +75,9 @@ class AdaptiveReconAgent:
                 (*result.coverage.limitations, "handoff:no_fuzz_ready"))))})
             self.repository.save_coverage(coverage)
             result = result.model_copy(update={"coverage": coverage})
-        result = result.model_copy(update={"worker_status": state["run_status"], "handoff_ready": state["handoff_ready"]})
+        result = result.model_copy(update={"worker_status": state["run_status"],
+                                           "handoff_ready": state["handoff_ready"],
+                                           "coverage_outcome": state["coverage_outcome"]})
         self.repository.save_recon_result(result)
         return result
 
@@ -95,6 +102,17 @@ class AdaptiveReconAgent:
     def _verify_assets(self, state):
         task = self.repository.get_task(state["task_id"])
         AssetVerifier(self.repository, self.service).verify(task)
+        return {}
+
+    def _derived_origins(self, state):
+        task = self.repository.get_task(state["task_id"])
+        if self.repository.get_authorization(task.id):
+            OriginReconCoordinator(self.repository, self.service, self.engine.planner).run(task)
+        return {}
+
+    def _mandatory_coverage(self, state):
+        task = self.repository.get_task(state["task_id"])
+        DeterministicCoverageExecutor(self.engine).run(task)
         return {}
 
     def _plan(self, state):

@@ -231,6 +231,14 @@ def _recon_assets_v2(connection):
     )""")
 
 
+def _origin_recon_work(connection):
+    connection.execute("""CREATE TABLE IF NOT EXISTS origin_recon_work (
+        task_id TEXT NOT NULL, host TEXT NOT NULL, scheme TEXT NOT NULL, port INTEGER NOT NULL,
+        status TEXT NOT NULL, payload TEXT NOT NULL,
+        PRIMARY KEY(task_id, host, scheme, port)
+    )""")
+
+
 MIGRATIONS = (
     (1, "adopt_day1_day2_schema", _legacy_schema),
     (2, "route_observations", _route_observations),
@@ -241,6 +249,7 @@ MIGRATIONS = (
     (7, "bounded_adaptive_planning", _adaptive_planning),
     (8, "adaptive_stages_and_bounded_content_budget", _adaptive_stages),
     (9, "recon_discovered_assets_v2", _recon_assets_v2),
+    (10, "bounded_origin_recon_work", _origin_recon_work),
 )
 
 

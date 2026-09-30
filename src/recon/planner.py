@@ -26,11 +26,14 @@ def scheme_for_port(port: int) -> str:
 
 
 class ReconPlanner:
-    def fetch_plan(self, task: ReconTask, sources: tuple[DiscoverySource, ...]) -> ReconPlan:
+    def fetch_plan(self, task: ReconTask, sources: tuple[DiscoverySource, ...], binding_lookup=None) -> ReconPlan:
         actions = []
         for source in sorted(sources, key=lambda item: (item.depth, item.url, item.method)):
             url = urlsplit(source.url)
             target = scoped_ip(task.scope, source.url)
+            if target is None and binding_lookup is not None:
+                binding = binding_lookup(task.id, url.hostname, url.scheme, url.port)
+                target = binding.address if binding else None
             if target is None:
                 # Keep literal-IP off-scope sources flowing through Policy for audit.
                 target = url.hostname
@@ -38,7 +41,7 @@ class ReconPlanner:
                 port=url.port, scheme=url.scheme, path=url.path, query=url.query, method=source.method,
                 timeout_seconds=min(5.0, task.execution_budget.max_timeout_seconds),
                 max_body_bytes=task.execution_budget.max_body_bytes,
-            ), target_host=url.hostname if task.scope.web_origin else None))
+            ), target_host=url.hostname if target != url.hostname or task.scope.web_origin else None))
         return ReconPlan(task_id=task.id, actions=tuple(actions))
 
     def initial_plan(self, task: ReconTask) -> ReconPlan:

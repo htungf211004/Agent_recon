@@ -17,12 +17,10 @@ from src.recon.models import (
     CapabilityRequest,
     DnsResolveParams,
     HttpFetchParams,
-    HttpProbeParams,
     ReconPlan,
-    WhatWebParams,
 )
 from src.recon.planner import ReconPlanner, scheme_for_port
-from src.recon.profile import BACKUP_PROBE, DERIVED_HOST_SEEDS
+from src.recon.profile import BACKUP_PROBE
 from src.recon.scope.deriver import ScopeDeriver
 from src.recon.scope.models import DerivedBinding, DnsObservation
 from src.recon.urls import request_url
@@ -63,7 +61,6 @@ class AssetVerifier:
                     if not self.repository.get_binding(task.id, parts.hostname, parts.scheme, parts.port):
                         self._derive_host(task, boundary, parts.hostname, parts.scheme, parts.port)
                         task = self.repository.get_task(task.id)
-        self._bootstrap_hosts(task, boundary)
         task = self.repository.get_task(task.id)
         origin = task.scope.web_origin
         port = origin.port if origin else task.scope.allowed_ports[0]
@@ -253,45 +250,3 @@ class AssetVerifier:
             return binding
         except (ValueError, OSError, TypeError, KeyError):
             return None
-
-    def _bootstrap_hosts(self, task, boundary):
-        for binding in self.repository.list_bindings(task.id)[:boundary.max_new_origins]:
-            if binding.host == boundary.root.value:
-                continue
-            if Capability.HTTP_PROBE not in task.scope.capabilities:
-                continue
-            probe = ReconPlanner._action(task, binding.address, Capability.HTTP_PROBE,
-                                         HttpProbeParams(port=binding.port, scheme=binding.scheme),
-                                         target_host=binding.host)
-            if self.service.gateway.policy.decide(probe.request).allowed:
-                try:
-                    self.service.run(ReconPlan(task_id=task.id, actions=(probe,)))
-                except RuntimeError:
-                    continue
-            result = self.repository.get_tool_result(probe.request.id)
-            if not result or result.status != "success" or not result.evidence_id or not result.attack_surface:
-                continue
-            try:
-                self.service.gateway.evidence.read(result.evidence_id)
-            except (ValueError, OSError):
-                continue
-            if Capability.WHATWEB in task.scope.capabilities:
-                action = ReconPlanner._action(task, binding.address, Capability.WHATWEB,
-                                              WhatWebParams(port=binding.port, scheme=binding.scheme),
-                                              target_host=binding.host)
-                if self.service.gateway.policy.decide(action.request).allowed:
-                    try:
-                        self.service.run(ReconPlan(task_id=task.id, actions=(action,)))
-                    except RuntimeError:
-                        pass
-            base = request_url(binding.address, binding.scheme, binding.port, "/", target_host=binding.host)
-            for path in DERIVED_HOST_SEEDS:
-                if len(self.repository.list_assets(task.id)) >= boundary.max_discovered_assets:
-                    break
-                self.repository.upsert_asset(DiscoveredAsset(
-                    run_id=task.run_id, task_id=task.id, root_target=boundary.root.value,
-                    asset_type=AssetType.PATH, canonical_value=base.rstrip("/") + path,
-                    relation=AssetRelation.SAME_ORIGIN, discovered_from="default-profile",
-                    discovery_evidence_refs=(result.evidence_id,), scope_status=AssetScopeStatus.IN_SCOPE,
-                    verification_status=AssetVerificationStatus.CLASSIFIED,
-                ))

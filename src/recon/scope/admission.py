@@ -63,7 +63,7 @@ def admit_target(value: str, task_id: str, *, resolver: Callable[[str, int], tup
                     allowed_paths=("/",), web_origin=origin, multi_origin=root.kind == "DOMAIN"),
         discovery_seeds=ROOT_SEEDS,
         expires_at=datetime.now(UTC) + timedelta(minutes=30),
-        discovery_limits=DiscoveryLimits(max_rounds=4, max_requests=64, max_sources=64, max_endpoints=128, max_depth=2),
+        discovery_limits=DiscoveryLimits(max_rounds=6, max_requests=64, max_sources=256, max_endpoints=512, max_depth=2),
         execution_budget=ExecutionBudget(max_requests=128, max_body_bytes=65536, max_timeout_seconds=60),
     )
     return task, boundary

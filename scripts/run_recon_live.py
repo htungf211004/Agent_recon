@@ -49,7 +49,9 @@ def scoped_task(url: str, task_id: str, *, path_prefix: str | None = None, brows
 def export_run(agent, task_id, directory):
     result = agent.service.snapshot(task_id)
     state = completion(agent, task_id, result)
-    result = result.model_copy(update={"worker_status": state["run_status"], "handoff_ready": state["handoff_ready"]})
+    result = result.model_copy(update={"worker_status": state["run_status"],
+                                       "handoff_ready": state["handoff_ready"],
+                                       "coverage_outcome": state["coverage_outcome"]})
     (directory / "result.json").write_text(result.model_dump_json(indent=2), encoding="utf-8")
     (directory / "inventory.json").write_text(result.attack_surface_inventory.model_dump_json(indent=2), encoding="utf-8")
     boundary = agent.repository.get_authorization(task_id)

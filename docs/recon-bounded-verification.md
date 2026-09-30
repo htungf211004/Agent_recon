@@ -3,22 +3,34 @@
 > Historical verification record for the earlier bounded adaptive revision.
 > It is retained for traceability; its test counts, schema v8 statement and
 > publication status do not describe the current V2 tree. The current schema is
-> v9 (`recon_discovered_assets_v2`). For current behavior, see
+> v10 (`bounded_origin_recon_work`). For current behavior, see
 > [Recon V2](recon-domain-support.md) and the current `README.md`.
 
-## Current V2 verification (2026-09-30)
+## Current V2 verification (2026-10-01)
 
-The current branch has SQLite schema v9 and a deterministic planner path that
+The current branch has SQLite schema v10 and a deterministic planner path that
 does not require provider credentials. The default bare-domain profile probes
 HTTP/80, HTTPS/443, HTTP/8080 and HTTPS/8443 through its frozen IP pin. IP-root
 hostname inheritance requires a matching persisted Gateway DNS observation;
 an address mismatch keeps the hostname out of scope and sends no HTTP request.
-Derived hosts receive a bounded probe, fingerprint attempt and static seed checks.
+Derived hosts receive a bounded probe and fingerprint attempt, then use the
+same recursive `EndpointDiscovery` source parser as root origins. A durable
+origin work item records progress for restart. Supported content discovery and
+browser actions run before optional model planning. `coverage_outcome` records
+COMPLETE, PARTIAL or LIMITED separately from worker status.
+Content-discovered candidates re-enter the durable source parser for bounded
+follow-up links.
+COMPLETE applies to supported authorized checks; external OSINT remains
+UNSUPPORTED and active API testing remains a manual handoff.
+PARTIAL means a supported checklist check remains blocked. LIMITED means a
+source, budget, origin, or runtime limitation was recorded. `worker_status`
+continues to describe whether the worker has pending executable work.
 Checklist V2 reports coverage status and finding outcome separately. API handoff
 requires a positively verified in-scope asset.
 
-The complete test suite on the project Linux image passed: **420 passed**.
-Focused Windows V2 tests and Ruff also passed. One Windows-only TLS fixture test
+The hardening suite on the project Linux image passed **423 tests**. The final
+derived HTML/JS/content recursion acceptance also passed in a focused rerun;
+Ruff and `git diff --check` passed. One Windows-only TLS fixture test
 fails certificate trust validation in that host environment; the same test passes
 in the Linux image. No public target or provider was used for these checks.
 

@@ -20,7 +20,9 @@ flowchart TD
   technology_fingerprinting --> static_discovery
   static_discovery --> refresh_inventory
   refresh_inventory --> verify_assets
-  verify_assets --> llm_plan
+  verify_assets --> recon_derived_origins
+  recon_derived_origins --> mandatory_coverage
+  mandatory_coverage --> llm_plan
   llm_plan --> validate_proposals
   validate_proposals --> execute_recon_actions
   execute_recon_actions --> PolicyService
@@ -38,7 +40,12 @@ round and stop reason. SQLite owns frozen stage plans, claims, contexts, decisio
 validated plans, ToolRuns and evidence.
 Knowledge retrieval runs inside `assemble_context` when `llm_plan` prepares a
 decision; it is not a separate graph node. The deterministic planner can stop
-after the bounded evidence pipeline without provider credentials.
+after the bounded evidence pipeline without provider credentials. Derived
+origins pass through the same `EndpointDiscovery` parser and source queue as
+root origins. `mandatory_coverage` runs supported bounded content discovery and
+browser exploration before optional model proposals. Content-discovered URLs
+re-enter `EndpointDiscovery` as durable sources, so their verified bodies can
+yield further bounded candidates.
 
 `ReconAgent` exposes `run_service_discovery`, `run_web_service_discovery`,
 `run_technology_fingerprinting`, `run_static_discovery(origins=...)`,
