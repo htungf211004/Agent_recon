@@ -1,0 +1,21 @@
+{
+  "catalogVersion": "2026.10.01",
+  "dateReleased": "2026-10-01T00:00:00Z",
+  "count": 1,
+  "vulnerabilities": [
+    {
+      "cveID": "CVE-2024-12345",
+      "vendorProject": "Example",
+      "product": "Product",
+      "vulnerabilityName": "Example catalog entry",
+      "dateAdded": "2026-10-01",
+      "shortDescription": "Reference description",
+      "requiredAction": "Apply vendor updates",
+      "dueDate": "2026-10-31",
+      "knownRansomwareCampaignUse": "Unknown",
+      "cwes": [
+        "CWE-79"
+      ]
+    }
+  ]
+}

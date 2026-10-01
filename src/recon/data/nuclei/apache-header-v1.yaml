@@ -1,0 +1,16 @@
+id: recon-apache-header-v1
+info:
+  name: Recon Apache header indicator
+  author: agent-recon
+  severity: info
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+    redirects: false
+    matchers:
+      - type: word
+        part: header
+        case-insensitive: true
+        words:
+          - "apache"

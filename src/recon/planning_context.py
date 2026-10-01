@@ -112,7 +112,8 @@ def assemble_context(task, repository, service, limits, round_number, actions_us
         checklist=tuple(item.model_copy(update={"reason": item.reason[:48]}) for item in
                         project_checklist_v3(task, repository, service)) if repository.get_authorization(task.id)
                   else project_checklist(task, repository, service),
-        trusted_wordlists=tuple(sorted(TRUSTED)) if Capability.CONTENT_DISCOVERY in available else (),
+        trusted_wordlists=tuple(sorted(key for key, (category, _) in TRUSTED.items()
+                                      if category not in {"vhost", "parameter"})) if Capability.CONTENT_DISCOVERY in available else (),
         coverage=PlanningCoverage(routes=len(entries), observations=len(result.observations),
             fuzz_ready=sum(entry.status == "FUZZ_READY" for entry in entries),
             limitations=tuple(item[:160] for item in result.coverage.limitations[:16]) if result.coverage else (),
@@ -134,12 +135,16 @@ def assemble_context(task, repository, service, limits, round_number, actions_us
         context_truncated=len(entries) > 64 or len(previous) > 64,
     )
     retriever = retriever or NoopKnowledgeRetriever()
+    if hasattr(retriever, "bind_run"):
+        retriever.bind_run(repository, task.run_id)
     query = build_query(context, repository.list_assets(task.id))
     chunks = tuple(retriever.retrieve(query, limit=4))[:4]
     context = context.model_copy(update={
         "knowledge_query": query,
         "knowledge_refs": tuple(KnowledgeReference(knowledge_id=chunk.knowledge_id, source_id=chunk.source_id,
-                                                     content_hash=chunk.content_hash, namespace=chunk.namespace)
+                                                     content_hash=chunk.content_hash, namespace=chunk.namespace,
+                                                     source_version=chunk.version, source_commit=chunk.source_commit,
+                                                     source_snapshot_id=chunk.source_snapshot_id)
                                 for chunk in chunks),
         "knowledge_excerpts": tuple(chunk.excerpt for chunk in chunks),
         "retriever_id": retriever.implementation_id,

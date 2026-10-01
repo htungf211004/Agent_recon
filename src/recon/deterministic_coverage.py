@@ -11,7 +11,11 @@ from src.recon.models import (
     Capability,
     ContentDiscoveryParams,
     ExposureDiscoveryParams,
+    ParameterDiscoveryParams,
     ReconPlan,
+    TechnologyScanParams,
+    VhostDiscoveryParams,
+    WebCrawlParams,
 )
 from src.recon.origin_recon import OriginReconCoordinator
 from src.recon.planner import ReconPlanner
@@ -38,6 +42,8 @@ class DeterministicCoverageExecutor:
                 break
             visited.add(origin[0])
             _, target_ip, host, scheme, port = origin
+            for capability in (Capability.WEB_CRAWL, Capability.VHOST_DISCOVERY, Capability.TECHNOLOGY_SCAN):
+                self._run_web_tool(task, target_ip, host, scheme, port, capability)
             self._run_content(task, target_ip, host, scheme, port)
             self._run_content(task, target_ip, host, scheme, port, wordlist="api-common-small-v1")
             for profile in ("backup-small-v2", "scm-small-v1"):
@@ -45,6 +51,7 @@ class DeterministicCoverageExecutor:
                                   capability=Capability.EXPOSURE_DISCOVERY, wordlist=profile)
             EndpointDiscovery(self.repository, self.engine.planner, self.service).run(
                 task, origins=(origin[0],), max_origin_requests=24)
+            self._run_web_tool(task, target_ip, host, scheme, port, Capability.PARAMETER_DISCOVERY)
             self._run_browser(task, target_ip, host, scheme, port)
             BrowserBaselinePromotion(self.repository, self.engine.planner, self.service).run(task)
             baseline_content(self.repository, self.service, self.repository.get_task(task.id))
@@ -155,3 +162,41 @@ class DeterministicCoverageExecutor:
                                       BrowserExploreParams(port=port, scheme=scheme, path="/", limits=limits),
                                       target_host=host)
         self._execute(task, action)
+
+    def _run_web_tool(self, task, target_ip, host, scheme, port, capability):
+        if capability not in task.scope.capabilities or self.service.gateway.registry.get(capability) is None:
+            return
+        prior = self._prior(task.id, capability, target_ip, host, scheme, port)
+        if prior:
+            self._project_prior(task, prior)
+            return
+        options = dict(port=port, scheme=scheme, timeout_seconds=max(1, int(min(20, task.execution_budget.max_timeout_seconds))),
+                       max_body_bytes=min(65536, task.execution_budget.max_body_bytes))
+        if capability == Capability.WEB_CRAWL:
+            params = WebCrawlParams(**options)
+        elif capability == Capability.VHOST_DISCOVERY:
+            boundary = self.repository.get_authorization(task.id)
+            if boundary.root.kind != "DOMAIN" or not boundary.root.include_subdomains:
+                return
+            params = VhostDiscoveryParams(**options, root_domain=boundary.root.value, max_requests=8)
+        elif capability == Capability.TECHNOLOGY_SCAN:
+            params = TechnologyScanParams(**options)
+        else:
+            from src.recon.models import parse_target_request
+
+            params = None
+            for run in self.repository.list_tool_runs(task.id):
+                source = parse_target_request(run.request_payload) if run.request_payload else None
+                result = self.repository.get_tool_result(run.request_id)
+                if (source and source.capability == Capability.HTTP_FETCH and source.parameters.method == "GET"
+                        and not source.parameters.query and result and result.status == "success"
+                        and result.evidence_id and result.http_response and not result.http_response.truncated
+                        and 200 <= result.http_response.status_code < 300
+                        and (source.target_ip, source.target_host, source.parameters.scheme, source.parameters.port) ==
+                            (target_ip, host, scheme, port)):
+                    params = ParameterDiscoveryParams(**options, path=source.parameters.path,
+                                                      baseline_evidence_ref=result.evidence_id, max_requests=32)
+                    break
+            if params is None:
+                return
+        self._execute(task, ReconPlanner._action(task, target_ip, capability, params, target_host=host))

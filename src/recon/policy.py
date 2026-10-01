@@ -10,6 +10,7 @@ from typing import Protocol
 
 from src.contracts.execution import CURRENT_RECON_POLICY_VERSION, action_fingerprint
 from src.recon.models import (
+    BoundedWebToolParams,
     BrowserExploreParams,
     BrowserRequestParams,
     Capability,
@@ -20,10 +21,12 @@ from src.recon.models import (
     GraphqlIntrospectionParams,
     HttpFetchParams,
     LocalOsintCapabilityRequest,
+    ParameterDiscoveryParams,
     PolicyDecision,
     ProviderCapabilityRequest,
     ReconExecutionRequest,
     ReconTask,
+    VhostDiscoveryParams,
 )
 from src.recon.scope.deriver import ScopeDeriver
 from src.recon.urls import path_allowed
@@ -206,14 +209,18 @@ class PolicyService:
                            and request.capability in {Capability.HTTP_FETCH, Capability.HTTP_PROBE, Capability.WHATWEB,
                                                       Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST,
                                                       Capability.CONTENT_DISCOVERY, Capability.EXPOSURE_DISCOVERY,
-                                                      Capability.GRAPHQL_DISCOVERY, Capability.GRAPHQL_INTROSPECTION})
+                                                      Capability.GRAPHQL_DISCOVERY, Capability.GRAPHQL_INTROSPECTION,
+                                                      Capability.WEB_CRAWL, Capability.VHOST_DISCOVERY,
+                                                      Capability.PARAMETER_DISCOVERY, Capability.TECHNOLOGY_SCAN})
         if request.target_ip not in task.scope.allowed_ips and not derived_allowed:
             return "target not allowed"
         if origin and not derived_allowed:
             if request.capability not in {Capability.HTTP_FETCH, Capability.HTTP_PROBE, Capability.WHATWEB,
                                           Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST,
                                           Capability.CONTENT_DISCOVERY, Capability.EXPOSURE_DISCOVERY,
-                                          Capability.GRAPHQL_DISCOVERY, Capability.GRAPHQL_INTROSPECTION}:
+                                          Capability.GRAPHQL_DISCOVERY, Capability.GRAPHQL_INTROSPECTION,
+                                          Capability.WEB_CRAWL, Capability.VHOST_DISCOVERY,
+                                          Capability.PARAMETER_DISCOVERY, Capability.TECHNOLOGY_SCAN}:
                 return "capability has no pinned-origin transport"
             root_transport = (request.target_ip == origin.pinned_ip and request.target_host == origin.host
                               and (params.scheme, params.port) == (origin.scheme, origin.port))
@@ -226,7 +233,56 @@ class PolicyService:
                 return "web origin binding does not match trusted scope"
         elif request.target_host is not None and not derived_allowed:
             return "hostname has no trusted origin binding"
-        if isinstance(params, BrowserExploreParams):
+        if isinstance(params, BoundedWebToolParams):
+            timeout = params.timeout_seconds
+            if task.execution_budget.max_requests_per_second < 2:
+                return "web tool rate exceeds task budget"
+            if params.max_body_bytes > task.execution_budget.max_body_bytes:
+                return "body size exceeds task budget"
+            if not path_allowed(params.path, task.scope.allowed_paths):
+                return "path not allowed"
+            method = "HEAD" if isinstance(params, VhostDiscoveryParams) else "GET"
+            if method not in task.scope.allowed_methods:
+                return "method not allowed"
+            if isinstance(params, VhostDiscoveryParams):
+                boundary = self.tasks.get_authorization(task.id)
+                if (boundary is None or boundary.root.kind != "DOMAIN" or not boundary.root.include_subdomains
+                        or params.root_domain != boundary.root.value):
+                    return "vhost discovery requires a domain root with subdomains authorized"
+            if isinstance(params, ParameterDiscoveryParams):
+                artifact = self.tasks.get_evidence(params.baseline_evidence_ref)
+                result = self.tasks.get_tool_result(artifact.request_id) if artifact else None
+                run = self.tasks.get_tool_run(artifact.request_id) if artifact else None
+                from src.recon.models import parse_target_request
+
+                source = parse_target_request(run.request_payload) if run and run.request_payload else None
+                if (artifact is None or artifact.task_id != task.id or result is None or result.status != "success"
+                        or result.evidence_id != artifact.id or result.http_response is None
+                        or not 200 <= result.http_response.status_code < 300 or result.http_response.truncated
+                        or source is None or source.capability != Capability.HTTP_FETCH
+                        or source.parameters.method != "GET" or source.parameters.query
+                        or (source.target_ip, source.target_host, source.parameters.scheme,
+                            source.parameters.port, source.parameters.path) !=
+                           (request.target_ip, request.target_host, params.scheme, params.port, params.path)):
+                    return "parameter discovery requires a verified GET baseline at the same endpoint"
+            else:
+                from src.recon.models import parse_target_request
+
+                origin_verified = False
+                for run in self.tasks.list_tool_runs(task.id):
+                    source = parse_target_request(run.request_payload) if run.request_payload else None
+                    if source is None or source.capability != Capability.HTTP_PROBE:
+                        continue
+                    result = self.tasks.get_tool_result(source.id)
+                    if (result and result.status == "success" and result.evidence_id and result.attack_surface
+                            and self.tasks.get_evidence(result.evidence_id)
+                            and (source.target_ip, source.target_host, source.parameters.scheme, source.parameters.port) ==
+                                (request.target_ip, request.target_host, params.scheme, params.port)):
+                        origin_verified = True
+                        break
+                if not origin_verified:
+                    return "web tool requires a verified HTTP origin"
+        elif isinstance(params, BrowserExploreParams):
             timeout = params.limits.max_runtime_seconds
         elif isinstance(params, (HttpFetchParams, BrowserRequestParams, GraphqlDiscoveryParams,
                                  GraphqlIntrospectionParams)):

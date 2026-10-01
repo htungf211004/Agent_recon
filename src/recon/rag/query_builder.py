@@ -15,6 +15,7 @@ def _fact(value: str) -> str:
 
 def build_query(context, assets=()) -> ReconKnowledgeQuery:
     return ReconKnowledgeQuery(
+        available_capabilities=tuple(context.capabilities)[:32],
         checklist_gaps=tuple(item.id for item in context.checklist if item.status != "COMPLETE")[:16],
         asset_types=tuple(sorted({asset.asset_type.value for asset in assets}))[:16],
         verified_technologies=tuple(_fact(item.technology) for item in context.technologies[:16]),

@@ -250,6 +250,17 @@ class ToolExecutionGateway:
                                 or parsed.username or parsed.password):
                             raise ValueError("local OSINT URL is not normalized")
                         host = parsed.hostname
+                    elif request.capability == Capability.PASSIVE_INFRA_ENUM and observation.kind == "IP":
+                        import ipaddress
+
+                        address = ipaddress.ip_address(observation.value)
+                        if address.is_unspecified or address.is_multicast or str(address) != observation.value:
+                            raise ValueError("local OSINT IP is not normalized")
+                        continue
+                    elif (request.capability == Capability.PASSIVE_INFRA_ENUM and observation.kind == "METADATA"
+                          and observation.value.startswith("asn:") and observation.value[4:].isdigit()
+                          and 0 < int(observation.value[4:]) <= 4294967295):
+                        continue
                     else:
                         raise ValueError("local OSINT observation kind is not allowed")
                     if host is None or (host != request.root_domain and

@@ -1,0 +1,6 @@
+{
+  "name": "example-package",
+  "ecosystem": "npm",
+  "version": "1.0",
+  "evidence_ref": "package-lock-evidence"
+}

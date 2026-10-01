@@ -58,6 +58,31 @@ class ReconRepository:
             row = connection.execute("SELECT payload FROM recon_tasks WHERE id = ?", (task_id,)).fetchone()
         return ReconTask.model_validate_json(row[0]) if row else None
 
+    def pin_kb_snapshot(self, run_id, manifest):
+        """Historical dataset references are immutable and never update Evidence or scope."""
+        from src.contracts.recon_kb import IngestionStatus, SourceManifest
+
+        manifest = SourceManifest.model_validate(manifest)
+        if manifest.status != IngestionStatus.PROMOTED or not run_id:
+            raise ValueError("run binding requires promoted dataset")
+        payload = manifest.model_dump_json()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute("SELECT payload FROM recon_kb_bindings WHERE run_id = ? AND source_id = ?",
+                                          (run_id, manifest.source_id)).fetchone()
+            if existing and existing[0] != payload:
+                raise ValueError("run dataset binding is immutable")
+            connection.execute("INSERT OR IGNORE INTO recon_kb_bindings VALUES (?, ?, ?, ?)",
+                               (run_id, manifest.source_id, manifest.snapshot_id, payload))
+
+    def kb_snapshots(self, run_id):
+        from src.contracts.recon_kb import SourceManifest
+
+        with self._connect() as connection:
+            rows = connection.execute("SELECT payload FROM recon_kb_bindings WHERE run_id = ? ORDER BY source_id",
+                                      (run_id,)).fetchall()
+        return tuple(SourceManifest.model_validate_json(row[0]) for row in rows)
+
     def save_authorization(self, boundary: AuthorizationBoundary) -> None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -330,7 +355,9 @@ class ReconRepository:
         active = [ToolRun.model_validate_json(row[0]) for row in connection.execute(
             "SELECT payload FROM tool_runs WHERE task_id = ?", (task.id,))]
         active = [run for run in active if run.state == ToolRunState.RUNNING and run.request_payload]
-        discovery_caps = {Capability.CONTENT_DISCOVERY, Capability.EXPOSURE_DISCOVERY}
+        discovery_caps = {Capability.CONTENT_DISCOVERY, Capability.EXPOSURE_DISCOVERY,
+                          Capability.WEB_CRAWL, Capability.VHOST_DISCOVERY,
+                          Capability.PARAMETER_DISCOVERY, Capability.TECHNOLOGY_SCAN}
         if active and (request.capability in discovery_caps or any(
                 parse_execution_request(run.request_payload).capability in discovery_caps for run in active)):
             return "content discovery requires exclusive task dispatch"
@@ -341,6 +368,31 @@ class ReconRepository:
         ).fetchone()
         if total + request_units(request) > budget.max_requests:
             return "task request budget exhausted"
+        category_limits = {Capability.PARAMETER_DISCOVERY: budget.max_parameter_attempts}
+        if request.capability in category_limits:
+            used = connection.execute(
+                "SELECT COALESCE(SUM(request_units), 0) FROM execution_reservations WHERE task_id = ? AND capability = ?",
+                (task.id, request.capability.value)).fetchone()[0]
+            if used + request_units(request) > category_limits[request.capability]:
+                return "web tool category budget exhausted"
+        if request.capability in {Capability.WEB_CRAWL, Capability.VHOST_DISCOVERY}:
+            from src.recon.wordlists import load_wordlist
+
+            def result_units(candidate):
+                return (candidate.parameters.max_results if candidate.capability == Capability.WEB_CRAWL
+                        else load_wordlist(candidate.parameters.wordlist_id).max_entries)
+
+            reserved = 0
+            for row in connection.execute("SELECT payload FROM tool_runs WHERE task_id = ?", (task.id,)):
+                run = ToolRun.model_validate_json(row[0])
+                if run.request_id == request.id or run.state in {ToolRunState.DENIED, ToolRunState.CANCELLED}:
+                    continue
+                previous = parse_execution_request(run.request_payload) if run.request_payload else None
+                if previous and previous.capability == request.capability:
+                    reserved += result_units(previous)
+            limit = budget.max_crawl_urls if request.capability == Capability.WEB_CRAWL else budget.max_vhost_candidates
+            if reserved + result_units(request) > limit:
+                return "web tool result budget exhausted"
         from src.recon.capability_catalog import DEFINITIONS
 
         process_caps = tuple(cap.value for cap, definition in DEFINITIONS.items()

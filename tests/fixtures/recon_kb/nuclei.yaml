@@ -1,0 +1,28 @@
+id: example-metadata
+info:
+  name: Example reference
+  description: Reference only
+  severity: high
+  tags: cve,example
+  reference: [https://example.test/advisory]
+  classification:
+    cve-id: CVE-2024-12345
+    cwe-id: CWE-79
+    cvss-score: 7.5
+  metadata:
+    vendor: example
+    product: product
+    max-request: 1
+http:
+  - raw: [INJECTED_PAYLOAD]
+    matchers: [{type: word, words: [INJECTED_PAYLOAD]}]
+requests: [INJECTED_PAYLOAD]
+network: [INJECTED_PAYLOAD]
+payloads: {x: INJECTED_PAYLOAD}
+code: [INJECTED_PAYLOAD]
+javascript: INJECTED_PAYLOAD
+headless: [INJECTED_PAYLOAD]
+flow: INJECTED_PAYLOAD
+variables: {x: INJECTED_PAYLOAD}
+attack: INJECTED_PAYLOAD
+extractors: [INJECTED_PAYLOAD]

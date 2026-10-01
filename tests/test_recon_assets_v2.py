@@ -51,7 +51,7 @@ def test_new_migration_preserves_v8_rows(tmp_path):
         connection.execute("INSERT INTO recon_results VALUES (?, ?)", ("old-task", '{"legacy": true}'))
     repository = ReconRepository(database)
     with repository._connect() as connection:
-        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 10
+        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == MIGRATIONS[-1][0]
         assert connection.execute("SELECT payload FROM recon_tasks WHERE id = 'old-task'").fetchone()[0] == '{"legacy": true}'
         assert connection.execute("SELECT payload FROM recon_results WHERE task_id = 'old-task'").fetchone()[0] == '{"legacy": true}'
         assert connection.execute("SELECT name FROM sqlite_master WHERE name = 'origin_recon_work'").fetchone()

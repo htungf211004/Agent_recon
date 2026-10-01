@@ -9,7 +9,7 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +30,7 @@ jobs:
         run: python -m src.recon.browser_runtime --probe
 
       - name: Lint with ruff
-        run: ruff check src/ tests/ scripts/check_recon_runtime.py scripts/run_recon_live.py scripts/recon_ui.py
+        run: ruff check src/ tests/ scripts/check_recon_runtime.py scripts/check_recon_v3_runtime.py scripts/install_recon_tools.py scripts/resolve_recon_tool_lock.py scripts/run_recon_live.py scripts/recon_ui.py
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
@@ -55,8 +55,8 @@ jobs:
           docker run --rm agent-recon-final nmap --version
           docker run --rm agent-recon-final whatweb --version
           docker run --rm agent-recon-final ffuf -V
-      - name: Require exact capability manifest and real localhost adapter execution
-        run: docker run --rm agent-recon-final python -m scripts.check_recon_runtime
+      - name: Require V3 capability manifest and real localhost adapter execution
+        run: docker run --rm --network none -e RECON_REQUIRE_V3_RUNTIME=1 agent-recon-final python -m scripts.check_recon_runtime
       - name: Check default FastAPI startup
         run: |
           docker run --detach --name recon-final-smoke -e APP_ENV=test agent-recon-final

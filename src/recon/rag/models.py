@@ -6,15 +6,21 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from src.contracts.execution import Risk
+
 
 class RagModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-Namespace = Literal["attack_surface_methodology", "technology_cve", "technique_reference"]
+Namespace = Literal["attack_surface_methodology", "technology_cve", "technique_reference", "tool_capability_reference"]
 
 
 class ReconKnowledgeQuery(RagModel):
+    phase: Literal["attack_surface"] = "attack_surface"
+    categories: tuple[str, ...] = Field(default=(), max_length=16)
+    available_capabilities: tuple[str, ...] = Field(default=(), max_length=32)
+    risk_ceiling: Literal[Risk.R0, Risk.R1] = Risk.R0
     checklist_gaps: tuple[str, ...] = Field(default=(), max_length=16)
     asset_types: tuple[str, ...] = Field(default=(), max_length=16)
     verified_technologies: tuple[str, ...] = Field(default=(), max_length=16)
@@ -39,6 +45,8 @@ class KnowledgeChunk(RagModel):
     excerpt: str = Field(max_length=512)
     content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     version: str = Field(max_length=64)
+    source_snapshot_id: str | None = None
+    source_commit: str | None = None
     metadata: dict[str, str] = Field(default_factory=dict, max_length=8)
 
     @field_validator("metadata")
@@ -54,3 +62,6 @@ class KnowledgeReference(RagModel):
     source_id: str
     content_hash: str
     namespace: Namespace
+    source_version: str | None = None
+    source_commit: str | None = None
+    source_snapshot_id: str | None = None

@@ -44,6 +44,7 @@ EXTERNAL_PROVIDER_CAPABILITIES = frozenset({Capability.WHOIS_RDAP_LOOKUP,
                                             Capability.PUBLIC_CODE_SEARCH,
                                             Capability.SEARCH_ENGINE_OSINT})
 V3_LOCAL_REQUIRED = frozenset({Capability.PASSIVE_SUBDOMAIN_ENUM,
+                               Capability.PASSIVE_INFRA_ENUM,
                                Capability.HISTORICAL_URL_DISCOVERY,
                                Capability.WEB_CRAWL, Capability.VHOST_DISCOVERY,
                                Capability.PARAMETER_DISCOVERY,
@@ -117,6 +118,9 @@ def main():
                     raise RuntimeError("V3 local runtime incomplete: capabilities=" + ", ".join(
                         sorted(cap.value for cap in missing)) + "; binaries=" + ", ".join(
                         sorted(missing_binaries)))
+                from scripts.check_recon_v3_runtime import run_active_smoke, run_passive_smoke
+                run_active_smoke(repository, service, server)
+                run_passive_smoke(repository, service)
             port = server.server_port
             task = ReconTask(
                 id="runtime-smoke", run_id="runtime-smoke",

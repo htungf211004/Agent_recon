@@ -19,7 +19,8 @@ class ChecklistItemV3:
 
 ITEMS = (
     ChecklistItemV3("PT_01-STT-01", "AUTO", (Capability.PASSIVE_SUBDOMAIN_ENUM,
-                    Capability.HISTORICAL_URL_DISCOVERY, Capability.WHOIS_RDAP_LOOKUP)),
+                    Capability.PASSIVE_INFRA_ENUM, Capability.HISTORICAL_URL_DISCOVERY,
+                    Capability.WHOIS_RDAP_LOOKUP)),
     ChecklistItemV3("PT_01-STT-02", "AUTO_CONFIGURABLE", (Capability.NMAP_SCAN,
                     Capability.CONTENT_DISCOVERY, Capability.WEB_CRAWL, Capability.VHOST_DISCOVERY,
                     Capability.PARAMETER_DISCOVERY)),
@@ -47,6 +48,8 @@ ITEMS = (
 
 def project_checklist_v3(task, repository, service, *, finalize=False) -> tuple[ChecklistSummary, ...]:
     legacy = {item.id: item for item in project_checklist_v2(task, repository, service, finalize=finalize)}
+    boundary = repository.get_authorization(task.id) if hasattr(repository, "get_authorization") else None
+    domain_root = boundary is not None and boundary.root.kind == "DOMAIN"
     verified = {}
     for result in repository.list_tool_results(task.id):
         if result.status != "success" or not result.evidence_id:
@@ -86,10 +89,28 @@ def project_checklist_v3(task, repository, service, *, finalize=False) -> tuple[
     rows = []
     for item in ITEMS:
         old = legacy[item.id]
-        # A new tool must not silently replace required legacy coverage.
-        added = tuple(cap for cap in item.capabilities if cap not in {
-            Capability.HTTP_FETCH, Capability.NMAP_SCAN, Capability.CONTENT_DISCOVERY, Capability.WHATWEB})
+        if boundary is not None and not domain_root and item.id in {
+                "PT_01-STT-01", "PT_01-STT-14", "PT_01-STT-15", "PT_01-STT-16"}:
+            rows.append(ChecklistSummary(id=item.id, status="NOT_APPLICABLE",
+                        finding="NOT_TESTED", reason="domain-root intelligence does not apply to an IP root"))
+            continue
         required = item.capabilities
+        if item.id == "PT_01-STT-02":
+            excluded = {Capability.NMAP_SCAN} if domain_root else {Capability.VHOST_DISCOVERY}
+            if domain_root and not boundary.root.include_subdomains:
+                excluded.add(Capability.VHOST_DISCOVERY)
+            if Capability.PARAMETER_DISCOVERY not in task.scope.capabilities:
+                excluded.add(Capability.PARAMETER_DISCOVERY)
+            required = tuple(cap for cap in required if cap not in excluded)
+            if boundary is not None and not domain_root and not verified_origins:
+                required = (Capability.NMAP_SCAN,)
+        if item.id == "PT_01-STT-11" and boundary is not None and not domain_root and not verified_origins:
+            rows.append(ChecklistSummary(id=item.id, status="NOT_APPLICABLE", finding="NOT_TESTED",
+                        reason="no verified HTTP origin available for endpoint discovery"))
+            continue
+        # A new tool must not silently replace required legacy coverage.
+        added = tuple(cap for cap in required if cap not in {
+            Capability.HTTP_FETCH, Capability.NMAP_SCAN, Capability.CONTENT_DISCOVERY, Capability.WHATWEB})
         missing = [cap for cap in required if cap not in task.scope.capabilities]
         unavailable = [f"{cap.value}:{service.gateway.registry.availability(cap)}" for cap in required
                        if service.gateway.registry.availability(cap) != "AVAILABLE"]
@@ -97,6 +118,11 @@ def project_checklist_v3(task, repository, service, *, finalize=False) -> tuple[
                         for provider in item.providers
                         if service.gateway.registry.availability(item.capabilities[0], provider) != "AVAILABLE"]
         ran = all(cap in verified for cap in required)
+        infrastructure_partial = (item.id == "PT_01-STT-01" and
+            any(getattr(row, "message", "") == "passive_infra:metadata_unavailable"
+                for row in verified.get(Capability.PASSIVE_INFRA_ENUM, ())) and
+            not any(obs.kind in {"IP", "METADATA"} for row in verified.get(Capability.PASSIVE_INFRA_ENUM, ())
+                    for obs in row.observations))
         if item.providers:
             ran = set(item.providers) <= completed_providers.get(item.capabilities[0], set())
         if item.id == "PT_01-STT-10":
@@ -113,6 +139,9 @@ def project_checklist_v3(task, repository, service, *, finalize=False) -> tuple[
             finding = "FOUND" if found else "NOT_FOUND" if len(graphql_paths) == 4 else "NOT_TESTED"
             reason = ("GraphQL endpoint found; R2 introspection requires explicit scope" if found
                       else "bounded GraphQL discovery checked without indicator")
+        elif infrastructure_partial and ran:
+            status, finding, reason = "MANUAL_REVIEW", "NOT_TESTED", \
+                "passive infrastructure profile returned no IP/ASN-capable metadata; provider coverage remains incomplete"
         elif (ran and (item.id not in {"PT_01-STT-02", "PT_01-STT-03", "PT_01-STT-11"}
                        or old.status == "COMPLETE")) or (not added and old.status in {
                            "COMPLETE", "NOT_APPLICABLE", "MANUAL_REVIEW"} and item.id != "PT_01-STT-07"):
@@ -121,6 +150,10 @@ def project_checklist_v3(task, repository, service, *, finalize=False) -> tuple[
             finding = ("FOUND" if any(row.observations for row in evidence_results) else
                        old.finding if old.finding != "NOT_TESTED" else "NOT_FOUND" if ran else "NOT_TESTED")
             reason = "verified capability evidence" if ran else old.reason
+            if item.id == "PT_01-STT-02" and domain_root and ran:
+                reason = "verified domain web coverage; IP-wide Nmap is not authorized by a domain root"
+                if Capability.PARAMETER_DISCOVERY not in task.scope.capabilities:
+                    reason += "; R2 parameter discovery not authorized"
         elif missing:
             status, finding, reason = "UNSUPPORTED", "NOT_TESTED", "capability outside task scope: " + ", ".join(
                 cap.value for cap in missing)

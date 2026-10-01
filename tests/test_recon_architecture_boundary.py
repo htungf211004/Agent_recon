@@ -9,7 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 PLAYWRIGHT_IMPORTS = {"src/recon/browser.py", "src/recon/browser_runtime.py"}
 ADAPTER_IMPORTERS = {*PLAYWRIGHT_IMPORTS, "src/recon/bootstrap.py"}
-PROCESS_RUNNERS = {"src/recon/adapters.py", "src/recon/browser_runtime.py"}
+PROCESS_RUNNERS = {"src/recon/adapters.py", "src/recon/browser_runtime.py", "src/recon/kb/fetchers.py"}
 BROWSER_OPERATIONS = {"launch", "launch_persistent_context", "connect_over_cdp", "new_context", "new_page",
                       "goto", "route", "route_web_socket", "continue_", "connect_to_server"}
 
@@ -115,7 +115,7 @@ def test_fixed_process_runners_cannot_enable_shell_or_add_popen():
         tree = ast.parse((ROOT / path).read_text(encoding="utf-8"))
         runners.extend(node for node in ast.walk(tree) if isinstance(node, ast.Call)
                        and isinstance(node.func, ast.Attribute) and node.func.attr == "run")
-    assert len(runners) == 3  # Fixed tool argv, bounded DNS resolver, and local Chromium probe.
+    assert len(runners) == 4  # Fixed tool argv, bounded DNS, Chromium probe, and operator-only Git maintenance.
 
 
 def test_playwright_version_pin_matches_verified_runtime_and_docker():

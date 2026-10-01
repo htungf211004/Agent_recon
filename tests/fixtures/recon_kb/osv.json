@@ -1,0 +1,46 @@
+{
+  "vulns": [
+    {
+      "id": "GHSA-example",
+      "aliases": [
+        "CVE-2024-12345"
+      ],
+      "published": "2024-01-01T00:00:00Z",
+      "modified": "2026-10-01T00:00:00Z",
+      "withdrawn": "2026-09-01T00:00:00Z",
+      "summary": "Withdrawn fixture advisory",
+      "affected": [
+        {
+          "package": {
+            "name": "example-package",
+            "ecosystem": "npm",
+            "purl": "pkg:npm/example-package"
+          },
+          "ranges": [
+            {
+              "type": "SEMVER",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "1.1"
+                }
+              ]
+            }
+          ],
+          "versions": [
+            "1.0"
+          ]
+        }
+      ],
+      "severity": [],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://example.test/advisory"
+        }
+      ]
+    }
+  ]
+}

@@ -53,7 +53,8 @@ def admit_target(value: str, task_id: str, *, resolver: Callable[[str, int], tup
                         Capability.EXTERNAL_ASSET_SEARCH, Capability.PUBLIC_CODE_SEARCH,
                         Capability.SEARCH_ENGINE_OSINT)
         capabilities += (Capability.PASSIVE_SUBDOMAIN_ENUM, Capability.PASSIVE_INFRA_ENUM,
-                         Capability.HISTORICAL_URL_DISCOVERY)
+                         Capability.HISTORICAL_URL_DISCOVERY, Capability.WEB_CRAWL,
+                         Capability.VHOST_DISCOVERY, Capability.TECHNOLOGY_SCAN)
     else:
         ports = (80, 443, 8080, 8443)
         pin = root.value
@@ -62,7 +63,8 @@ def admit_target(value: str, task_id: str, *, resolver: Callable[[str, int], tup
         capabilities = (Capability.DNS_RESOLVE, Capability.NMAP_SCAN, Capability.HTTP_PROBE, Capability.WHATWEB,
                         Capability.HTTP_FETCH, Capability.CONTENT_DISCOVERY, Capability.EXPOSURE_DISCOVERY,
                         Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST)
-        capabilities += (Capability.SOURCEMAP_ANALYZE, Capability.WSDL_DISCOVERY)
+        capabilities += (Capability.SOURCEMAP_ANALYZE, Capability.WSDL_DISCOVERY,
+                         Capability.WEB_CRAWL, Capability.TECHNOLOGY_SCAN)
     boundary = AuthorizationBoundary(task_id=task_id, root=root,
                                      dns_observations=(observation,) if observation else ())
     task = ReconTask(

@@ -156,12 +156,16 @@ def main(argv=None):
     parser.add_argument("--task-id", default=None, help="reuse the same ID and arguments to resume")
     parser.add_argument("--path-prefix", help="allowed path prefix; defaults to the URL path")
     parser.add_argument("--browser", action="store_true", help="also allow bounded passive Chromium exploration")
+    parser.add_argument("--parameter-discovery", action="store_true",
+                        help="explicitly authorize R2 bounded GET parameter discovery on verified baselines (--target only)")
     parser.add_argument("--provider", choices=("openai", "gemini"), default="openai")
     parser.add_argument("--planner", choices=("auto", "deterministic", "llm"), default="auto")
     parser.add_argument("--model", help="override MODEL_NAME or GEMINI_MODEL for this run")
     parser.add_argument("--llm-rounds", type=int, choices=(1, 2, 3), default=2)
     parser.add_argument("--output-root", type=Path, default=Path("data/live-recon"))
     args = parser.parse_args(argv)
+    if args.parameter_discovery and not args.target:
+        parser.error("--parameter-discovery requires --target authorization")
     task_id = args.task_id or "live-" + uuid4().hex[:16]
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", task_id):
         parser.error("invalid task-id")
@@ -185,8 +189,13 @@ def main(argv=None):
                 if previous_boundary is None or previous_boundary.root != parse_target(args.target):
                     raise ValueError("existing task root authorization differs; use a new task-id")
                 proposed, boundary = previous, previous_boundary
+                if args.parameter_discovery and Capability.PARAMETER_DISCOVERY not in previous.scope.capabilities:
+                    raise ValueError("existing task did not authorize R2 parameter discovery; use a new task-id")
             else:
                 proposed, boundary = admit_target(args.target, task_id)
+                if args.parameter_discovery:
+                    proposed = proposed.model_copy(update={"scope": proposed.scope.model_copy(update={
+                        "capabilities": (*proposed.scope.capabilities, Capability.PARAMETER_DISCOVERY)})})
         else:
             boundary = None
         if args.target_ip and not ports:

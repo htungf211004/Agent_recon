@@ -20,6 +20,7 @@ from src.recon.policy import PolicyService
 from src.recon.provider_search import ProviderRouter, RdapAdapter
 from src.recon.service import ReconService
 from src.recon.storage import EvidenceStore, ReconRepository
+from src.recon.web_tools import ArjunAdapter, KatanaAdapter, NucleiTechnologyAdapter, VhostDiscoveryAdapter
 
 
 def create_recon_service(database_path: Path | str, evidence_dir: Path | str) -> tuple[ReconRepository, ReconService]:
@@ -53,7 +54,15 @@ def create_recon_service(database_path: Path | str, evidence_dir: Path | str) ->
     registry.register(Capability.WHOIS_RDAP_LOOKUP, RdapAdapter())
     registry.register(Capability.PASSIVE_SUBDOMAIN_ENUM, LocalOsintRouter(("subfinder", "amass")))
     registry.register(Capability.HISTORICAL_URL_DISCOVERY, LocalOsintRouter(("gau",)))
-    registry.mark_unavailable(Capability.PASSIVE_INFRA_ENUM, "UNSUPPORTED_TARGET_KIND")
+    registry.register(Capability.PASSIVE_INFRA_ENUM, LocalOsintRouter(("amass",)))
+    for capability, binary, adapter in (
+        (Capability.WEB_CRAWL, "katana", KatanaAdapter),
+        (Capability.VHOST_DISCOVERY, "ffuf", VhostDiscoveryAdapter),
+        (Capability.PARAMETER_DISCOVERY, "arjun", ArjunAdapter),
+        (Capability.TECHNOLOGY_SCAN, "nuclei", NucleiTechnologyAdapter),
+    ):
+        if which(binary):
+            registry.register(capability, adapter(repository))
     for capability in Capability:
         if registry.get(capability) is None:
             registry.mark_unavailable(capability, "MISSING_BINARY")

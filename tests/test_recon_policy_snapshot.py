@@ -81,7 +81,7 @@ def test_v5_task_migrates_with_recon_2_2_snapshot(tmp_path):
     assert PolicyService.scope_fingerprint(migrated) == scope_hash
     assert PolicyService.expected_fingerprint(bound, migrated) == bound.action_fingerprint
     with sqlite3.connect(path) as connection:
-        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 10
+        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 11
         for name, rows in before.items():
             assert connection.execute(f"SELECT * FROM {name}").fetchall() == rows
 

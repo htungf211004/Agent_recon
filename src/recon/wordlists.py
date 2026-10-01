@@ -17,6 +17,8 @@ TRUSTED = {
                                           "index.php.bak", "config.php~", "web.config.old", "dump.sql.gz")),
     "scm-small-v1": ("scm", (".git/HEAD", ".git/config", ".svn/entries", ".hg/requires",
                                     ".bzr/branch/branch.conf")),
+    "vhosts-small-v1": ("vhost", ("www", "api", "admin", "dev", "staging", "portal")),
+    "parameters-small-v1": ("parameter", ("id", "page", "limit", "offset", "sort", "search")),
 }
 
 
@@ -42,9 +44,11 @@ def load_wordlist(wordlist_id):
     if raw != expected:
         raise ValueError("packaged wordlist integrity mismatch")
     return TrustedWordlist(wordlist_id, path, "1", hashlib.sha256(raw).hexdigest(), len(entries), category,
-                           "content_discovery", entries)
+                           {"vhost": "vhost_discovery", "parameter": "parameter_discovery"}.get(category, "content_discovery"), entries)
 
 
 def request_units(request):
+    if request.capability in {"web_crawl", "vhost_discovery", "parameter_discovery", "technology_scan"}:
+        return request.parameters.max_requests
     return (load_wordlist(request.parameters.wordlist_id).max_entries
             if request.capability in {"content_discovery", "exposure_discovery"} else 1)

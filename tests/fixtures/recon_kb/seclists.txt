@@ -1,0 +1,6 @@
+# fixture
+admin
+health
+admin
+
+status

@@ -1,0 +1,115 @@
+{
+  "architecture": "amd64",
+  "tools": {
+    "subfinder": {
+      "version": "v2.6.6",
+      "url": "https://github.com/projectdiscovery/subfinder/releases/download/v2.6.6/subfinder_2.6.6_linux_amd64.zip",
+      "sha256": "6fda32fe1f5750e63fa07c112b1b615d033e425c6dc6659ed8ec61035eb8eba2",
+      "license": "MIT",
+      "archive": "subfinder_2.6.6_linux_amd64.zip",
+      "license_url": "https://raw.githubusercontent.com/projectdiscovery/subfinder/v2.6.6/LICENSE.md",
+      "license_sha256": "cbcdaab87df3175107aa28915bd253cebdd618a49c9ac5d6c669c0b1cbebcacb",
+      "license_file": "subfinder-LICENSE"
+    },
+    "amass": {
+      "version": "v3.23.3",
+      "url": "https://github.com/owasp-amass/amass/releases/download/v3.23.3/amass_Linux_amd64.zip",
+      "sha256": "2b5afb8a567d9703dfb416099fb0452e2b4b4da5170f0b23cd3b812df2e9319c",
+      "license": "Apache-2.0",
+      "archive": "amass_Linux_amd64.zip",
+      "license_url": "https://raw.githubusercontent.com/owasp-amass/amass/v3.23.3/LICENSE",
+      "license_sha256": "22027c28ff878d673b817c06d5900cf70552bfc0c75aa2386e114bc2e83b0564",
+      "license_file": "amass-LICENSE"
+    },
+    "gau": {
+      "version": "v2.2.4",
+      "url": "https://github.com/lc/gau/releases/download/v2.2.4/gau_2.2.4_linux_amd64.tar.gz",
+      "sha256": "10e2e248c37cafb0be3f6d2931125296b95cd4186066d596d47fa417237529a9",
+      "license": "MIT",
+      "archive": "gau_2.2.4_linux_amd64.tar.gz",
+      "license_url": "https://raw.githubusercontent.com/lc/gau/v2.2.4/LICENSE",
+      "license_sha256": "2bc98dc696486599c0b0588972238256e567bc2639fd2a06372f5059f9f84e74",
+      "license_file": "gau-LICENSE"
+    },
+    "katana": {
+      "version": "v1.1.0",
+      "url": "https://github.com/projectdiscovery/katana/releases/download/v1.1.0/katana_1.1.0_linux_amd64.zip",
+      "sha256": "a3af74515c79b0a3e877eab280987b7247161978c49fcad428f00f9452c5bd56",
+      "license": "MIT",
+      "archive": "katana_1.1.0_linux_amd64.zip",
+      "license_url": "https://raw.githubusercontent.com/projectdiscovery/katana/v1.1.0/LICENSE.md",
+      "license_sha256": "49982116f64385bdf8582a379e591a19d6040dec22e50e29dc311596d357af23",
+      "license_file": "katana-LICENSE"
+    },
+    "nuclei": {
+      "version": "v3.3.7",
+      "url": "https://github.com/projectdiscovery/nuclei/releases/download/v3.3.7/nuclei_3.3.7_linux_amd64.zip",
+      "sha256": "725ef892fcffd1b03ad4f0874942fc4b623c0419b6b6c6c91fe4a5a65671f77c",
+      "license": "MIT",
+      "archive": "nuclei_3.3.7_linux_amd64.zip",
+      "license_url": "https://raw.githubusercontent.com/projectdiscovery/nuclei/v3.3.7/LICENSE.md",
+      "license_sha256": "9791ab20f5494d9d7997f581be4e4cf4e27e9f479a0337fbcaf666a49ea35c83",
+      "license_file": "nuclei-LICENSE"
+    },
+    "arjun": {
+      "version": "2.2.7",
+      "url": "https://files.pythonhosted.org/packages/04/22/c5b969720d2802de2248c2aac0414ee5ae234887cfe150564d591c73fb23/arjun-2.2.7.tar.gz",
+      "sha256": "b193cdaf97bf7b0e8cd91a41da778639e01fd9738d5f666a8161377f475ce72e",
+      "license": "GPL-3.0-only",
+      "archive": "arjun-2.2.7.tar.gz",
+      "license_url": "https://raw.githubusercontent.com/s0md3v/Arjun/2.2.7/LICENSE",
+      "license_sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "license_file": "arjun-LICENSE"
+    }
+  },
+  "python_packages": {
+    "requests": {
+      "version": "2.32.5",
+      "url": "https://files.pythonhosted.org/packages/1e/db/4254e3eabe8020b458f1a747140d32277ec7a271daf1d235b70dc0b4e6e3/requests-2.32.5-py3-none-any.whl",
+      "sha256": "2462f94637a34fd532264295e186976db0f5d453d1cdd31473c85a6a161affb6",
+      "archive": "requests-2.32.5-py3-none-any.whl"
+    },
+    "dicttoxml": {
+      "version": "1.7.16",
+      "url": "https://files.pythonhosted.org/packages/09/40/9d521973cae7f7ef8b1f0d0e28a3db0f851c1f1dca45d4c2ed5360bb7246/dicttoxml-1.7.16-py3-none-any.whl",
+      "sha256": "8677671496d0d38e66c7179f82a7e9059f94887777955dc71b0ac602ee637c26",
+      "archive": "dicttoxml-1.7.16-py3-none-any.whl"
+    },
+    "wheel": {
+      "version": "0.45.1",
+      "url": "https://files.pythonhosted.org/packages/0b/2c/87f3254fd8ffd29e4c02732eee68a83a1d3c346ae39bc6822dcbcb697f2b/wheel-0.45.1-py3-none-any.whl",
+      "sha256": "708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248",
+      "archive": "wheel-0.45.1-py3-none-any.whl"
+    },
+    "urllib3": {
+      "version": "2.5.0",
+      "url": "https://files.pythonhosted.org/packages/a7/c2/fe1e52489ae3122415c51f387e221dd0773709bad6c6cdaa599e8a2c5185/urllib3-2.5.0-py3-none-any.whl",
+      "sha256": "e6b01673c0fa6a13e374b50871808eb3bf7046c4b125b216f6bf1cc604cff0dc",
+      "archive": "urllib3-2.5.0-py3-none-any.whl"
+    },
+    "idna": {
+      "version": "3.10",
+      "url": "https://files.pythonhosted.org/packages/76/c6/c88e154df9c4e1a2a66ccf0005a88dfb2650c1dffb6f5ce603dfbd452ce3/idna-3.10-py3-none-any.whl",
+      "sha256": "946d195a0d259cbba61165e88e65941f16e9b36ea6ddb97f00452bae8b1287d3",
+      "archive": "idna-3.10-py3-none-any.whl"
+    },
+    "charset-normalizer": {
+      "version": "3.4.2",
+      "url": "https://files.pythonhosted.org/packages/20/94/c5790835a017658cbfabd07f3bfb549140c3ac458cfc196323996b10095a/charset_normalizer-3.4.2-py3-none-any.whl",
+      "sha256": "7f56930ab0abd1c45cd15be65cc741c28b1c9a34876ce8c17a2fa107810c0af0",
+      "archive": "charset_normalizer-3.4.2-py3-none-any.whl"
+    },
+    "certifi": {
+      "version": "2025.8.3",
+      "url": "https://files.pythonhosted.org/packages/e5/48/1549795ba7742c948d2ad169c1c8cdbae65bc450d6cd753d124b17c8cd32/certifi-2025.8.3-py3-none-any.whl",
+      "sha256": "f6c12493cfb1b06ba2ff328595af9350c65d6644968e5d3a2ffd78699af217a5",
+      "archive": "certifi-2025.8.3-py3-none-any.whl"
+    },
+    "ratelimit": {
+      "version": "2.2.1",
+      "url": "https://files.pythonhosted.org/packages/ab/38/ff60c8fc9e002d50d48822cc5095deb8ebbc5f91a6b8fdd9731c87a147c9/ratelimit-2.2.1.tar.gz",
+      "sha256": "af8a9b64b821529aca09ebaf6d8d279100d766f19e90b5059ac6a718ca6dee42",
+      "archive": "ratelimit-2.2.1.tar.gz"
+    }
+  }
+}

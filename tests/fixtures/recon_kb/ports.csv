@@ -1,0 +1,3 @@
+Service Name,Port Number,Transport Protocol,Description,Reference,Assignment Notes
+https,443,tcp,HTTP over TLS,[RFC9110],
+custom,8000-8001,tcp,Example range,,

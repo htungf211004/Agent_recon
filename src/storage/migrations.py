@@ -239,6 +239,12 @@ def _origin_recon_work(connection):
     )""")
 
 
+def _kb_snapshot_bindings(connection):
+    connection.execute("""CREATE TABLE IF NOT EXISTS recon_kb_bindings (
+        run_id TEXT NOT NULL, source_id TEXT NOT NULL, snapshot_id TEXT NOT NULL,
+        payload TEXT NOT NULL, PRIMARY KEY(run_id, source_id))""")
+
+
 MIGRATIONS = (
     (1, "adopt_day1_day2_schema", _legacy_schema),
     (2, "route_observations", _route_observations),
@@ -250,6 +256,7 @@ MIGRATIONS = (
     (8, "adaptive_stages_and_bounded_content_budget", _adaptive_stages),
     (9, "recon_discovered_assets_v2", _recon_assets_v2),
     (10, "bounded_origin_recon_work", _origin_recon_work),
+    (11, "immutable_run_kb_snapshot_bindings", _kb_snapshot_bindings),
 )
 
 

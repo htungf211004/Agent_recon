@@ -1,0 +1,220 @@
+# Operator-maintained registry. Mutable upstream refs are captured as exact commit SHAs.
+sources:
+  - source_id: WSTG
+    enabled: true
+    fetch_type: git
+    source_url: https://github.com/OWASP/wstg
+    repository: https://github.com/OWASP/wstg
+    ref: v4.2
+    canonical_url: https://owasp.org/www-project-web-security-testing-guide/v42/
+    storage_class: VECTOR_RAG
+    namespace: attack_surface_methodology
+    license: CC-BY-SA-4.0
+    license_review_required: false
+    refresh_policy: pinned_release
+    approved_hosts: [github.com]
+    paths: [document/4-Web_Application_Security_Testing/01-Information_Gathering, checklists/checklist.md, LICENSE]
+  - source_id: SECLISTS
+    enabled: true
+    fetch_type: git
+    source_url: https://github.com/danielmiessler/SecLists
+    repository: https://github.com/danielmiessler/SecLists
+    ref: master
+    canonical_url: https://github.com/danielmiessler/SecLists
+    storage_class: RUNNER_DATA
+    namespace: wordlists
+    license: MIT
+    license_review_required: false
+    refresh_policy: monthly_staged
+    approved_hosts: [github.com]
+    paths: [Discovery/Web-Content/common.txt, Discovery/Web-Content/raft-small-directories.txt, Discovery/Web-Content/raft-small-files.txt, Discovery/Web-Content/graphql.txt, LICENSE]
+  - source_id: ASSETNOTE
+    enabled: true
+    fetch_type: git
+    source_url: https://github.com/assetnote/wordlists
+    repository: https://github.com/assetnote/wordlists
+    ref: master
+    canonical_url: https://wordlists.assetnote.io/
+    storage_class: RUNNER_DATA
+    namespace: technology_wordlists
+    license: Apache-2.0
+    license_review_required: false
+    refresh_policy: monthly_staged
+    approved_hosts: [github.com, wordlists-cdn.assetnote.io]
+    paths: [data/automated.json, data/technologies.json, data/manual.json, LICENSE]
+    # Explicit selection; never recursively download CDN contents or infer filenames.
+    assetnote_selections:
+      - {manifest: data/manual.json, filename: raft-small-files.txt, technology: null, api_related: false}
+  - source_id: NUCLEI_META
+    enabled: true
+    fetch_type: git
+    source_url: https://github.com/projectdiscovery/nuclei-templates
+    repository: https://github.com/projectdiscovery/nuclei-templates
+    ref: main
+    canonical_url: https://github.com/projectdiscovery/nuclei-templates
+    storage_class: STRUCTURED_LOOKUP
+    namespace: technology_cve
+    license: MIT
+    license_review_required: false
+    refresh_policy: weekly_staged
+    approved_hosts: [github.com]
+    paths: [http/cves, http/technologies, LICENSE.md]
+  - source_id: AMASS_OAM
+    enabled: true
+    fetch_type: git
+    source_url: https://github.com/owasp-amass/open-asset-model
+    repository: https://github.com/owasp-amass/open-asset-model
+    ref: main
+    canonical_url: https://github.com/owasp-amass/open-asset-model
+    storage_class: VECTOR_RAG
+    namespace: attack_surface_methodology
+    license: Apache-2.0
+    license_review_required: false
+    refresh_policy: monthly_staged
+    approved_hosts: [github.com]
+    paths: [docs/README.md, LICENSE]
+  - source_id: KATANA
+    enabled: true
+    fetch_type: git
+    source_url: https://github.com/projectdiscovery/katana
+    repository: https://github.com/projectdiscovery/katana
+    ref: dev
+    canonical_url: https://github.com/projectdiscovery/katana
+    storage_class: VECTOR_RAG
+    namespace: tool_capability_reference
+    license: MIT
+    license_review_required: false
+    refresh_policy: monthly_staged
+    approved_hosts: [github.com]
+    paths: [README.md, LICENSE.md]
+  - source_id: CISA_KEV
+    enabled: true
+    fetch_type: git
+    source_url: https://github.com/cisagov/kev-data
+    repository: https://github.com/cisagov/kev-data
+    ref: develop
+    canonical_url: https://www.cisa.gov/known-exploited-vulnerabilities-catalog
+    storage_class: STRUCTURED_LOOKUP
+    namespace: technology_cve
+    license: CC0-1.0
+    license_review_required: false
+    refresh_policy: daily_staged
+    approved_hosts: [github.com]
+    paths: [known_exploited_vulnerabilities.json, known_exploited_vulnerabilities_schema.json, LICENSE]
+  - source_id: PSL
+    enabled: true
+    fetch_type: http
+    source_url: https://publicsuffix.org/list/public_suffix_list.dat
+    repository: null
+    ref: null
+    canonical_url: https://publicsuffix.org/list/public_suffix_list.dat
+    storage_class: STRUCTURED_LOOKUP
+    namespace: public_suffix
+    license: MPL-2.0
+    license_review_required: false
+    refresh_policy: weekly_staged
+    approved_hosts: [publicsuffix.org]
+    paths: [public_suffix_list.dat]
+  - source_id: IANA_WELL_KNOWN
+    enabled: true
+    fetch_type: http
+    source_url: https://www.iana.org/assignments/well-known-uris/well-known-uris-1.csv
+    repository: null
+    ref: null
+    canonical_url: https://www.iana.org/assignments/well-known-uris/well-known-uris-1.csv
+    storage_class: STRUCTURED_LOOKUP
+    namespace: well_known_uri
+    license: IANA registry terms
+    license_review_required: false
+    refresh_policy: monthly_staged
+    approved_hosts: [www.iana.org]
+    paths: [well-known-uris.csv]
+  - source_id: IANA_PORTS
+    enabled: true
+    fetch_type: http
+    source_url: https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.csv
+    repository: null
+    ref: null
+    canonical_url: https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.csv
+    storage_class: STRUCTURED_LOOKUP
+    namespace: service_registry
+    license: IANA registry terms
+    license_review_required: false
+    refresh_policy: monthly_staged
+    approved_hosts: [www.iana.org]
+    paths: [service-names-port-numbers.csv]
+  - source_id: NVD_CPE
+    enabled: true
+    fetch_type: nvd_api
+    source_url: https://services.nvd.nist.gov/rest/json/cpes/2.0
+    repository: null
+    ref: null
+    canonical_url: https://nvd.nist.gov/developers/products
+    storage_class: STRUCTURED_LOOKUP
+    namespace: technology_cve
+    license: NIST public data terms
+    license_review_required: false
+    refresh_policy: incremental_120_day_windows
+    approved_hosts: [services.nvd.nist.gov]
+    max_snapshot_bytes: 512000000
+    paths: []
+  - source_id: CWE
+    enabled: true
+    fetch_type: http
+    source_url: https://cwe.mitre.org/data/xml/cwec_latest.xml.zip
+    repository: null
+    ref: null
+    canonical_url: https://cwe.mitre.org/data/downloads.html
+    storage_class: STRUCTURED_LOOKUP
+    namespace: cwe
+    license: MITRE CWE terms
+    license_review_required: false
+    refresh_policy: release_staged
+    approved_hosts: [cwe.mitre.org]
+    paths: [cwec_latest.xml.zip]
+  - source_id: OSV
+    enabled: true
+    fetch_type: osv_api
+    source_url: https://api.osv.dev/v1/query
+    repository: null
+    ref: null
+    canonical_url: https://osv.dev/docs/
+    storage_class: STRUCTURED_LOOKUP
+    namespace: package_advisories
+    license: per_source_database
+    license_review_required: false
+    refresh_policy: evidence_keyed
+    approved_hosts: [api.osv.dev]
+    # Operator populates package identity + version + evidence_ref; banners are rejected.
+    package_queries: []
+    paths: []
+  - source_id: WAPPALYZER
+    enabled: false
+    fetch_type: git
+    source_url: https://github.com/projectdiscovery/wappalyzergo
+    repository: https://github.com/projectdiscovery/wappalyzergo
+    ref: main
+    canonical_url: https://github.com/projectdiscovery/wappalyzergo
+    storage_class: STRUCTURED_LOOKUP
+    namespace: technology_fingerprints
+    license: null
+    license_review_required: true
+    license_status: REVIEW_REQUIRED
+    refresh_policy: manual_after_license_review
+    approved_hosts: [github.com]
+    paths: [README.md, LICENSE.md]
+  - source_id: ARJUN
+    enabled: false
+    fetch_type: git
+    source_url: https://github.com/s0md3v/Arjun
+    repository: https://github.com/s0md3v/Arjun
+    ref: master
+    canonical_url: https://github.com/s0md3v/Arjun
+    storage_class: RUNNER_DATA
+    namespace: parameter_dictionaries
+    license: GPL-3.0
+    license_review_required: true
+    license_status: REVIEW_REQUIRED
+    refresh_policy: deferred
+    approved_hosts: [github.com]
+    paths: [arjun/db/small.txt, arjun/db/medium.txt, arjun/db/large.txt]

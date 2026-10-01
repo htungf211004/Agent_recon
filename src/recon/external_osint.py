@@ -33,7 +33,7 @@ class ExternalOsintExecutor:
         if boundary is None or boundary.root.kind != "DOMAIN":
             return
         for tool, capability in (("subfinder", Capability.PASSIVE_SUBDOMAIN_ENUM),
-                                 ("amass", Capability.PASSIVE_SUBDOMAIN_ENUM),
+                                 ("amass", Capability.PASSIVE_INFRA_ENUM),
                                  ("gau", Capability.HISTORICAL_URL_DISCOVERY)):
             if capability not in task.scope.capabilities:
                 continue
@@ -98,6 +98,19 @@ class ExternalOsintExecutor:
             elif observation.kind == "URL":
                 record_candidate(self.repository, task, boundary, base, result.evidence_id,
                                  observation.value, AssetRelation.OTHER_REFERENCE)
+            elif observation.kind == "IP":
+                from src.contracts.recon_assets import AssetScopeStatus, AssetVerificationStatus, DiscoveredAsset
+
+                if len(self.repository.list_assets(task.id)) >= boundary.max_discovered_assets:
+                    self.repository.add_limitation(task.id, "assets:max_discovered_assets")
+                    continue
+                self.repository.upsert_asset(DiscoveredAsset(
+                    run_id=task.run_id, task_id=task.id, root_target=boundary.root.value,
+                    asset_type=AssetType.IP, canonical_value=observation.value,
+                    relation=AssetRelation.OTHER_REFERENCE, discovered_from=base,
+                    discovery_evidence_refs=(result.evidence_id,),
+                    scope_status=AssetScopeStatus.MANUAL_REVIEW,
+                    verification_status=AssetVerificationStatus.MANUAL_REVIEW))
             elif observation.kind in {"CODE_REFERENCE", "SEARCH_REFERENCE"} and observation.value.startswith("https://"):
                 record_candidate(self.repository, task, boundary, base, result.evidence_id,
                                  observation.value, AssetRelation.OTHER_REFERENCE)

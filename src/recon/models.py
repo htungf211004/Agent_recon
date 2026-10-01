@@ -281,13 +281,59 @@ class ContentDiscoveryParams(StrictModel):
     @classmethod
     def trusted_wordlist(cls, value):
         from src.recon.wordlists import load_wordlist
-        load_wordlist(value)
+        if load_wordlist(value).category in {"vhost", "parameter"}:
+            raise ValueError("wordlist belongs to a different capability")
         return value
 
 
 class ExposureDiscoveryParams(ContentDiscoveryParams):
     kind: Literal["exposure_discovery"] = "exposure_discovery"
     wordlist_id: Literal["backup-small-v1", "backup-small-v2", "scm-small-v1"]
+
+
+class BoundedWebToolParams(StrictModel):
+    port: int = Field(ge=1, le=65535, strict=True)
+    scheme: Literal["http", "https"] = "http"
+    path: str = Field(default="/", max_length=2048)
+    max_requests: int = Field(default=16, ge=1, le=64, strict=True)
+    timeout_seconds: int = Field(default=20, ge=1, le=30, strict=True)
+    max_body_bytes: int = Field(default=65536, ge=1, le=65536, strict=True)
+
+    @field_validator("path")
+    @classmethod
+    def concrete_path(cls, value):
+        validate_path(value)
+        if any(char in value for char in "{}"):
+            raise ValueError("concrete tool path required")
+        return value
+
+
+class WebCrawlParams(BoundedWebToolParams):
+    kind: Literal["web_crawl"] = "web_crawl"
+    max_depth: int = Field(default=1, ge=1, le=2, strict=True)
+    max_results: int = Field(default=32, ge=1, le=128, strict=True)
+
+
+class VhostDiscoveryParams(BoundedWebToolParams):
+    kind: Literal["vhost_discovery"] = "vhost_discovery"
+    root_domain: str
+    path: Literal["/"] = "/"
+    wordlist_id: Literal["vhosts-small-v1"] = "vhosts-small-v1"
+
+    _root = field_validator("root_domain")(canonical_host)
+
+
+class ParameterDiscoveryParams(BoundedWebToolParams):
+    kind: Literal["parameter_discovery"] = "parameter_discovery"
+    baseline_evidence_ref: str = Field(min_length=1)
+    wordlist_id: Literal["parameters-small-v1"] = "parameters-small-v1"
+
+
+class TechnologyScanParams(BoundedWebToolParams):
+    kind: Literal["technology_scan"] = "technology_scan"
+    path: Literal["/"] = "/"
+    profile: Literal["technology-v1"] = "technology-v1"
+    max_requests: int = Field(default=4, ge=1, le=4, strict=True)
 
 
 class GraphqlDiscoveryParams(StrictModel):
@@ -320,7 +366,8 @@ class DnsResolveParams(StrictModel):
 
 Parameters = (HttpProbeParams | NmapScanParams | WhatWebParams | HttpFetchParams | BrowserExploreParams
               | BrowserRequestParams | ContentDiscoveryParams | ExposureDiscoveryParams
-              | GraphqlDiscoveryParams | GraphqlIntrospectionParams | DnsResolveParams)
+              | GraphqlDiscoveryParams | GraphqlIntrospectionParams | DnsResolveParams
+              | WebCrawlParams | VhostDiscoveryParams | ParameterDiscoveryParams | TechnologyScanParams)
 
 
 class CapabilityRequest(StrictModel):

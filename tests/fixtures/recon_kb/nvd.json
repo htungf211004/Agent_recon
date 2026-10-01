@@ -1,0 +1,23 @@
+{
+  "resultsPerPage": 1,
+  "startIndex": 0,
+  "totalResults": 1,
+  "version": "2.0",
+  "products": [
+    {
+      "cpe": {
+        "cpeNameId": "fixture-cpe-id",
+        "cpeName": "cpe:2.3:a:example:example_product:1.0:*:*:*:*:*:*:*",
+        "deprecated": false,
+        "titles": [
+          {
+            "title": "Example Product",
+            "lang": "en"
+          }
+        ],
+        "created": "2024-01-01T00:00:00.000",
+        "lastModified": "2026-10-01T00:00:00.000"
+      }
+    }
+  ]
+}

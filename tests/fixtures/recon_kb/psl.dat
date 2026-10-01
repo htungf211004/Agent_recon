@@ -1,0 +1,10 @@
+// ===BEGIN ICANN DOMAINS===
+com
+uk
+co.uk
+*.ck
+!www.ck
+// ===END ICANN DOMAINS===
+// ===BEGIN PRIVATE DOMAINS===
+blogspot.com
+// ===END PRIVATE DOMAINS===

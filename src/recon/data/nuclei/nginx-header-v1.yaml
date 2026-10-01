@@ -1,0 +1,16 @@
+id: recon-nginx-header-v1
+info:
+  name: Recon nginx header indicator
+  author: agent-recon
+  severity: info
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+    redirects: false
+    matchers:
+      - type: word
+        part: header
+        case-insensitive: true
+        words:
+          - "nginx"

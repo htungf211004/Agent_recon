@@ -1,0 +1,7 @@
+{
+  "version": "technology-v1",
+  "templates": {
+    "apache-header-v1.yaml": "d6cee0198905aba8c401b1aeea6d22e66fad3f413b9b0263850566bf073d7b9f",
+    "nginx-header-v1.yaml": "8a23465e8d6930f2d1f61e71b71e2f80f3f79fb5bbe7e5ee09693b5f23c2cc51"
+  }
+}

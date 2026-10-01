@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import tempfile
@@ -23,14 +24,13 @@ class LocalOsintAdapter:
     def execute(self, request: LocalOsintCapabilityRequest) -> AdapterOutput:
         if request.tool != self.tool:
             raise ValueError("local OSINT tool mismatch")
-        if request.capability == Capability.PASSIVE_INFRA_ENUM:
-            return AdapterOutput(status="error", message="infrastructure profile is not implemented")
+        infrastructure = request.capability == Capability.PASSIVE_INFRA_ENUM
         with tempfile.TemporaryDirectory(prefix="recon-osint-") as directory:
-            output_path = Path(directory) / "amass.txt"
+            output_path = Path(directory) / ("amass.json" if infrastructure else "amass.txt")
             command = {
                 "subfinder": ["subfinder", "-d", request.root_domain, "-silent"],
                 "amass": ["amass", "enum", "-passive", "-d", request.root_domain,
-                          "-dir", directory, "-o", str(output_path)],
+                          "-dir", directory, "-json" if infrastructure else "-o", str(output_path)],
                 "gau": ["gau", "--subs", "--providers", "wayback,commoncrawl,otx,urlscan",
                         "--threads", "2", "--timeout", "5", "--retries", "0", request.root_domain],
             }[self.tool]
@@ -54,6 +54,38 @@ class LocalOsintAdapter:
         observations: list[ReconObservation] = []
         seen: set[str] = set()
         for line in raw.decode("utf-8", errors="replace").splitlines():
+            if not line.strip():
+                continue
+            if infrastructure:
+                try:
+                    row = json.loads(line)
+                    name = self._normalized(row.get("name", ""), request.root_domain)
+                    if name is None:
+                        continue
+                    values = [("HOST", name)]
+                    addresses = row.get("addresses") or []
+                    if not isinstance(addresses, list):
+                        raise ValueError("invalid address collection")
+                    for address in addresses[:32]:
+                        try:
+                            ip = ipaddress.ip_address(address.get("ip", ""))
+                            if not ip.is_unspecified and not ip.is_multicast:
+                                values.append(("IP", str(ip)))
+                            asn = address.get("asn")
+                            if type(asn) is int and 0 < asn <= 4294967295:
+                                values.append(("METADATA", f"asn:{asn}"))
+                        except (ValueError, TypeError):
+                            continue
+                except (ValueError, TypeError, AttributeError):
+                    return AdapterOutput(status="error", message="invalid passive infrastructure output")
+                for kind, value in values:
+                    key = kind + ":" + value
+                    if key not in seen:
+                        seen.add(key)
+                        if len(observations) < request.parameters.max_results:
+                            observations.append(ReconObservation(kind=kind, value=value,
+                                source=request.capability, provider=self.tool))
+                continue
             value = self._normalized(line.strip(), request.root_domain)
             if value is None or value in seen:
                 continue
@@ -67,9 +99,11 @@ class LocalOsintAdapter:
         normalized = json.dumps({"tool": self.tool, "root_domain": request.root_domain,
                                  "observations": [item.model_dump(mode="json") for item in observations]},
                                 sort_keys=True, separators=(",", ":")).encode()
+        metadata_missing = infrastructure and not any(row.kind in {"IP", "METADATA"} for row in observations)
         return AdapterOutput(status="success", raw_output=normalized,
                              observations=tuple(observations),
-                             message="result limit reached" if len(seen) > len(observations) else "")
+                             message=("passive_infra:metadata_unavailable" if metadata_missing else
+                                      "result limit reached" if len(seen) > len(observations) else ""))
 
     def _normalized(self, value: str, root_domain: str) -> str | None:
         if len(value) > 2048 or any(ord(char) < 32 for char in value):
