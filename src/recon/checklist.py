@@ -7,7 +7,7 @@ import yaml
 from pydantic import Field
 
 from src.contracts.recon_planning import ChecklistSummary, PlanningModel
-from src.recon.models import Capability, CapabilityRequest
+from src.recon.models import Capability
 
 
 class ReconChecklistItem(PlanningModel):
@@ -42,8 +42,10 @@ def project_checklist(task, repository, service):
     if Capability.BROWSER_EXPLORE in available:
         available.add(Capability.BROWSER_REQUEST)  # Internal Gateway dispatch, no public adapter.
     results = repository.list_tool_results(task.id)
-    requests = {run.request_id: CapabilityRequest.model_validate_json(run.request_payload)
-                for run in repository.list_tool_runs(task.id) if run.request_payload}
+    from src.recon.models import parse_target_request
+
+    requests = {run.request_id: request for run in repository.list_tool_runs(task.id)
+                if run.request_payload and (request := parse_target_request(run.request_payload)) is not None}
     verified = set()
     for result in results:
         if result.status == "success" and result.evidence_id:

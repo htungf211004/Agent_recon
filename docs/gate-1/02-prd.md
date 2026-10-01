@@ -689,3 +689,27 @@ Khi có quyết định, thay `Open` hoặc `mentor xác nhận` bằng kết qu
 8. Report có scope, finding, evidence, quyết định và giới hạn.
 9. Web app được deploy theo kiến trúc mentor chấp nhận.
 10. Eval và failure cases có kết quả lưu lại.
+# Recon Tool Coverage V3 requirements
+
+- **BR-RECON-COVERAGE-02:** Do not freeze the Recon tool taxonomy or ingest a new
+  KB until mandatory PT_01 STT 1–16 coverage and runtime gates pass.
+- **FR-RECON-TOOL-01:** Route target, provider and offline analysis through the
+  policy and evidence Gateway with distinct request contracts.
+- **FR-RECON-TOOL-02:** Publish intent capability, risk, availability and bounded
+  budget metadata independent of binary names.
+- **FR-RECON-OSINT-01:** Use fixed provider endpoints and deterministic queries;
+  keep observations outside target execution until scope verification.
+- **FR-RECON-PROTOCOL-01:** Restrict GraphQL introspection to a fixed read-only
+  request and parse WSDL without external XML resolution.
+- **FR-RECON-EXPOSURE-01:** Check bounded backup and SCM markers without archive or
+  repository extraction.
+- **FR-RECON-SECRET-01:** Persist redacted public-code references without plaintext
+  credential matches or secret validation.
+- **FR-RECON-COVERAGE-03:** Checklist V3 must separate availability, attempt,
+  evidence and finding state.
+- **AC-RECON-TOOL-01:** Existing target request fingerprints remain replayable.
+- **AC-RECON-TOOL-02:** Missing credentials and binaries never imply NOT_FOUND.
+- **AC-RECON-TOOL-03:** External references never authorize active out-of-scope
+  requests.
+
+Implementation status: [Recon Tool Coverage V3](../recon-tool-coverage-v3.md).

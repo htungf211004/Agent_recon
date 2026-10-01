@@ -8,7 +8,7 @@ import json
 from datetime import UTC, datetime
 from typing import Protocol
 
-from src.contracts.execution import CURRENT_RECON_POLICY_VERSION, Risk, action_fingerprint
+from src.contracts.execution import CURRENT_RECON_POLICY_VERSION, action_fingerprint
 from src.recon.models import (
     BrowserExploreParams,
     BrowserRequestParams,
@@ -16,8 +16,13 @@ from src.recon.models import (
     CapabilityRequest,
     ContentDiscoveryParams,
     DnsResolveParams,
+    EvidenceCapabilityRequest,
+    GraphqlDiscoveryParams,
+    GraphqlIntrospectionParams,
     HttpFetchParams,
     PolicyDecision,
+    ProviderCapabilityRequest,
+    ReconExecutionRequest,
     ReconTask,
 )
 from src.recon.scope.deriver import ScopeDeriver
@@ -44,7 +49,24 @@ class PolicyService:
         return hashlib.sha256((version + ":" + payload).encode()).hexdigest()
 
     @classmethod
-    def expected_fingerprint(cls, request: CapabilityRequest, task: ReconTask) -> str:
+    def expected_fingerprint(cls, request: ReconExecutionRequest, task: ReconTask) -> str:
+        if isinstance(request, ProviderCapabilityRequest):
+            return action_fingerprint(
+                run_id=task.run_id, task_id=task.id, target=request.root_domain,
+                tool=request.capability.value,
+                parameters={"request_kind": "provider", "provider": request.provider,
+                            **request.parameters.model_dump(mode="json")},
+                scope_version=task.scope_version, policy_version=task.policy_version,
+                scope_fingerprint=cls.scope_fingerprint(task),
+            )
+        if isinstance(request, EvidenceCapabilityRequest):
+            return action_fingerprint(
+                run_id=task.run_id, task_id=task.id, target=request.evidence_ref,
+                tool=request.capability.value,
+                parameters={"request_kind": "evidence", **request.parameters.model_dump(mode="json")},
+                scope_version=task.scope_version, policy_version=task.policy_version,
+                scope_fingerprint=cls.scope_fingerprint(task),
+            )
         parameters = request.parameters.model_dump(mode="json")
         if request.target_host is not None:
             parameters["target_host"] = request.target_host
@@ -57,7 +79,7 @@ class PolicyService:
             scope_fingerprint=cls.scope_fingerprint(task),
         )
 
-    def bind(self, request: CapabilityRequest) -> CapabilityRequest:
+    def bind(self, request: ReconExecutionRequest) -> ReconExecutionRequest:
         """Fill absent legacy metadata; never replace a caller's conflicting value."""
         task = self.tasks.get_task(request.task_id)
         if task is None:
@@ -68,22 +90,24 @@ class PolicyService:
             "action_fingerprint": request.action_fingerprint or self.expected_fingerprint(request, task),
         })
 
-    def decide(self, request: CapabilityRequest) -> PolicyDecision:
+    def decide(self, request: ReconExecutionRequest) -> PolicyDecision:
         request = self.bind(request)
         task = self.tasks.get_task(request.task_id)
         reason = self._denial_reason(request, task)
         if reason is None:
             reason = self.tasks.budget_denial(request)
         fingerprint = self.scope_fingerprint(task) if task else ""
+        from src.recon.capability_catalog import RISK
+
         return PolicyDecision(
             request_id=request.id, action_fingerprint=request.action_fingerprint or "",
             scope_version=request.scope_version or "unknown", allowed=reason is None,
             reason=reason or "in scope", policy_version=self.VERSION,
             policy_fingerprint=fingerprint,
-            risk=Risk.R1 if request.capability in {Capability.NMAP_SCAN, Capability.CONTENT_DISCOVERY} else Risk.R0,
+            risk=RISK[request.capability],
         )
 
-    def _denial_reason(self, request: CapabilityRequest, task: ReconTask | None) -> str | None:
+    def _denial_reason(self, request: ReconExecutionRequest, task: ReconTask | None) -> str | None:
         if task is None:
             return "unknown task"
         if task.policy_version != PolicyService.VERSION:
@@ -100,6 +124,35 @@ class PolicyService:
             return "task expired or has no timezone"
         if request.capability not in task.scope.capabilities:
             return "capability not allowed"
+        if isinstance(request, ProviderCapabilityRequest):
+            boundary = self.tasks.get_authorization(task.id)
+            if boundary is None or boundary.root.kind != "DOMAIN" or boundary.root.value != request.root_domain:
+                return "provider query root does not match domain authorization"
+            if request.provider == "rdap" and request.root_domain.rsplit(".", 1)[-1] not in {"com", "net"}:
+                return "RDAP TLD unsupported by configured endpoint"
+            if request.parameters.timeout_seconds > task.execution_budget.max_timeout_seconds:
+                return "timeout exceeds task budget"
+            return None
+        if isinstance(request, EvidenceCapabilityRequest):
+            artifact = self.tasks.get_evidence(request.evidence_ref)
+            result = self.tasks.get_tool_result(artifact.request_id) if artifact else None
+            run = self.tasks.get_tool_run(artifact.request_id) if artifact else None
+            source = None
+            if run and run.request_payload:
+                from src.recon.models import parse_target_request
+
+                source = parse_target_request(run.request_payload)
+            if (artifact is None or artifact.task_id != task.id or result is None
+                    or result.status != "success" or result.evidence_id != artifact.id
+                    or source is None or source.capability != Capability.HTTP_FETCH):
+                return "evidence is not a successful artifact of this task"
+            path = source.parameters.path.lower()
+            if request.capability == Capability.SOURCEMAP_ANALYZE and not path.endswith(".map"):
+                return "source map analysis requires fetched .map evidence"
+            if request.capability == Capability.WSDL_DISCOVERY and not (
+                    path.endswith(".wsdl") or source.parameters.query.lower() == "wsdl"):
+                return "WSDL analysis requires fetched WSDL evidence"
+            return None
         params = request.parameters
         if isinstance(params, DnsResolveParams):
             boundary = self.tasks.get_authorization(task.id)
@@ -131,13 +184,15 @@ class PolicyService:
         derived_allowed = (derived is not None and derived.address == request.target_ip
                            and request.capability in {Capability.HTTP_FETCH, Capability.HTTP_PROBE, Capability.WHATWEB,
                                                       Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST,
-                                                      Capability.CONTENT_DISCOVERY})
+                                                      Capability.CONTENT_DISCOVERY, Capability.EXPOSURE_DISCOVERY,
+                                                      Capability.GRAPHQL_DISCOVERY, Capability.GRAPHQL_INTROSPECTION})
         if request.target_ip not in task.scope.allowed_ips and not derived_allowed:
             return "target not allowed"
         if origin and not derived_allowed:
             if request.capability not in {Capability.HTTP_FETCH, Capability.HTTP_PROBE, Capability.WHATWEB,
                                           Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST,
-                                          Capability.CONTENT_DISCOVERY}:
+                                          Capability.CONTENT_DISCOVERY, Capability.EXPOSURE_DISCOVERY,
+                                          Capability.GRAPHQL_DISCOVERY, Capability.GRAPHQL_INTROSPECTION}:
                 return "capability has no pinned-origin transport"
             root_transport = (request.target_ip == origin.pinned_ip and request.target_host == origin.host
                               and (params.scheme, params.port) == (origin.scheme, origin.port))
@@ -152,11 +207,12 @@ class PolicyService:
             return "hostname has no trusted origin binding"
         if isinstance(params, BrowserExploreParams):
             timeout = params.limits.max_runtime_seconds
-        elif isinstance(params, (HttpFetchParams, BrowserRequestParams)):
+        elif isinstance(params, (HttpFetchParams, BrowserRequestParams, GraphqlDiscoveryParams,
+                                 GraphqlIntrospectionParams)):
             timeout = params.timeout_seconds
         else:
             timeout = {Capability.HTTP_PROBE: 5, Capability.NMAP_SCAN: 60, Capability.WHATWEB: 20,
-                       Capability.CONTENT_DISCOVERY: 20}[request.capability]
+                       Capability.CONTENT_DISCOVERY: 20, Capability.EXPOSURE_DISCOVERY: 20}[request.capability]
         if timeout > task.execution_budget.max_timeout_seconds:
             return "timeout exceeds task budget"
         requested_ports = params.ports if hasattr(params, "ports") else (params.port,)
@@ -177,7 +233,8 @@ class PolicyService:
                 return "method not allowed"
             if not path_allowed("/", task.scope.allowed_paths):
                 return "path not allowed"
-        if isinstance(params, (HttpFetchParams, BrowserRequestParams, BrowserExploreParams)):
+        if isinstance(params, (HttpFetchParams, BrowserRequestParams, BrowserExploreParams,
+                               GraphqlDiscoveryParams, GraphqlIntrospectionParams)):
             body_limit = params.limits.max_response_bytes if isinstance(params, BrowserExploreParams) else params.max_body_bytes
             if body_limit > task.execution_budget.max_body_bytes:
                 return "body size exceeds task budget"
@@ -185,6 +242,20 @@ class PolicyService:
                 return "method not allowed"
             if not path_allowed(params.path, task.scope.allowed_paths):
                 return "path not allowed"
+        if isinstance(params, GraphqlDiscoveryParams) and "GET" not in task.scope.allowed_methods:
+            return "method not allowed"
+        if isinstance(params, GraphqlIntrospectionParams):
+            artifact = self.tasks.get_evidence(params.discovery_evidence_ref)
+            prior = self.tasks.get_tool_result(artifact.request_id) if artifact else None
+            from src.recon.urls import request_url
+
+            expected_url = request_url(request.target_ip, params.scheme, params.port, params.path,
+                                       target_host=request.target_host)
+            if (artifact is None or artifact.task_id != task.id or prior is None
+                    or prior.status != "success" or prior.capability != Capability.GRAPHQL_DISCOVERY
+                    or prior.evidence_id != artifact.id or not any(
+                        obs.kind == "PROTOCOL" and obs.value == expected_url for obs in prior.observations)):
+                return "GraphQL endpoint lacks verified discovery evidence"
         if isinstance(params, BrowserExploreParams) and "GET" not in task.scope.allowed_methods:
             return "method not allowed"
         if isinstance(params, BrowserRequestParams) and not request.parent_request_id:

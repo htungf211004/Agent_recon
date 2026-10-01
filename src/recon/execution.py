@@ -3,7 +3,7 @@
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 
 class ExecutionModel(BaseModel):
@@ -42,6 +42,27 @@ class ExecutionBudget(ExecutionModel):
     max_requests_per_second: int = Field(default=100, ge=1, le=1000)
     max_timeout_seconds: float = Field(default=60, gt=0, le=60)
     max_body_bytes: int = Field(default=131072, ge=1, le=131072)
+    max_external_queries: int = Field(default=12, ge=0, le=64)
+    max_external_results: int = Field(default=300, ge=0, le=1000)
+    max_offline_bytes: int = Field(default=262144, ge=0, le=1048576)
+    max_tool_processes: int = Field(default=32, ge=0, le=256)
+    max_subdomains: int = Field(default=128, ge=0, le=2048)
+    max_historical_urls: int = Field(default=256, ge=0, le=4096)
+    max_crawl_urls: int = Field(default=128, ge=0, le=2048)
+    max_parameter_attempts: int = Field(default=32, ge=0, le=256)
+    max_vhost_candidates: int = Field(default=64, ge=0, le=512)
+
+    @model_serializer(mode="wrap")
+    def compatible_payload(self, handler):
+        payload = handler(self)
+        for key, default in (("max_external_queries", 12), ("max_external_results", 300),
+                             ("max_offline_bytes", 262144), ("max_tool_processes", 32),
+                             ("max_subdomains", 128), ("max_historical_urls", 256),
+                             ("max_crawl_urls", 128), ("max_parameter_attempts", 32),
+                             ("max_vhost_candidates", 64)):
+            if payload[key] == default:
+                del payload[key]
+        return payload
 
 
 class BudgetContext(ExecutionModel):

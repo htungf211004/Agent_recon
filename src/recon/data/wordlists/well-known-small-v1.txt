@@ -1,3 +1,4 @@
 .well-known/security.txt
 .well-known/openid-configuration
 .well-known/jwks.json
+.well-known/assetlinks.json

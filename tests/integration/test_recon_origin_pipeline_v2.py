@@ -103,7 +103,9 @@ def test_root_to_subdomain_recursive_discovery_and_mandatory_content_without_llm
     assert any(row.capability == Capability.CONTENT_DISCOVERY for row in result.tool_results)
     assert any(row.capability == Capability.BROWSER_EXPLORE for row in result.tool_results) == browser_available
     assert result.worker_status == "COMPLETED"
-    assert result.coverage_outcome == ("COMPLETE" if browser_available else "LIMITED"), result.coverage.limitations
+    # V3 records the missing mandatory local/provider capabilities as partial
+    # coverage even when the original V2 browser and content path succeeds.
+    assert result.coverage_outcome == ("PARTIAL" if browser_available else "LIMITED"), result.coverage.limitations
     before = list(calls)
     agent.run(task.id)
     assert calls == before

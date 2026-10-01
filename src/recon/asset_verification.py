@@ -14,7 +14,6 @@ from src.contracts.recon_assets import (
 )
 from src.recon.models import (
     Capability,
-    CapabilityRequest,
     DnsResolveParams,
     HttpFetchParams,
     ReconPlan,
@@ -70,7 +69,11 @@ class AssetVerifier:
         for run in self.repository.list_tool_runs(task.id):
             if not run.request_payload:
                 continue
-            request = CapabilityRequest.model_validate_json(run.request_payload)
+            from src.recon.models import parse_target_request
+
+            request = parse_target_request(run.request_payload)
+            if request is None:
+                continue
             if request.capability != Capability.HTTP_PROBE:
                 continue
             result = self.repository.get_tool_result(request.id)

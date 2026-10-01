@@ -45,3 +45,10 @@
 | US-20 | Là **người nhận báo cáo**, tôi muốn tải báo cáo để sử dụng kết quả ngoài hệ thống. | Người có quyền tải được báo cáo của đúng run ở định dạng MVP đã chốt; nội dung tải khớp nội dung hiển thị và không lộ khóa hoặc dữ liệu nhạy cảm không cần thiết. |
 | US-21 | Là **người dùng được cấp quyền**, tôi muốn báo cáo và evidence chỉ được người phù hợp truy cập để bảo vệ dữ liệu kiểm thử. | Người không có quyền bị từ chối cả ở UI lẫn API; truy cập trái quyền được ghi log. |
 | US-22 | Là **người kiểm tra**, tôi muốn xem lịch sử hành động của người dùng, agent và hệ thống để tái dựng run. | Audit ghi actor, action, resource, result, timestamp, run ID và trace ID. Phê duyệt, từ chối và tool execution truy vết được theo run. |
+# Pre-KB Recon coverage
+
+As an operator, I can see which PT_01 checks ran with verified evidence, which
+providers need credentials, and which local tools are missing, so I do not
+mistake an unavailable check for a negative finding. I can resume a run without
+replaying completed provider or offline requests. The [V3 gate tracker](recon-tool-coverage-v3.md)
+records the current implementation status.

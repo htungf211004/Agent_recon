@@ -255,3 +255,8 @@ Technical Guidebook: <https://phoenix.note.transformerlabs.ai/technical-book>
 ## License
 
 [MIT](LICENSE)
+# Pre-KB Recon Tool Coverage V3
+
+The current tool-layer implementation and remaining freeze gates are tracked in
+[Recon Tool Coverage V3](docs/recon-tool-coverage-v3.md). The freeze remains open;
+coverage output reports missing capabilities and credentials explicitly.

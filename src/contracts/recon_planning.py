@@ -181,7 +181,7 @@ class ReconPlanningContext(PlanningModel):
     services: tuple[PlanningService, ...]
     technologies: tuple[PlanningTechnology, ...]
     assets: tuple[PlanningAsset, ...] = ()
-    checklist_version: Literal["recon-checklist-v1", "recon-checklist-v2"] = "recon-checklist-v1"
+    checklist_version: Literal["recon-checklist-v1", "recon-checklist-v2", "recon-checklist-v3"] = "recon-checklist-v1"
     checklist: tuple[ChecklistSummary, ...]
     available_actions: tuple[str, ...]
     trusted_wordlists: tuple[str, ...] = ()

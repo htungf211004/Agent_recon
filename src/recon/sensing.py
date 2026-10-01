@@ -4,7 +4,6 @@ from urllib.parse import urlsplit
 
 from src.recon.models import (
     Capability,
-    CapabilityRequest,
     HttpFetchParams,
     HttpProbeParams,
     NmapScanParams,
@@ -58,8 +57,10 @@ class ReconSensing:
         self.repository, self.service = engine.repository, engine.service
 
     def _requests(self, task_id):
-        return {run.request_id: CapabilityRequest.model_validate_json(run.request_payload)
-                for run in self.repository.list_tool_runs(task_id) if run.request_payload}
+        from src.recon.models import parse_target_request
+
+        return {run.request_id: request for run in self.repository.list_tool_runs(task_id)
+                if run.request_payload and (request := parse_target_request(run.request_payload)) is not None}
 
     def _results(self, task_id):
         # Facts must still have intact evidence when used to drive another stage.

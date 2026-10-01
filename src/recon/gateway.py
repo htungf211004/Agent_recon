@@ -3,20 +3,27 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
+from urllib.parse import urlsplit
 
 from src.recon.execution import ToolRun, ToolRunState
 from src.recon.models import (
     AttackSurfaceEntry,
     Capability,
+    CapabilityAvailability,
     CapabilityRequest,
     EvidenceArtifact,
     PolicyDecision,
     PolicyOutcome,
+    ProviderCapabilityRequest,
+    ReconExecutionRequest,
+    ReconObservation,
     TechnologyObservation,
     ToolResult,
+    request_target_ip,
 )
 from src.recon.policy import PolicyService
 from src.recon.web_models import HttpResponseMetadata
@@ -31,6 +38,7 @@ class AdapterOutput:
     attack_surface: tuple[AttackSurfaceEntry, ...] = ()
     technologies: tuple[TechnologyObservation, ...] = ()
     http_response: HttpResponseMetadata | None = None
+    observations: tuple[ReconObservation, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -41,7 +49,7 @@ class ExternalDispatchPermit:
 
 
 class Adapter(Protocol):
-    def execute(self, request: CapabilityRequest) -> AdapterOutput: ...
+    def execute(self, request: ReconExecutionRequest) -> AdapterOutput: ...
 
 
 class EvidenceWriter(Protocol):
@@ -75,17 +83,50 @@ class ResultWriter(Protocol):
 class CapabilityRegistry:
     def __init__(self) -> None:
         self._adapters: dict[Capability, Adapter] = {}
+        self._unavailable: dict[Capability, str] = {}
 
     def register(self, capability: Capability, adapter: Adapter) -> None:
         if capability in self._adapters:
             raise ValueError(f"adapter already registered: {capability.value}")
         self._adapters[capability] = adapter
+        self._unavailable.pop(capability, None)
+
+    def mark_unavailable(self, capability: Capability, status: str) -> None:
+        if status not in {"MISSING_BINARY", "MISSING_CREDENTIAL", "POLICY_DISABLED",
+                          "UNSUPPORTED_TARGET_KIND", "RUNTIME_ERROR"}:
+            raise ValueError("invalid capability availability")
+        if capability in self._adapters:
+            raise ValueError("registered capability cannot be unavailable")
+        self._unavailable[capability] = status
+
+    def availability(self, capability: Capability, provider: str | None = None) -> str:
+        if capability == Capability.BROWSER_REQUEST:
+            return "AVAILABLE" if Capability.BROWSER_EXPLORE in self._adapters else "MISSING_BINARY"
+        adapter = self._adapters.get(capability)
+        if adapter is not None:
+            return adapter.availability(provider) if hasattr(adapter, "availability") else "AVAILABLE"
+        return self._unavailable.get(capability, "MISSING_BINARY")
 
     def get(self, capability: Capability) -> Adapter | None:
         return self._adapters.get(capability)
 
     def available_capabilities(self) -> tuple[Capability, ...]:
-        return tuple(sorted(self._adapters, key=lambda capability: capability.value))
+        return tuple(sorted((capability for capability in self._adapters
+                             if self.availability(capability) == "AVAILABLE"), key=lambda capability: capability.value))
+
+    def availability_manifest(self) -> tuple[dict, ...]:
+        rows = []
+        for capability in Capability:
+            adapter = self._adapters.get(capability)
+            providers = getattr(adapter, "adapters", None)
+            if providers:
+                rows.extend(CapabilityAvailability(capability=capability, provider=provider,
+                             status=self.availability(capability, provider)).model_dump(mode="json")
+                            for provider in sorted(providers))
+            else:
+                rows.append(CapabilityAvailability(capability=capability,
+                            status=self.availability(capability)).model_dump(mode="json"))
+        return tuple(rows)
 
 
 class ToolExecutionGateway:
@@ -101,7 +142,7 @@ class ToolExecutionGateway:
         self.evidence = evidence
         self.results = results
 
-    def execute(self, request: CapabilityRequest) -> ToolResult:
+    def execute(self, request: ReconExecutionRequest) -> ToolResult:
         if request.capability == Capability.BROWSER_REQUEST:
             raise ValueError("browser requests require external dispatch")
         request = self.policy.bind(request)
@@ -127,7 +168,7 @@ class ToolExecutionGateway:
                 request_id=request.id,
                 task_id=request.task_id,
                 capability=request.capability,
-                target_ip=request.target_ip,
+                target_ip=request_target_ip(request),
                 status="error",
                 message="request already claimed or incomplete",
             )
@@ -135,16 +176,20 @@ class ToolExecutionGateway:
         started_at = datetime.now(UTC)
         decision = self.policy.decide(request)
         adapter = self.registry.get(request.capability)
+        availability = self.registry.availability(request.capability, getattr(request, "provider", None))
         if decision.allowed and adapter is None:
             decision = decision.model_copy(update={"allowed": False, "outcome": PolicyOutcome.DENY,
-                                                   "reason": "capability adapter unavailable"})
+                                                   "reason": f"capability adapter unavailable: {availability}"})
+        elif decision.allowed and availability != "AVAILABLE":
+            decision = decision.model_copy(update={"allowed": False, "outcome": PolicyOutcome.DENY,
+                                                   "reason": f"capability unavailable: {availability}"})
         decision = self.results.start_tool_run(run, request, decision)
         if not decision.allowed or adapter is None:
             result = ToolResult(
                 request_id=request.id,
                 task_id=request.task_id,
                 capability=request.capability,
-                target_ip=request.target_ip,
+                target_ip=request_target_ip(request),
                 status="denied",
                 parent_request_id=request.parent_request_id,
                 message=decision.reason if not decision.allowed else "capability adapter unavailable",
@@ -158,6 +203,28 @@ class ToolExecutionGateway:
             timed_out = output.timed_out
             if output.status not in ("success", "error"):
                 raise ValueError("adapter returned invalid status")
+            if isinstance(request, ProviderCapabilityRequest) and output.status == "error":
+                output = AdapterOutput(status="error", timed_out=timed_out,
+                                       message="provider request failed")
+            if isinstance(request, ProviderCapabilityRequest) and output.status == "success":
+                for observation in output.observations:
+                    value = observation.value
+                    if (observation.provider != request.provider
+                            or any(marker in value.lower() for marker in ("api_key=", "secret=", "token="))):
+                        raise ValueError("provider output is not normalized")
+                    if observation.kind in {"URL", "CODE_REFERENCE", "SEARCH_REFERENCE"} and value.startswith("http"):
+                        parts = urlsplit(value)
+                        if parts.scheme != "https" or parts.query or parts.fragment or parts.username or parts.password:
+                            raise ValueError("provider output is not normalized")
+                try:
+                    normalized = json.loads(output.raw_output)
+                    expected = {"provider": request.provider, "root_domain": request.root_domain,
+                                "profile": request.parameters.profile,
+                                "observations": [row.model_dump(mode="json") for row in output.observations]}
+                    if normalized != expected:
+                        raise ValueError("provider output is not normalized")
+                except (TypeError, UnicodeError, json.JSONDecodeError) as exc:
+                    raise ValueError("provider output is not normalized") from exc
             terminal = self.results.get_tool_result(request.id)
             if terminal is not None:
                 return terminal
@@ -167,7 +234,7 @@ class ToolExecutionGateway:
                 request_id=request.id,
                 task_id=request.task_id,
                 capability=request.capability,
-                target_ip=request.target_ip,
+                target_ip=request_target_ip(request),
                 status=output.status,
                 parent_request_id=request.parent_request_id,
                 message=output.message,
@@ -175,6 +242,8 @@ class ToolExecutionGateway:
                 attack_surface=tuple(entry.model_copy(update={"evidence_id": evidence_id or ""}) for entry in output.attack_surface),
                 technologies=tuple(tech.model_copy(update={"evidence_id": evidence_id or ""}) for tech in output.technologies),
                 http_response=output.http_response,
+                observations=tuple(obs.model_copy(update={"evidence_id": evidence_id or ""})
+                                   for obs in output.observations),
                 started_at=started_at,
                 finished_at=datetime.now(UTC),
             )
@@ -184,10 +253,11 @@ class ToolExecutionGateway:
                 request_id=request.id,
                 task_id=request.task_id,
                 capability=request.capability,
-                target_ip=request.target_ip,
+                target_ip=request_target_ip(request),
                 status="error",
                 parent_request_id=request.parent_request_id,
-                message=f"{type(exc).__name__}: {exc}",
+                message=("provider execution failed" if isinstance(request, ProviderCapabilityRequest)
+                         else f"{type(exc).__name__}: {exc}"),
                 started_at=started_at,
                 finished_at=datetime.now(UTC),
             )

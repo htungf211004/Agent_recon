@@ -1,0 +1,5 @@
+.git/HEAD
+.git/config
+.svn/entries
+.hg/requires
+.bzr/branch/branch.conf

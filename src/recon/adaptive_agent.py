@@ -11,12 +11,15 @@ from src.recon.adaptive_projection import project_action
 from src.recon.asset_verification import AssetVerifier
 from src.recon.baseline_promotion import BrowserBaselinePromotion
 from src.recon.deterministic_coverage import DeterministicCoverageExecutor
+from src.recon.external_osint import ExternalOsintExecutor
 from src.recon.models import Capability, ReconPlan
+from src.recon.offline_phase import OfflineAnalysisExecutor
 from src.recon.origin_recon import OriginReconCoordinator
 from src.recon.planning_context import assemble_context
 from src.recon.planning_store import ReconPlanningStore
 from src.recon.policy import PolicyService
 from src.recon.proposal_validator import ReconProposalValidator
+from src.recon.protocol_phase import ProtocolCoverageExecutor
 from src.recon.rag.retriever import NoopKnowledgeRetriever
 
 
@@ -36,6 +39,7 @@ class AdaptiveReconAgent:
         self.validator = ReconProposalValidator(self.repository, self.service, self.limits)
         graph = StateGraph(ReconGraphState)
         graph.add_node("load_task", lambda state: {})
+        graph.add_node("external_osint", self._external_osint)
         for name in ("service_discovery", "web_service_discovery", "technology_fingerprinting"):
             graph.add_node(name, self._stage(name))
         graph.add_node("static_discovery", self._static)
@@ -43,13 +47,16 @@ class AdaptiveReconAgent:
         graph.add_node("verify_assets", self._verify_assets)
         graph.add_node("recon_derived_origins", self._derived_origins)
         graph.add_node("mandatory_coverage", self._mandatory_coverage)
+        graph.add_node("offline_analysis", self._offline_analysis)
+        graph.add_node("protocol_discovery", self._protocol_discovery)
         graph.add_node("llm_plan", self._plan)
         graph.add_node("validate_proposals", self._validate)
         graph.add_node("execute_recon_actions", self._execute)
         graph.add_node("refresh_adaptive_inventory", self._refresh)
-        stages = [START, "load_task", "service_discovery", "web_service_discovery",
+        stages = [START, "load_task", "external_osint", "service_discovery", "web_service_discovery",
                   "technology_fingerprinting", "static_discovery", "refresh_inventory", "verify_assets",
-                  "recon_derived_origins", "mandatory_coverage", "llm_plan"]
+                  "recon_derived_origins", "mandatory_coverage", "protocol_discovery",
+                  "offline_analysis", "llm_plan"]
         for before, after in zip(stages, stages[1:]):
             graph.add_edge(before, after)
         graph.add_conditional_edges("llm_plan", lambda s: "stop" if s["stop_reason"] else "validate",
@@ -88,6 +95,12 @@ class AdaptiveReconAgent:
             return {}
         return run
 
+    def _external_osint(self, state):
+        task = self.repository.get_task(state["task_id"])
+        if not self.store.rounds(task.id):
+            ExternalOsintExecutor(self.repository, self.service.gateway).run(task)
+        return {}
+
     def _static(self, state):
         from src.recon.sensing import ReconSensing
         task = self.repository.get_task(state["task_id"])
@@ -113,6 +126,16 @@ class AdaptiveReconAgent:
     def _mandatory_coverage(self, state):
         task = self.repository.get_task(state["task_id"])
         DeterministicCoverageExecutor(self.engine).run(task)
+        return {}
+
+    def _offline_analysis(self, state):
+        task = self.repository.get_task(state["task_id"])
+        OfflineAnalysisExecutor(self.repository, self.service.gateway).run(task)
+        return {}
+
+    def _protocol_discovery(self, state):
+        task = self.repository.get_task(state["task_id"])
+        ProtocolCoverageExecutor(self.repository, self.service, self.engine).run(task)
         return {}
 
     def _plan(self, state):

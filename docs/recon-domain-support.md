@@ -14,8 +14,9 @@ transport pin, and a new scope version before any HTTP verification. Root admiss
 records bounded A/AAAA answers; resume reuses the persisted binding. An IP root
 does not authorize arbitrary hostnames mentioned in content.
 
-The default domain profile uses HTTPS/443. The default IP profile uses bounded
-ports 80, 443, 8080 and 8443; it never sweeps all ports. A domain HTTP pin does
+The default domain profile starts at HTTPS/443 and may verify HTTP/80, HTTP/8080
+and HTTPS/8443 through the same frozen root DNS pin. The default IP profile uses
+bounded ports 80, 443, 8080 and 8443; it never sweeps all ports. A domain HTTP pin does
 not authorize Nmap scans of shared/CDN infrastructure. Bounded content discovery
 uses pinned HTTP requests for hostname targets. WhatWeb runs against the hostname
 with a process-local resolver pin. HTTP requests also pass through an exact-host
@@ -68,6 +69,10 @@ Only the submitted origin is authorized. Redirects are recorded but never follow
 automatically; submit the destination as a new task if appropriate. Another hostname
 on the same IP remains outside scope. A failed/stale DNS pin is not silently replaced.
 Nmap, WhatWeb and FFUF remain available for the legacy explicit IP profile.
+External provider references are observations, never direct authorization for a
+new IP scan. Configured provider APIs use fixed endpoints and fixed query profiles;
+their availability appears in the run manifest. See
+[Recon Tool Coverage V3](recon-tool-coverage-v3.md) for the current freeze status.
 
 The fragment (`#...`) is removed from HTTP identity; it is not a server path.
 Root `/#/` works as root navigation. Arbitrary SPA hash-route exploration is not

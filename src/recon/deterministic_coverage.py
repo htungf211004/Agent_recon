@@ -9,8 +9,8 @@ from src.recon.models import (
     BrowserExploreParams,
     BrowserLimits,
     Capability,
-    CapabilityRequest,
     ContentDiscoveryParams,
+    ExposureDiscoveryParams,
     ReconPlan,
 )
 from src.recon.origin_recon import OriginReconCoordinator
@@ -39,6 +39,9 @@ class DeterministicCoverageExecutor:
             visited.add(origin[0])
             _, target_ip, host, scheme, port = origin
             self._run_content(task, target_ip, host, scheme, port)
+            for profile in ("backup-small-v1", "scm-small-v1"):
+                self._run_content(task, target_ip, host, scheme, port,
+                                  capability=Capability.EXPOSURE_DISCOVERY, wordlist=profile)
             EndpointDiscovery(self.repository, self.engine.planner, self.service).run(
                 task, origins=(origin[0],), max_origin_requests=24)
             self._run_browser(task, target_ip, host, scheme, port)
@@ -55,7 +58,11 @@ class DeterministicCoverageExecutor:
         for run in self.repository.list_tool_runs(task.id):
             if not run.request_payload:
                 continue
-            request = CapabilityRequest.model_validate_json(run.request_payload)
+            from src.recon.models import parse_target_request
+
+            request = parse_target_request(run.request_payload)
+            if request is None:
+                continue
             if request.capability != Capability.HTTP_PROBE:
                 continue
             result = self.repository.get_tool_result(request.id)
@@ -70,16 +77,20 @@ class DeterministicCoverageExecutor:
             rows[origin] = (origin, request.target_ip, request.target_host, params.scheme, params.port)
         return tuple(rows[key] for key in sorted(rows))
 
-    def _prior(self, task_id, capability, target_ip, host, scheme, port):
+    def _prior(self, task_id, capability, target_ip, host, scheme, port, wordlist=None):
         for run in self.repository.list_tool_runs(task_id):
             if not run.request_payload:
                 continue
-            request = CapabilityRequest.model_validate_json(run.request_payload)
+            from src.recon.models import parse_target_request
+
+            request = parse_target_request(run.request_payload)
+            if request is None:
+                continue
             if (request.capability == capability and request.target_ip == target_ip
                     and request.target_host == host and request.parameters.scheme == scheme
                     and request.parameters.port == port
-                    and (capability != Capability.CONTENT_DISCOVERY or
-                         (request.parameters.path_prefix == "/" and request.parameters.wordlist_id == self.WORDLIST))
+                    and (capability not in {Capability.CONTENT_DISCOVERY, Capability.EXPOSURE_DISCOVERY} or
+                         (request.parameters.path_prefix == "/" and request.parameters.wordlist_id == (wordlist or self.WORDLIST)))
                     and (capability != Capability.BROWSER_EXPLORE or request.parameters.path == "/")):
                 return request
         return None
@@ -104,19 +115,21 @@ class DeterministicCoverageExecutor:
         if result and result.status != "success":
             self.repository.add_limitation(task.id, "coverage:mandatory_action_failed")
 
-    def _run_content(self, task, target_ip, host, scheme, port):
-        if Capability.CONTENT_DISCOVERY not in task.scope.capabilities:
+    def _run_content(self, task, target_ip, host, scheme, port, *, capability=Capability.CONTENT_DISCOVERY,
+                     wordlist=None):
+        if capability not in task.scope.capabilities:
             return
-        adapter = self.service.gateway.registry.get(Capability.CONTENT_DISCOVERY)
+        adapter = self.service.gateway.registry.get(capability)
         if adapter is None:
             return
-        prior = self._prior(task.id, Capability.CONTENT_DISCOVERY, target_ip, host, scheme, port)
+        prior = self._prior(task.id, capability, target_ip, host, scheme, port, wordlist)
         if prior:
             self._project_prior(task, prior)
             return
-        action = ReconPlanner._action(task, target_ip, Capability.CONTENT_DISCOVERY,
-                                      ContentDiscoveryParams(port=port, scheme=scheme, path_prefix="/",
-                                                             wordlist_id=self.WORDLIST), target_host=host)
+        params = (ExposureDiscoveryParams(port=port, scheme=scheme, path_prefix="/", wordlist_id=wordlist)
+                  if capability == Capability.EXPOSURE_DISCOVERY else
+                  ContentDiscoveryParams(port=port, scheme=scheme, path_prefix="/", wordlist_id=self.WORDLIST))
+        action = ReconPlanner._action(task, target_ip, capability, params, target_host=host)
         if hasattr(adapter, "supports") and not adapter.supports(action.request):
             return
         self._execute(task, action)

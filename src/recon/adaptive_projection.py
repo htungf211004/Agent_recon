@@ -24,7 +24,7 @@ def project_action(repository, service, request):
     run = repository.get_tool_run(request.id)
     if not result or not run or run.state not in {ToolRunState.SUCCEEDED, ToolRunState.FAILED, ToolRunState.TIMED_OUT}:
         return
-    if request.capability == Capability.CONTENT_DISCOVERY:
+    if request.capability in {Capability.CONTENT_DISCOVERY, Capability.EXPOSURE_DISCOVERY}:
         from src.recon.content_discovery import project_content
         project_content(repository, service, request)
         return

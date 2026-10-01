@@ -9,7 +9,6 @@ from src.recon.models import (
     BrowserExploreParams,
     BrowserLimits,
     Capability,
-    CapabilityRequest,
     ContentDiscoveryParams,
     HttpFetchParams,
     ReconPlan,
@@ -47,8 +46,10 @@ class ReconProposalValidator:
                     and self.repository.budget_usage(task.id) < task.execution_budget.max_requests):
                 return ReconPlan(task_id=task.id), ("inconsistent_stop_budget",)
             return ReconPlan(task_id=task.id), ("model_stop",)
-        seen = {action_key(CapabilityRequest.model_validate_json(run.request_payload))
-                for run in self.repository.list_tool_runs(task.id) if run.request_payload}
+        from src.recon.models import parse_target_request
+
+        seen = {action_key(request) for run in self.repository.list_tool_runs(task.id)
+                if run.request_payload and (request := parse_target_request(run.request_payload)) is not None}
         seen.update(action_key(action.request) for plan in self.repository.list_plans(task.id) for action in plan.actions)
         actions, rejected = [], []
         remaining_requests = task.execution_budget.max_requests - self.repository.budget_usage(task.id)

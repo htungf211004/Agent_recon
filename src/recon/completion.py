@@ -1,6 +1,6 @@
 """Worker terminal state is separate from endpoint readiness and coverage completeness."""
 
-from src.recon.checklist_v2 import project_checklist_v2
+from src.recon.checklist_v3 import project_checklist_v3
 from src.recon.execution import ToolRunState
 from src.recon.web_models import SourceStatus
 
@@ -20,7 +20,7 @@ def completion(agent, task_id, result):
         pending_assets = agent.repository.pending_verification_assets(task_id)
         origin_work = agent.repository.list_origin_work(task_id)
         pending_origins = any(item.status in {"PENDING", "RUNNING"} for item in origin_work)
-        checklist = project_checklist_v2(agent.repository.get_task(task_id), agent.repository, agent.service,
+        checklist = project_checklist_v3(agent.repository.get_task(task_id), agent.repository, agent.service,
                                          finalize=planning and static and not pending and not pending_assets
                                          and not pending_origins)
         checklist_terminal = all(item.status in {"COMPLETE", "BLOCKED", "UNSUPPORTED", "NOT_APPLICABLE", "MANUAL_REVIEW"}
@@ -37,7 +37,7 @@ def completion(agent, task_id, result):
               or result.coverage and any(not item.startswith("handoff:")
                                          for item in result.coverage.limitations)):
             coverage_outcome = "LIMITED"
-        elif any(item.status == "BLOCKED" or item.id == "PT_01-STT-11" and item.status == "UNSUPPORTED"
+        elif any(item.status in {"BLOCKED", "UNSUPPORTED"}
                  for item in checklist):
             coverage_outcome = "PARTIAL"
         else:

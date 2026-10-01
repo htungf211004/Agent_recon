@@ -19,10 +19,13 @@ from src.recon.models import (
     EvidenceArtifact,
     PolicyDecision,
     PolicyOutcome,
+    ReconExecutionRequest,
     ReconPlan,
     ReconResult,
     ReconTask,
     ToolResult,
+    parse_execution_request,
+    request_target_ip,
 )
 from src.recon.origin_models import OriginReconWorkItem
 from src.recon.scope.deriver import ScopeDeriver
@@ -238,7 +241,7 @@ class ReconRepository:
     def claim_request(self, request: CapabilityRequest) -> bool:
         return self.acquire_tool_run(request) is not None
 
-    def acquire_tool_run(self, request: CapabilityRequest) -> ToolRun | None:
+    def acquire_tool_run(self, request: ReconExecutionRequest) -> ToolRun | None:
         from src.recon.policy import PolicyService
 
         request = PolicyService(self).bind(request)
@@ -289,9 +292,9 @@ class ReconRepository:
             return tuple(run for row in rows if (run := ToolRun.model_validate_json(row[0])).parent_request_id == parent_request_id)
 
     @staticmethod
-    def _failed_result(request: CapabilityRequest, run: ToolRun) -> ToolResult:
+    def _failed_result(request: ReconExecutionRequest, run: ToolRun) -> ToolResult:
         return ToolResult(request_id=request.id, task_id=request.task_id, capability=request.capability,
-                          target_ip=request.target_ip, status="error", message=run.message,
+                          target_ip=request_target_ip(request), status="error", message=run.message,
                           started_at=run.started_at or run.queued_at, finished_at=run.finished_at)
 
     def recover_expired_runs(self, task_id: str, request: CapabilityRequest | None = None) -> None:
@@ -306,7 +309,7 @@ class ReconRepository:
                                                  "message": "execution lease expired; outcome unknown; automatic replay prohibited"})
                     connection.execute("UPDATE tool_runs SET payload = ? WHERE request_id = ?", (run.model_dump_json(), run.request_id))
                 if run.state == ToolRunState.FAILED:
-                    saved_request = CapabilityRequest.model_validate_json(run.request_payload) if run.request_payload else None
+                    saved_request = parse_execution_request(run.request_payload) if run.request_payload else None
                     if saved_request is None and request and request.id == run.request_id:
                         saved_request = request
                     if saved_request:
@@ -314,7 +317,7 @@ class ReconRepository:
                         connection.execute("INSERT OR IGNORE INTO tool_results VALUES (?, ?, ?, ?)",
                                            (result.request_id, result.task_id, result.status, result.model_dump_json()))
 
-    def _budget_denial(self, connection, request: CapabilityRequest) -> str | None:
+    def _budget_denial(self, connection, request: ReconExecutionRequest) -> str | None:
         row = connection.execute("SELECT payload FROM recon_tasks WHERE id = ?", (request.task_id,)).fetchone()
         if row is None:
             return "unknown task"
@@ -327,8 +330,9 @@ class ReconRepository:
         active = [ToolRun.model_validate_json(row[0]) for row in connection.execute(
             "SELECT payload FROM tool_runs WHERE task_id = ?", (task.id,))]
         active = [run for run in active if run.state == ToolRunState.RUNNING and run.request_payload]
-        if active and (request.capability == Capability.CONTENT_DISCOVERY or any(
-                CapabilityRequest.model_validate_json(run.request_payload).capability == Capability.CONTENT_DISCOVERY for run in active)):
+        discovery_caps = {Capability.CONTENT_DISCOVERY, Capability.EXPOSURE_DISCOVERY}
+        if active and (request.capability in discovery_caps or any(
+                parse_execution_request(run.request_payload).capability in discovery_caps for run in active)):
             return "content discovery requires exclusive task dispatch"
         total, fetches, recent = connection.execute(
             "SELECT COALESCE(SUM(request_units), 0), COALESCE(SUM(capability = ?), 0), COALESCE(SUM(CASE WHEN started_at > ? THEN request_units ELSE 0 END), 0) "
@@ -337,13 +341,45 @@ class ReconRepository:
         ).fetchone()
         if total + request_units(request) > budget.max_requests:
             return "task request budget exhausted"
+        from src.recon.capability_catalog import DEFINITIONS
+
+        process_caps = tuple(cap.value for cap, definition in DEFINITIONS.items()
+                             if definition.execution_kind == "target"
+                             and definition.required_runtime not in {"python", "chromium"})
+        if request.capability.value in process_caps:
+            used_processes = connection.execute(
+                "SELECT COUNT(*) FROM execution_reservations WHERE task_id = ? AND capability IN (" +
+                ",".join("?" for _ in process_caps) + ")", (task.id, *process_caps)).fetchone()[0]
+            if used_processes >= budget.max_tool_processes:
+                return "tool process budget exhausted"
+        from src.recon.models import EvidenceCapabilityRequest, ProviderCapabilityRequest
+
+        if isinstance(request, ProviderCapabilityRequest):
+            used = connection.execute(
+                "SELECT COUNT(*) FROM execution_reservations WHERE task_id = ? AND capability IN (?, ?, ?, ?)",
+                (task.id, Capability.EXTERNAL_ASSET_SEARCH.value, Capability.PUBLIC_CODE_SEARCH.value,
+                 Capability.SEARCH_ENGINE_OSINT.value, Capability.WHOIS_RDAP_LOOKUP.value),
+            ).fetchone()[0]
+            reserved_results = 0
+            for row in connection.execute("SELECT payload FROM tool_runs WHERE task_id = ?", (task.id,)):
+                run = ToolRun.model_validate_json(row[0])
+                if run.request_id == request.id or run.state in {ToolRunState.DENIED, ToolRunState.CANCELLED}:
+                    continue
+                previous = parse_execution_request(run.request_payload) if run.request_payload else None
+                if isinstance(previous, ProviderCapabilityRequest):
+                    reserved_results += previous.parameters.max_results
+            if (used >= budget.max_external_queries
+                    or reserved_results + request.parameters.max_results > budget.max_external_results):
+                return "external query budget exhausted"
+        if isinstance(request, EvidenceCapabilityRequest) and request.parameters.max_input_bytes > budget.max_offline_bytes:
+            return "offline byte budget exceeded"
         if request.capability == Capability.HTTP_FETCH and fetches >= task.discovery_limits.max_requests:
             return "HTTP_FETCH discovery request budget exhausted"
         if recent >= budget.max_requests_per_second:
             return "task request rate exceeded"
         return None
 
-    def budget_denial(self, request: CapabilityRequest) -> str | None:
+    def budget_denial(self, request: ReconExecutionRequest) -> str | None:
         with self._connect() as connection:
             return self._budget_denial(connection, request)
 
@@ -358,7 +394,7 @@ class ReconRepository:
         connection.execute("INSERT INTO policy_audit VALUES (?, ?, ?) ON CONFLICT(request_id, attempt) DO UPDATE SET payload=excluded.payload",
                            (decision.request_id, decision.attempt, decision.model_dump_json()))
 
-    def start_tool_run(self, run: ToolRun, request: CapabilityRequest, decision: PolicyDecision) -> PolicyDecision:
+    def start_tool_run(self, run: ToolRun, request: ReconExecutionRequest, decision: PolicyDecision) -> PolicyDecision:
         """Reserve budget, persist policy, and fence dispatch in a single transaction."""
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -428,9 +464,9 @@ class ReconRepository:
                     continue
                 if run.state not in (ToolRunState.QUEUED, ToolRunState.RUNNING):
                     continue
-                request = CapabilityRequest.model_validate_json(run.request_payload)
+                request = parse_execution_request(run.request_payload)
                 result = ToolResult(request_id=current_id, task_id=run.task_id,
-                                    capability=request.capability, target_ip=request.target_ip,
+                                    capability=request.capability, target_ip=request_target_ip(request),
                                     parent_request_id=request.parent_request_id, status="cancelled",
                                     message="execution cancelled", started_at=run.started_at or run.queued_at,
                                     finished_at=self.clock())
@@ -454,7 +490,7 @@ class ReconRepository:
                 raise RuntimeError("execution owner lost")
             if current.lease_expires_at <= self.clock():
                 current = current.model_copy(update={"message": "execution lease expired; late result rejected", "finished_at": self.clock()})
-                result = self._failed_result(CapabilityRequest.model_validate_json(current.request_payload), current)
+                result = self._failed_result(parse_execution_request(current.request_payload), current)
                 timed_out = False
             state = {"success": ToolRunState.SUCCEEDED, "denied": ToolRunState.DENIED,
                      "cancelled": ToolRunState.CANCELLED}.get(result.status, ToolRunState.FAILED)
@@ -677,7 +713,7 @@ class EvidenceStore:
         self.directory.mkdir(parents=True, exist_ok=True)
         self.repository = repository
 
-    def save(self, request: CapabilityRequest, content: bytes) -> EvidenceArtifact:
+    def save(self, request: ReconExecutionRequest, content: bytes) -> EvidenceArtifact:
         if len(content) > MAX_EVIDENCE_BYTES:
             raise ValueError("evidence exceeds Day-1 size limit")
         artifact_id = str(uuid4())

@@ -38,6 +38,31 @@ class Capability(StrEnum):
     BROWSER_EXPLORE = "browser_explore"
     BROWSER_REQUEST = "browser_request"
     CONTENT_DISCOVERY = "content_discovery"
+    PASSIVE_SUBDOMAIN_ENUM = "passive_subdomain_enum"
+    PASSIVE_INFRA_ENUM = "passive_infra_enum"
+    HISTORICAL_URL_DISCOVERY = "historical_url_discovery"
+    WHOIS_RDAP_LOOKUP = "whois_rdap_lookup"
+    WEB_CRAWL = "web_crawl"
+    VHOST_DISCOVERY = "vhost_discovery"
+    PARAMETER_DISCOVERY = "parameter_discovery"
+    TECHNOLOGY_SCAN = "technology_scan"
+    GRAPHQL_DISCOVERY = "graphql_discovery"
+    GRAPHQL_INTROSPECTION = "graphql_introspection"
+    WSDL_DISCOVERY = "wsdl_discovery"
+    EXPOSURE_DISCOVERY = "exposure_discovery"
+    SOURCEMAP_ANALYZE = "sourcemap_analyze"
+    EXTERNAL_ASSET_SEARCH = "external_asset_search"
+    PUBLIC_CODE_SEARCH = "public_code_search"
+    SEARCH_ENGINE_OSINT = "search_engine_osint"
+
+
+class CapabilityAvailability(StrictModel):
+    capability: Capability
+    status: Literal["AVAILABLE", "MISSING_BINARY", "MISSING_CREDENTIAL",
+                    "POLICY_DISABLED", "UNSUPPORTED_TARGET_KIND", "RUNTIME_ERROR"]
+    provider: str | None = None
+    tool_version: str | None = None
+    reason: str = ""
 
 
 class WebOrigin(StrictModel):
@@ -260,6 +285,30 @@ class ContentDiscoveryParams(StrictModel):
         return value
 
 
+class ExposureDiscoveryParams(ContentDiscoveryParams):
+    kind: Literal["exposure_discovery"] = "exposure_discovery"
+    wordlist_id: Literal["backup-small-v1", "scm-small-v1"]
+
+
+class GraphqlDiscoveryParams(StrictModel):
+    kind: Literal["graphql_discovery"] = "graphql_discovery"
+    port: int = Field(ge=1, le=65535)
+    scheme: Literal["http", "https"] = "http"
+    path: Literal["/graphql", "/gql", "/graphiql", "/v1/graphql"]
+    timeout_seconds: float = Field(default=5, gt=0, le=10)
+    max_body_bytes: int = Field(default=8192, ge=1, le=16384)
+
+
+class GraphqlIntrospectionParams(StrictModel):
+    kind: Literal["graphql_introspection"] = "graphql_introspection"
+    port: int = Field(ge=1, le=65535)
+    scheme: Literal["http", "https"] = "http"
+    path: Literal["/graphql", "/gql", "/v1/graphql"]
+    discovery_evidence_ref: str = Field(min_length=1)
+    timeout_seconds: float = Field(default=5, gt=0, le=10)
+    max_body_bytes: int = Field(default=32768, ge=1, le=65536)
+
+
 class DnsResolveParams(StrictModel):
     kind: Literal["dns_resolve"] = "dns_resolve"
     host: str
@@ -270,7 +319,8 @@ class DnsResolveParams(StrictModel):
 
 
 Parameters = (HttpProbeParams | NmapScanParams | WhatWebParams | HttpFetchParams | BrowserExploreParams
-              | BrowserRequestParams | ContentDiscoveryParams | DnsResolveParams)
+              | BrowserRequestParams | ContentDiscoveryParams | ExposureDiscoveryParams
+              | GraphqlDiscoveryParams | GraphqlIntrospectionParams | DnsResolveParams)
 
 
 class CapabilityRequest(StrictModel):
@@ -318,6 +368,104 @@ class CapabilityRequest(StrictModel):
     @property
     def target(self) -> str:
         return self.target_ip
+
+
+class ProviderParams(StrictModel):
+    """Fixed query profiles; callers cannot supply provider URLs or query strings."""
+
+    profile: Literal["root_domain", "public_code", "PUBLIC_DOCUMENTS", "ADMIN_LOGIN",
+                     "DIRECTORY_INDEX", "CONFIG_FILES", "BACKUP_FILES"]
+    max_results: int = Field(default=25, ge=1, le=100)
+    timeout_seconds: float = Field(default=10, gt=0, le=20)
+
+
+class ProviderCapabilityRequest(StrictModel):
+    request_kind: Literal["provider"] = "provider"
+    id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
+    run_id: str | None = None
+    scope_version: str | None = None
+    action_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    root_domain: str
+    capability: Literal[Capability.EXTERNAL_ASSET_SEARCH, Capability.PUBLIC_CODE_SEARCH,
+                        Capability.SEARCH_ENGINE_OSINT, Capability.WHOIS_RDAP_LOOKUP]
+    provider: Literal["shodan", "censys", "fofa", "github", "gitlab", "brave", "rdap"]
+    parameters: ProviderParams
+    budget_context: BudgetContext | None = None
+    parent_request_id: None = None
+
+    _root = field_validator("root_domain")(canonical_host)
+
+    @model_validator(mode="after")
+    def matching_provider(self):
+        allowed = {
+            Capability.EXTERNAL_ASSET_SEARCH: {"shodan", "censys", "fofa"},
+            Capability.PUBLIC_CODE_SEARCH: {"github", "gitlab"},
+            Capability.SEARCH_ENGINE_OSINT: {"brave"},
+            Capability.WHOIS_RDAP_LOOKUP: {"rdap"},
+        }
+        if self.provider not in allowed[self.capability]:
+            raise ValueError("provider does not implement capability")
+        profiles = {Capability.EXTERNAL_ASSET_SEARCH: {"root_domain"},
+                    Capability.PUBLIC_CODE_SEARCH: {"public_code"},
+                    Capability.SEARCH_ENGINE_OSINT: {"PUBLIC_DOCUMENTS", "ADMIN_LOGIN",
+                                                      "DIRECTORY_INDEX", "CONFIG_FILES", "BACKUP_FILES"},
+                    Capability.WHOIS_RDAP_LOOKUP: {"root_domain"}}[self.capability]
+        if self.parameters.profile not in profiles:
+            raise ValueError("profile does not match capability")
+        return self
+
+
+class EvidenceParams(StrictModel):
+    profile: Literal["sourcemap_metadata", "wsdl_metadata"]
+    max_input_bytes: int = Field(default=131072, ge=1, le=262144)
+    max_items: int = Field(default=64, ge=1, le=256)
+
+
+class EvidenceCapabilityRequest(StrictModel):
+    request_kind: Literal["evidence"] = "evidence"
+    id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
+    run_id: str | None = None
+    scope_version: str | None = None
+    action_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    capability: Literal[Capability.SOURCEMAP_ANALYZE, Capability.WSDL_DISCOVERY]
+    evidence_ref: str = Field(min_length=1)
+    parameters: EvidenceParams
+    budget_context: BudgetContext | None = None
+    parent_request_id: None = None
+
+    @model_validator(mode="after")
+    def matching_profile(self):
+        profiles = {Capability.SOURCEMAP_ANALYZE: "sourcemap_metadata",
+                    Capability.WSDL_DISCOVERY: "wsdl_metadata"}
+        if self.parameters.profile != profiles[self.capability]:
+            raise ValueError("profile does not match capability")
+        return self
+
+
+ReconExecutionRequest = CapabilityRequest | ProviderCapabilityRequest | EvidenceCapabilityRequest
+
+
+def parse_execution_request(payload: str) -> ReconExecutionRequest:
+    import json
+
+    data = json.loads(payload)
+    kind = data.get("request_kind", "target")
+    models = {"target": CapabilityRequest, "provider": ProviderCapabilityRequest,
+              "evidence": EvidenceCapabilityRequest}
+    if kind not in models:
+        raise ValueError("unknown request kind")
+    return models[kind].model_validate(data)
+
+
+def parse_target_request(payload: str) -> CapabilityRequest | None:
+    request = parse_execution_request(payload)
+    return request if isinstance(request, CapabilityRequest) else None
+
+
+def request_target_ip(request: ReconExecutionRequest) -> str | None:
+    return request.target_ip if isinstance(request, CapabilityRequest) else None
 
 
 class ReconAction(StrictModel):
@@ -394,11 +542,20 @@ class TechnologyObservation(StrictModel):
     evidence_id: str = ""
 
 
+class ReconObservation(StrictModel):
+    kind: Literal["HOST", "IP", "URL", "PORT", "PROTOCOL", "EXPOSURE", "CODE_REFERENCE",
+                  "SEARCH_REFERENCE", "TECHNOLOGY", "METADATA"]
+    value: str = Field(min_length=1, max_length=2048)
+    source: Capability
+    provider: str | None = None
+    evidence_id: str = ""
+
+
 class ToolResult(StrictModel):
     request_id: str
     task_id: str
     capability: Capability
-    target_ip: str
+    target_ip: str | None = None
     status: Literal["success", "error", "denied", "cancelled"]
     parent_request_id: str | None = None
     message: str = ""
@@ -406,6 +563,7 @@ class ToolResult(StrictModel):
     attack_surface: tuple[AttackSurfaceEntry, ...] = ()
     technologies: tuple[TechnologyObservation, ...] = ()
     http_response: HttpResponseMetadata | None = None
+    observations: tuple[ReconObservation, ...] = ()
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     finished_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

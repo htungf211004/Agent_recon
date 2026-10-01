@@ -18,9 +18,9 @@ from src.contracts.recon_planning import (
     ReconPlanningContext,
 )
 from src.recon.checklist import project_checklist
-from src.recon.checklist_v2 import VERSION as CHECKLIST_V2_VERSION
-from src.recon.checklist_v2 import project_checklist_v2
-from src.recon.models import Capability, CapabilityRequest
+from src.recon.checklist_v3 import VERSION as CHECKLIST_V3_VERSION
+from src.recon.checklist_v3 import project_checklist_v3
+from src.recon.models import Capability
 from src.recon.rag.models import KnowledgeReference
 from src.recon.rag.query_builder import build_query
 from src.recon.rag.retriever import NoopKnowledgeRetriever
@@ -87,7 +87,11 @@ def assemble_context(task, repository, service, limits, round_number, actions_us
     for run in repository.list_tool_runs(task.id):
         if not run.request_payload:
             continue
-        request = CapabilityRequest.model_validate_json(run.request_payload)
+        from src.recon.models import parse_target_request
+
+        request = parse_target_request(run.request_payload)
+        if request is None:
+            continue
         params = request.parameters
         previous.append(PlanningAction(request_id=request.id, capability=request.capability.value,
             target_ip=request.target_ip, port=getattr(params, "port", None), method=getattr(params, "method", None),
@@ -104,8 +108,9 @@ def assemble_context(task, repository, service, limits, round_number, actions_us
         available_actions=tuple(action for cap, action in ((Capability.HTTP_FETCH, "safe_http_probe"),
             (Capability.BROWSER_EXPLORE, "browser_explore"), (Capability.CONTENT_DISCOVERY, "content_discovery"))
             if cap in available) + ("stop",),
-        checklist_version=CHECKLIST_V2_VERSION if repository.get_authorization(task.id) else "recon-checklist-v1",
-        checklist=project_checklist_v2(task, repository, service) if repository.get_authorization(task.id)
+        checklist_version=CHECKLIST_V3_VERSION if repository.get_authorization(task.id) else "recon-checklist-v1",
+        checklist=tuple(item.model_copy(update={"reason": item.reason[:48]}) for item in
+                        project_checklist_v3(task, repository, service)) if repository.get_authorization(task.id)
                   else project_checklist(task, repository, service),
         trusted_wordlists=tuple(sorted(TRUSTED)) if Capability.CONTENT_DISCOVERY in available else (),
         coverage=PlanningCoverage(routes=len(entries), observations=len(result.observations),

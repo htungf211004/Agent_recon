@@ -31,13 +31,28 @@ FINAL_CAPABILITIES = frozenset({
     Capability.HTTP_PROBE, Capability.HTTP_FETCH, Capability.NMAP_SCAN,
     Capability.WHATWEB, Capability.BROWSER_EXPLORE, Capability.CONTENT_DISCOVERY,
 })
+CORE_CAPABILITIES = frozenset({Capability.DNS_RESOLVE, Capability.HTTP_PROBE,
+                                Capability.HTTP_FETCH, Capability.BROWSER_EXPLORE})
+LOCAL_TOOL_CAPABILITIES = frozenset({Capability.NMAP_SCAN, Capability.WHATWEB,
+                                     Capability.CONTENT_DISCOVERY, Capability.EXPOSURE_DISCOVERY,
+                                     Capability.GRAPHQL_DISCOVERY, Capability.GRAPHQL_INTROSPECTION,
+                                     Capability.SOURCEMAP_ANALYZE, Capability.WSDL_DISCOVERY})
+EXTERNAL_PROVIDER_CAPABILITIES = frozenset({Capability.WHOIS_RDAP_LOOKUP,
+                                            Capability.EXTERNAL_ASSET_SEARCH,
+                                            Capability.PUBLIC_CODE_SEARCH,
+                                            Capability.SEARCH_ENGINE_OSINT})
 
 
 def require_final_capabilities(registry):
     available = set(registry.available_capabilities())
-    if available != FINAL_CAPABILITIES:
+    unexpected = available - FINAL_CAPABILITIES - {Capability.SOURCEMAP_ANALYZE,
+        Capability.WSDL_DISCOVERY, Capability.EXPOSURE_DISCOVERY,
+        Capability.GRAPHQL_DISCOVERY, Capability.GRAPHQL_INTROSPECTION,
+        Capability.WHOIS_RDAP_LOOKUP,
+        Capability.EXTERNAL_ASSET_SEARCH, Capability.PUBLIC_CODE_SEARCH, Capability.SEARCH_ENGINE_OSINT}
+    if not FINAL_CAPABILITIES <= available or unexpected:
         raise RuntimeError(f"invalid final capabilities: missing={sorted(FINAL_CAPABILITIES - available)}, "
-                           f"unexpected={sorted(available - FINAL_CAPABILITIES)}")
+                           f"unexpected={sorted(unexpected)}")
     return sorted(available)
 
 
@@ -137,7 +152,13 @@ def main():
             assert server.requests == before + 1 and sink.requests == 0
             server.redirect_to = None
             check_sequential_bootstrap(root, repository, service, port)
-            print(json.dumps({"capabilities": manifest, "real_adapter_smoke": "passed"}))
+            print(json.dumps({"capabilities": manifest,
+                              "runtime_classes": {
+                                  "core": sorted(CORE_CAPABILITIES),
+                                  "local_tool": sorted(LOCAL_TOOL_CAPABILITIES & set(manifest)),
+                                  "external_provider": sorted(EXTERNAL_PROVIDER_CAPABILITIES & set(manifest))},
+                              "availability": gateway.registry.availability_manifest(),
+                              "real_adapter_smoke": "passed"}))
     finally:
         server.shutdown()
         server.server_close()

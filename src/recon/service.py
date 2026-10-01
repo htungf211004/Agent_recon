@@ -106,7 +106,7 @@ class ReconService:
         complete = configured and bool(requests) and reasons == {"converged"}
         static_converged = coverage.converged if coverage.static_converged is None else coverage.static_converged
         static_complete = coverage.complete if coverage.static_complete is None else coverage.static_complete
-        limitations = {item for item in coverage.limitations if item.startswith(("adaptive:", "handoff:"))}
+        limitations = {item for item in coverage.limitations if not item.startswith(("browser:", "static:"))}
         limitations.update(f"browser:{reason}" for reason in reasons if reason != "converged")
         if requested and not available and not requests:
             limitations.add("browser:unavailable")

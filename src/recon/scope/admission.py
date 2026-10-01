@@ -45,16 +45,22 @@ def admit_target(value: str, task_id: str, *, resolver: Callable[[str, int], tup
         pin = observation.addresses[0]
         origin = WebOrigin(host=root.value, scheme=scheme, port=443, pinned_ip=pin)
         capabilities = (Capability.DNS_RESOLVE, Capability.HTTP_PROBE, Capability.WHATWEB, Capability.HTTP_FETCH,
-                        Capability.CONTENT_DISCOVERY,
-                        Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST)
+                        Capability.CONTENT_DISCOVERY, Capability.EXPOSURE_DISCOVERY,
+                        Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST,
+                        Capability.SOURCEMAP_ANALYZE, Capability.WSDL_DISCOVERY,
+                        Capability.GRAPHQL_DISCOVERY,
+                        Capability.WHOIS_RDAP_LOOKUP,
+                        Capability.EXTERNAL_ASSET_SEARCH, Capability.PUBLIC_CODE_SEARCH,
+                        Capability.SEARCH_ENGINE_OSINT)
     else:
         ports = (80, 443, 8080, 8443)
         pin = root.value
         origin = None
         observation = None
         capabilities = (Capability.DNS_RESOLVE, Capability.NMAP_SCAN, Capability.HTTP_PROBE, Capability.WHATWEB,
-                        Capability.HTTP_FETCH, Capability.CONTENT_DISCOVERY,
+                        Capability.HTTP_FETCH, Capability.CONTENT_DISCOVERY, Capability.EXPOSURE_DISCOVERY,
                         Capability.BROWSER_EXPLORE, Capability.BROWSER_REQUEST)
+        capabilities += (Capability.SOURCEMAP_ANALYZE, Capability.WSDL_DISCOVERY)
     boundary = AuthorizationBoundary(task_id=task_id, root=root,
                                      dns_observations=(observation,) if observation else ())
     task = ReconTask(

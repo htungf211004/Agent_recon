@@ -124,7 +124,7 @@ actions. Complete generated task/context/FFUF/checklist examples are in
 [recon-bounded-examples.json](recon-bounded-examples.json).
 
 The ten-item legacy registry is `src/recon/data/recon_checklist_v1.yaml`.
-New roots use `recon-checklist-v2`, which represents PT_01 STT 1–16 with explicit
+New roots use `recon-checklist-v3`, which represents PT_01 STT 1–16 with explicit
 MANUAL_REVIEW and UNSUPPORTED states. Missing evidence is never silently COMPLETE.
 PENDING/COMPLETE/BLOCKED/UNSUPPORTED/NOT_APPLICABLE are computed from trusted scope,
 runtime, results and verified evidence. The model cannot mark completion or gain

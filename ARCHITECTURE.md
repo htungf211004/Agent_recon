@@ -157,3 +157,9 @@ Empty `allowed_paths` means no additional path-prefix restriction on an authoriz
 ReconCoverage preserves `static_converged`/`static_complete` and derives `browser_configured`, `browser_available`, `browser_runs`, `browser_complete`, `browser_stop_reasons` and `limitations` from durable runs and verified parent evidence. A configured browser is complete only when every planned parent has a successful, evidenced `converged` result. Aggregate `complete`/`converged` include that condition; browser limits/errors can no longer be hidden by static convergence. An unavailable requested browser adds `browser:unavailable` as a limitation without inventing a failed run; an unrequested browser adds no failure. No RunStatus is added or changed.
 
 Playwright is pinned to **1.63.0**, verified locally with Chromium. Docker uses Python 3.11, installs the matching Chromium and system libraries, stores the browser in `/ms-playwright`, and executes as `appuser` with packages in `/opt/venv`. CI requires both the real Chromium test gate and Docker build/runtime/FastAPI smoke checks. AST tests restrict Playwright imports to the adapter/runtime, reject business-layer browser operations and dynamic execution, and constrain subprocess execution to the existing fixed runners with `shell=False`.
+# Recon Tool Coverage V3 status
+
+The target, provider and offline request contracts all enter the Recon Gateway.
+The capability catalog owns risk. Availability and checklist V3 projection are
+recorded separately from findings. The remaining Pre-KB freeze gates are listed in
+[Recon Tool Coverage V3](docs/recon-tool-coverage-v3.md).

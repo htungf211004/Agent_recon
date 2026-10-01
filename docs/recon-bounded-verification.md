@@ -239,3 +239,9 @@ Tracked-file diff at the full regression/Docker verification, before PT_01 metad
 - `src/recon/wordlists.py`
 - `tests/integration/test_recon_adaptive_acceptance.py`
 - `tests/test_recon_bounded_adaptive.py`
+# Pre-KB tool coverage
+
+The bounded target verification documented below remains the network authorization
+gate for newly discovered hostnames. Provider search results alone do not create a
+transport binding. Additional V3 coverage status and pending acceptance cases are
+tracked in [Recon Tool Coverage V3](recon-tool-coverage-v3.md).

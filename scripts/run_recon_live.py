@@ -26,8 +26,8 @@ from src.contracts.recon_planning import ReconPlanningLimits
 from src.recon.adaptive_agent import AdaptiveReconAgent
 from src.recon.bootstrap import create_recon_agent
 from src.recon.checklist import project_checklist
-from src.recon.checklist_v2 import VERSION as CHECKLIST_V2_VERSION
-from src.recon.checklist_v2 import project_checklist_v2
+from src.recon.checklist_v3 import VERSION as CHECKLIST_V3_VERSION
+from src.recon.checklist_v3 import project_checklist_v3
 from src.recon.completion import completion
 from src.recon.llm_planner import DeterministicReconPlanner, configured_planner
 from src.recon.models import BrowserLimits, Capability, ReconTask
@@ -58,10 +58,10 @@ def export_run(agent, task_id, directory):
     asset_inventory = agent.repository.asset_inventory(task_id)
     (directory / "asset-inventory.json").write_text(asset_inventory.model_dump_json(indent=2), encoding="utf-8")
     task = agent.repository.get_task(task_id)
-    checklist = (project_checklist_v2(task, agent.repository, agent.service, finalize=state["terminal"])
+    checklist = (project_checklist_v3(task, agent.repository, agent.service, finalize=state["terminal"])
                  if boundary else project_checklist(task, agent.repository, agent.service))
     (directory / "checklist.json").write_text(json.dumps({
-        "version": CHECKLIST_V2_VERSION if boundary else "recon-checklist-v1",
+        "version": CHECKLIST_V3_VERSION if boundary else "recon-checklist-v1",
         "items": [item.model_dump(mode="json") for item in checklist],
     }, indent=2), encoding="utf-8")
     (directory / "manual-review.json").write_text(json.dumps({
@@ -100,6 +100,7 @@ def export_run(agent, task_id, directory):
         "fuzz_ready": sum(item.status == "FUZZ_READY" for item in result.attack_surface_inventory.entries),
         "llm_rounds_recorded": len(rows), "llm_decisions_recorded": sum(bool(row["decision"]) for row in rows),
         "planning_stop_reason": agent.store.status(task_id),
+        "capability_availability": agent.service.gateway.registry.availability_manifest(),
     }
     manifest_path = directory / "run-manifest.json"
     previous = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
@@ -114,7 +115,7 @@ def export_run(agent, task_id, directory):
     manifest = {"manifest_version": "1.0", "git_commit": commit, "python_version": platform.python_version(),
         "policy_version": task.policy_version, "database_schema_version": schema, "inventory_version": "1.0",
         "asset_schema_version": asset_inventory.schema_version,
-        "checklist_version": CHECKLIST_V2_VERSION if boundary else "recon-checklist-v1",
+        "checklist_version": CHECKLIST_V3_VERSION if boundary else "recon-checklist-v1",
         "scope_model_version": boundary.schema_version if boundary else "1.0",
         "authorized_root": boundary.root.model_dump(mode="json") if boundary else None,
         "derived_bindings": [binding.model_dump(mode="json") for binding in agent.repository.list_bindings(task_id)],
@@ -125,6 +126,7 @@ def export_run(agent, task_id, directory):
         "trusted_scope": task.scope.model_dump(mode="json"), "scope_version": task.scope_version,
         "planning_limits": agent.limits.model_dump(),
         "runtime_capabilities": list(agent.service.gateway.registry.available_capabilities()),
+        "capability_availability": agent.service.gateway.registry.availability_manifest(),
         "started_at": previous.get("started_at", now),
         "finished_at": previous.get("finished_at") or (now if summary["terminal"] else None)}
     # The source digest identifies local edits as well as the last published commit.

@@ -2,7 +2,12 @@
 
 ## Recon checklist V2
 
-`recon-checklist-v2` represents every Information Gathering STT 1–16. It projects
+`recon-checklist-v2` represents the original Information Gathering STT 1–16 mapping for
+old runs. Current authorized-root runs use `recon-checklist-v3`, which reads capability
+availability and successful Gateway evidence. The table below describes V2 history;
+current implementation status is in [Recon Tool Coverage V3](recon-tool-coverage-v3.md).
+
+V2 projects
 status from ToolResults, verified Evidence, discovery sources and discovered assets.
 The V1 registry described below remains for compatibility. A COMPLETE state means
 the bounded Recon substep has qualifying Evidence, never that the full pentest row
