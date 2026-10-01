@@ -32,3 +32,15 @@ def test_contaminated_file_is_rejected_without_rewriting_other_allowlisted_files
     assert len(records) == 3
     assert not any(record.source_record == SECLISTS_PATHS[0] for record in records)
     assert any("no rewrite or substitution" in message for message in reports)
+
+
+def test_seclists_ready_can_have_partial_coverage(pipeline):
+    pipeline.git.mutate = lambda root: (root / SECLISTS_PATHS[0]).write_bytes(b"safe\nhttps://unapproved.test\n")
+    pipeline.sync("SECLISTS")
+    normalized = pipeline.normalize("SECLISTS")
+    assert normalized.coverage_status == "PARTIAL"
+    assert len(normalized.expected_artifacts) == 4
+    assert len(normalized.accepted_artifacts) == 3
+    assert len(normalized.rejected_artifacts) == 1
+    ready = pipeline.validate("SECLISTS")
+    assert ready.status.value == "READY" and not ready.final_validation_errors

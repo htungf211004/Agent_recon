@@ -8,10 +8,13 @@ from pydantic import ValidationError
 from src.contracts.execution import action_fingerprint
 from src.contracts.recon_kb import IngestionStatus, VectorKnowledgeRecord
 from src.recon.kb.runner import RunnerDataResolver
+from src.recon.kb.runtime import select_runner_data
 from src.recon.models import Capability, ContentDiscoveryParams, TechnologyObservation
 from src.recon.rag.models import ReconKnowledgeQuery
+from src.recon.rag.runtime import live_snapshot_retriever
 from src.recon.rag.snapshot_retriever import SnapshotKnowledgeRetriever
 from src.recon.storage import ReconRepository
+from src.recon.wordlists import available_wordlist_ids, clear_external_wordlists, load_wordlist
 from tests.recon_kb.conftest import promote_fixture, replace_json
 
 
@@ -124,6 +127,40 @@ def test_runner_id_resolution_hash_and_technology_gate(pipeline, staged):
         resolver.resolve(identity)
 
 
+def test_operator_selected_runner_data_enters_runtime_catalog_and_pins_snapshot(pipeline, tmp_path):
+    manifest = promote_fixture(pipeline, "SECLISTS")
+    resolver = RunnerDataResolver(pipeline.store, "SECLISTS", manifest.snapshot_id)
+    identity = next(iter(resolver.catalog))
+    repository = ReconRepository(tmp_path / "run.db")
+    try:
+        selected = select_runner_data(repository, "run-1", (f"SECLISTS:{identity}",),
+                                      root=pipeline.store.root)
+        assert selected == (f"SECLISTS:{identity}",)
+        assert load_wordlist(identity).sha256 == resolver.catalog[identity].sha256
+        assert identity in available_wordlist_ids(exclude_categories={"vhost", "parameter"})
+        assert repository.kb_snapshots("run-1") == (manifest,)
+        clear_external_wordlists()
+        pipeline.git.commit = "b" * 40
+        newer = promote_fixture(pipeline, "SECLISTS")
+        assert newer.snapshot_id != manifest.snapshot_id
+        select_runner_data(repository, "run-1", selected, root=pipeline.store.root)
+        assert load_wordlist(identity).version == manifest.snapshot_id
+        assert repository.kb_snapshots("run-1") == (manifest,)
+    finally:
+        clear_external_wordlists()
+
+
+def test_runner_data_selection_rejects_unpromoted_or_malformed_input(pipeline, tmp_path):
+    pipeline.sync("SECLISTS")
+    pipeline.normalize("SECLISTS")
+    pipeline.validate("SECLISTS")
+    repository = ReconRepository(tmp_path / "run.db")
+    with pytest.raises(ValueError, match="no promoted CURRENT"):
+        select_runner_data(repository, "run-1", ("SECLISTS:any",), root=pipeline.store.root)
+    with pytest.raises(ValueError, match="SOURCE_ID"):
+        select_runner_data(repository, "run-1", ("invalid",), root=pipeline.store.root)
+
+
 def test_technology_wordlist_requires_runtime_observation(pipeline):
     # Assetnote fixture download is already captured by FixtureGit; downloader cannot access the network.
     class FixtureHTTP:
@@ -159,6 +196,23 @@ def test_vector_retrieval_prefilters_and_snapshot_bindings_are_immutable(pipelin
     runner = promote_fixture(pipeline, "SECLISTS")
     with pytest.raises(ValueError, match="VECTOR_RAG"):
         SnapshotKnowledgeRetriever(pipeline.store, {"SECLISTS": runner.snapshot_id})
+
+
+def test_live_retriever_selects_current_then_keeps_run_binding_on_resume(pipeline, tmp_path):
+    original = promote_fixture(pipeline, "WSTG")
+    repository = ReconRepository(tmp_path / "run.db")
+    retriever = live_snapshot_retriever(repository, "run-1", root=pipeline.store.root,
+                                        registry=pipeline.registry)
+    assert retriever.implementation_id == "recon-kb-snapshot-v1"
+    retriever.bind_run(repository, "run-1")
+    assert repository.kb_snapshots("run-1") == (original,)
+
+    pipeline.git.commit = "b" * 40
+    newer = promote_fixture(pipeline, "WSTG")
+    assert newer.snapshot_id != original.snapshot_id
+    resumed = live_snapshot_retriever(repository, "run-1", root=pipeline.store.root,
+                                      registry=pipeline.registry)
+    assert [item.snapshot_id for item in resumed.manifests] == [original.snapshot_id]
 
 
 def test_wordlist_changes_bind_a_different_existing_action_fingerprint():

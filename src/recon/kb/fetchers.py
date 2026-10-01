@@ -144,31 +144,68 @@ def package_query(query: dict) -> dict:
 
 
 def fetch_nvd(spec, destination, downloader, *, watermark=None, clock=None, pause=time.sleep):
-    end = (clock or (lambda: datetime.now(UTC)))()
-    start = datetime.fromisoformat(watermark) if watermark else None
-    # NVD limits a modified-date window to 120 days. Overlap avoids boundary loss.
-    if start:
-        start -= timedelta(seconds=1)
-    windows = []
-    while start and start < end:
-        finish = min(start + timedelta(days=120), end)
-        windows.append((start, finish))
-        start = finish
-    if not windows:
-        windows = [(None, None)] if watermark is None else []
-    total_bytes, page_number = 0, 0
-    for begin, finish in windows:
-        index = 0
+    started = time.monotonic()
+    checkpoint_path = destination / ".checkpoint.json"
+    if checkpoint_path.exists():
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        if checkpoint.get("watermark") != watermark:
+            raise ValueError("NVD checkpoint watermark mismatch")
+        end = datetime.fromisoformat(checkpoint["end"])
+        windows = [(datetime.fromisoformat(begin) if begin else None,
+                    datetime.fromisoformat(finish) if finish else None)
+                   for begin, finish in checkpoint["windows"]]
+        window_number = checkpoint["window_number"]
+        index = checkpoint["index"]
+        page_number = checkpoint["page_number"]
+        total_bytes = checkpoint["total_bytes"]
+    else:
+        end = (clock or (lambda: datetime.now(UTC)))()
+        start = datetime.fromisoformat(watermark) if watermark else None
+        # NVD limits a modified-date window to 120 days. Overlap avoids boundary loss.
+        if start:
+            start -= timedelta(seconds=1)
+        windows = []
+        while start and start < end:
+            finish = min(start + timedelta(days=120), end)
+            windows.append((start, finish))
+            start = finish
+        if not windows:
+            windows = [(None, None)] if watermark is None else []
+        total_bytes, page_number, window_number, index = 0, 0, 0, 0
+
+    def save_checkpoint():
+        atomic_write(checkpoint_path, json.dumps({
+            "watermark": watermark, "end": end.isoformat(),
+            "windows": [[begin.isoformat() if begin else None, finish.isoformat() if finish else None]
+                        for begin, finish in windows],
+            "window_number": window_number, "index": index,
+            "page_number": page_number, "total_bytes": total_bytes,
+        }, sort_keys=True).encode())
+
+    while window_number < len(windows):
+        begin, finish = windows[window_number]
         while True:
             if page_number >= spec.max_pages:
                 raise ValueError("NVD page bound reached; watermark was not advanced")
+            if page_number and time.monotonic() - started >= spec.max_sync_seconds:
+                save_checkpoint()
+                raise RuntimeError(f"NVD PARTIAL_SYNC checkpoint at page {page_number}, cursor {index}; "
+                                   "rerun sync NVD_CPE to resume")
             params = {"resultsPerPage": 2000, "startIndex": index}
             if begin:
                 params.update(lastModStartDate=begin.isoformat(), lastModEndDate=finish.isoformat())
             if page_number:
                 pause(spec.request_delay_seconds)
             path = destination / f"page-{page_number:05d}.json"
-            downloader.download(spec, path, params=params)
+            for attempt in range(spec.max_retries):
+                try:
+                    downloader.download(spec, path, params=params)
+                    break
+                except (httpx.HTTPError, OSError):
+                    if attempt + 1 == spec.max_retries:
+                        save_checkpoint()
+                        raise
+                    pause(min(spec.request_delay_seconds * (attempt + 1), 30))
             total_bytes += path.stat().st_size
             if total_bytes > spec.max_snapshot_bytes:
                 raise ValueError("NVD snapshot size bound reached")
@@ -178,12 +215,17 @@ def fetch_nvd(spec, destination, downloader, *, watermark=None, clock=None, paus
                 raise ValueError("NVD pagination mismatch")
             page_number += 1
             index += count
+            save_checkpoint()
             if index >= value["totalResults"]:
                 break
             if not count:
                 raise ValueError("NVD empty incomplete page")
+        window_number += 1
+        index = 0
+        save_checkpoint()
     if not page_number:
         atomic_write(destination / "page-00000.json", b'{"products": [], "totalResults": 0, "startIndex": 0}')
+    checkpoint_path.unlink(missing_ok=True)
     return end.isoformat()
 
 

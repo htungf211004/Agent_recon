@@ -39,7 +39,7 @@ class BrowserExploreProposal(TargetProposal):
 class ContentDiscoveryProposal(TargetProposal):
     kind: Literal["content_discovery"] = "content_discovery"
     path_prefix: str = Field(max_length=2048)
-    wordlist_id: str = Field(min_length=1, max_length=64)
+    wordlist_id: str = Field(min_length=1, max_length=128)
 
 
 class StopReason(StrEnum):

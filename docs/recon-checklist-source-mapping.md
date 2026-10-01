@@ -74,14 +74,15 @@ referenced pentest item.
 | `RECON-API-DOCS` | 7 — Swagger / OpenAPI | Subset | Existing six seed paths and deterministic OpenAPI 3/Swagger 2 endpoint parsing; `/v2/api-docs` is not a seed. No automatic execution of declared write operations or authentication testing. |
 | `RECON-STATIC-ROUTES` | 2 — Active Recon; 11 — Hidden Endpoints | Subset | Bounded links/forms/scripts and simple JS route extraction. No form submission, parameter guessing or source-map reconstruction. |
 | `RECON-BROWSER-DYNAMIC` | 2 — Active Recon; 11 — Hidden Endpoints | Extension | Passive Playwright navigation and fixed DOM extraction implement the crawl/route objective. PT_01 does not specify this browser architecture. Every child request retains external-dispatch authorization. |
-| `RECON-CONTENT-DISCOVERY` | 2 — Active Recon; 11 — Hidden Endpoints | Subset | Fixed small trusted FFUF wordlists, bounded HEAD candidates, then separate scoped GET baselines. No arbitrary wordlists, recursion, auto-calibration or virtual-host fuzzing. |
+| `RECON-CONTENT-DISCOVERY` | 2 — Active Recon; 11 — Hidden Endpoints | Subset | Fixed small trusted FFUF wordlists or an explicit operator-selected, promoted RUNNER_DATA ID; bounded HEAD candidates, then separate scoped GET baselines. No arbitrary paths/payloads, recursion, auto-calibration or virtual-host fuzzing. |
 
 ## Excluded source work
 
 - STT 1, 14 and 16: external OSINT, domain/subdomain discovery, search engines and
   historical URL sources are outside the current literal-IP runtime.
-- STT 8–9: GraphQL introspection and WSDL/SOAP discovery/testing are not implemented.
-  An observed URL can enter inventory without implementing these protocols' tests.
+- STT 8–9: Fixed GraphQL endpoint discovery and WSDL document discovery are Recon.
+  Shallow GraphQL introspection requires explicit R2 authorization. GraphQL mutations,
+  SOAP operations, XXE checks and other active API security testing remain manual/HITL.
 - STT 10, 12–13 and 15: backup/credential harvesting, repository dumping, source-map
   reconstruction and public code-host leak searches are not checklist actions.
 - Groups 2–13 (STT 17–97): configuration assessment, authentication/session/

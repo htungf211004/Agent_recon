@@ -20,6 +20,7 @@ TRUSTED = {
     "vhosts-small-v1": ("vhost", ("www", "api", "admin", "dev", "staging", "portal")),
     "parameters-small-v1": ("parameter", ("id", "page", "limit", "offset", "sort", "search")),
 }
+_SELECTED_EXTERNAL: dict[str, "TrustedWordlist"] = {}
 
 
 @dataclass(frozen=True)
@@ -34,7 +35,30 @@ class TrustedWordlist:
     entries: tuple[str, ...]
 
 
+def install_external_wordlist(wordlist: TrustedWordlist):
+    """Install an operator-selected, already verified runner dataset for this process."""
+    if wordlist.id in TRUSTED:
+        raise ValueError("runner wordlist ID collides with packaged catalog")
+    existing = _SELECTED_EXTERNAL.get(wordlist.id)
+    if existing is not None and existing != wordlist:
+        raise ValueError("runner wordlist ID is already bound to different content")
+    _SELECTED_EXTERNAL[wordlist.id] = wordlist
+
+
+def clear_external_wordlists():
+    """Reset process-local selections (used by isolated runners and tests)."""
+    _SELECTED_EXTERNAL.clear()
+
+
+def available_wordlist_ids(*, exclude_categories=()):
+    packaged = (key for key, (category, _) in TRUSTED.items() if category not in exclude_categories)
+    external = (key for key, value in _SELECTED_EXTERNAL.items() if value.category not in exclude_categories)
+    return tuple(sorted((*packaged, *external)))
+
+
 def load_wordlist(wordlist_id):
+    if wordlist_id in _SELECTED_EXTERNAL:
+        return _SELECTED_EXTERNAL[wordlist_id]
     if wordlist_id not in TRUSTED:
         raise ValueError("unknown trusted wordlist")
     category, entries = TRUSTED[wordlist_id]

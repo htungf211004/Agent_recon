@@ -1,0 +1,146 @@
+[
+  {
+    "commit": "5261c591eef253e12b3397b6e21fc39999e076ed",
+    "coverage_status": "COMPLETE",
+    "hash": "62de47a4db5b02ba6bae5be8e66a6d46933e76f9d5d86379f4f72c5c17ad48e7",
+    "record_count": 1,
+    "snapshot": "5261c591eef253e12b3397b6e21fc39999e076ed-e569b933325c9c22738d70a070ba6550",
+    "source": "AMASS_OAM",
+    "status": "PROMOTED",
+    "version": "main"
+  },
+  {
+    "source": "ARJUN",
+    "status": "DISABLED"
+  },
+  {
+    "commit": "6dea231f4cbd356a637851b1c13b83de4da00adb",
+    "coverage_status": "COMPLETE",
+    "hash": "4f9cb9b94c3a670d27cdf719c2a2f884201f79e836c2634ce9ede04bf5731a15",
+    "record_count": 1,
+    "snapshot": "6dea231f4cbd356a637851b1c13b83de4da00adb",
+    "source": "ASSETNOTE",
+    "status": "PROMOTED",
+    "version": "master"
+  },
+  {
+    "commit": "a0c559f6c53d970e5f196044ef9c50936bbc0e26",
+    "coverage_status": "COMPLETE",
+    "hash": "f41ab1c7dc38d9456633b9d75a58e65feb67f891717fe8f670c4ac98b9f4e9f5",
+    "record_count": 1730,
+    "snapshot": "a0c559f6c53d970e5f196044ef9c50936bbc0e26",
+    "source": "CISA_KEV",
+    "status": "PROMOTED",
+    "version": "develop"
+  },
+  {
+    "commit": null,
+    "coverage_status": "COMPLETE",
+    "hash": "2fabf4d8f8a71fa6dc32214129b28a90039e6f00f36fe11b3fbcd7f96b6a6b28",
+    "record_count": 969,
+    "snapshot": "20261001T150219201308Z-c1af1fa4586c94e1a8c00b064459c6dcc147c9189f5f83f4e8037c9017c61a6d",
+    "source": "CWE",
+    "status": "PROMOTED",
+    "version": "c1af1fa4586c94e1a8c00b064459c6dcc147c9189f5f83f4e8037c9017c61a6d"
+  },
+  {
+    "commit": null,
+    "coverage_status": "COMPLETE",
+    "hash": "edd3cb1a8bc51658f6bd931263c41227008a0a381071fb8ae86f1ef87dd6a0f1",
+    "record_count": 12577,
+    "snapshot": "20261001T150215033753Z-9f746497034cd9b2a3686c487aea6c9d58513d05891ae5424031b4953dffe723",
+    "source": "IANA_PORTS",
+    "status": "PROMOTED",
+    "version": "9f746497034cd9b2a3686c487aea6c9d58513d05891ae5424031b4953dffe723"
+  },
+  {
+    "commit": null,
+    "coverage_status": "COMPLETE",
+    "hash": "c1e0c36647373585a0418458be747b74b4a5c3f1549aa74f9127dc72f1c7b96f",
+    "record_count": 105,
+    "snapshot": "20261001T150212339094Z-35f1762ce3bf6a8e17dafe06796e6e9b746224e66ed8797967aeed4ad5a9cc2d",
+    "source": "IANA_WELL_KNOWN",
+    "status": "PROMOTED",
+    "version": "35f1762ce3bf6a8e17dafe06796e6e9b746224e66ed8797967aeed4ad5a9cc2d"
+  },
+  {
+    "commit": "04a51b81beae4891f41d472adbdd3cd8be662ed9",
+    "coverage_status": "COMPLETE",
+    "hash": "0de8fc242fc0e8ff344238e66601f333d26b3cf5229e943536bedfe0a1fb296e",
+    "record_count": 1,
+    "snapshot": "04a51b81beae4891f41d472adbdd3cd8be662ed9-386de566ab804c078d13fdbbadb29a34",
+    "source": "KATANA",
+    "status": "PROMOTED",
+    "version": "dev"
+  },
+  {
+    "commit": "8b9d065ccb0492d39f7680c908b3030a97ddfe1b",
+    "coverage_status": "PARTIAL",
+    "hash": "58ba056cab71760363d9480a97e5257764ecbaaacde28618f899876e20527fb5",
+    "record_count": 5454,
+    "snapshot": "8b9d065ccb0492d39f7680c908b3030a97ddfe1b",
+    "source": "NUCLEI_META",
+    "status": "PROMOTED",
+    "version": "main"
+  },
+  {
+    "checkpoint": "raw/NVD_CPE/.partial/.checkpoint.json",
+    "cursor": 54000,
+    "pages": 27,
+    "records": 54000,
+    "resume_command": ".venv\\Scripts\\python.exe -m src.recon.kb.cli sync NVD_CPE",
+    "source": "NVD_CPE",
+    "status": "PARTIAL_SYNC",
+    "total_results": 1850452,
+    "watermark": null
+  },
+  {
+    "reason": "no operator-approved package evidence query",
+    "source": "OSV",
+    "status": "NOT_APPLICABLE"
+  },
+  {
+    "commit": null,
+    "coverage_status": "COMPLETE",
+    "hash": "62c81711bf7c766cdf065d1962065c7f5168d28a40ae6eb84dc329787485ed23",
+    "record_count": 10334,
+    "snapshot": "20261001T150211325361Z-966999476a7ff7c63c4bc62d6989707b8217928dfb3a908b92e2ce7e132a738e",
+    "source": "PSL",
+    "status": "PROMOTED",
+    "version": "966999476a7ff7c63c4bc62d6989707b8217928dfb3a908b92e2ce7e132a738e"
+  },
+  {
+    "commit": "d7645c2127662cea50a15f128a157a947ca76be3",
+    "coverage_status": "COMPLETE",
+    "hash": "b92c2af9bd1c3c1b10c43a8a7c5e6e70c6a4b8a1201d53b5fc12da6bf651cfa7",
+    "record_count": 37,
+    "snapshot": "d7645c2127662cea50a15f128a157a947ca76be3",
+    "source": "RECON_CURATED",
+    "status": "PROMOTED",
+    "version": "11f3c49b3f18e7ca50a71cd6cedea44ded8757381cfd647bacb501a2fab45f6c"
+  },
+  {
+    "commit": "bd8f9b5501f9257e9d39c733540e793602c3da6f",
+    "coverage_status": "PARTIAL",
+    "hash": "87d31cfb026ebccfa7ffab08f8d963cdad704358369eceb38cd58d4a2eec6ea7",
+    "record_count": 2,
+    "snapshot": "bd8f9b5501f9257e9d39c733540e793602c3da6f",
+    "source": "SECLISTS",
+    "status": "PROMOTED",
+    "version": "master"
+  },
+  {
+    "source": "WAPPALYZER",
+    "status": "DISABLED"
+  },
+  {
+    "commit": "dd33419e10edb22b78d89325a6c2aad9f184e3a2",
+    "coverage_status": "COMPLETE",
+    "hash": "59079ddd9892a34fbb4217c9e86fea746c100debbef7e94f8e13dfe38b12c383",
+    "record_count": 10,
+    "snapshot": "dd33419e10edb22b78d89325a6c2aad9f184e3a2",
+    "source": "WSTG",
+    "status": "PROMOTED",
+    "version": "v4.2"
+  }
+]

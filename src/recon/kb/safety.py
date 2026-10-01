@@ -37,8 +37,10 @@ def acceptance(records, manifest, root, spec):
             raise ValueError("duplicate normalized identity")
         identities.add(identity)
         if isinstance(record, VectorKnowledgeRecord):
-            if spec.source_id not in {"WSTG", "KATANA", "AMASS_OAM"}:
+            if spec.source_id not in {"WSTG", "KATANA", "AMASS_OAM", "RECON_CURATED"}:
                 raise ValueError("source is not approved for vector ingestion")
+            if spec.source_id == "RECON_CURATED" and not record.source_refs:
+                raise ValueError("curated knowledge requires source references")
             if re.search(r"(?i)(```|<script|\$\(|curl\s|wget\s|/bin/(?:ba)?sh|union\s+select)", record.model_dump_json()):
                 raise ValueError("weaponized vector content")
             if spec.source_id == "WSTG":

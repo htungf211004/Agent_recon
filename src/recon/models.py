@@ -267,7 +267,7 @@ class ContentDiscoveryParams(StrictModel):
     port: int = Field(ge=1, le=65535, strict=True)
     scheme: Literal["http", "https"] = "http"
     path_prefix: str = Field(default="/", max_length=2048)
-    wordlist_id: str = Field(min_length=1, max_length=64)
+    wordlist_id: str = Field(min_length=1, max_length=128)
 
     @field_validator("path_prefix")
     @classmethod

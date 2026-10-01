@@ -46,6 +46,8 @@ class DeterministicCoverageExecutor:
                 self._run_web_tool(task, target_ip, host, scheme, port, capability)
             self._run_content(task, target_ip, host, scheme, port)
             self._run_content(task, target_ip, host, scheme, port, wordlist="api-common-small-v1")
+            for wordlist in getattr(self.engine, "runner_wordlist_ids", ()):
+                self._run_content(task, target_ip, host, scheme, port, wordlist=wordlist)
             for profile in ("backup-small-v2", "scm-small-v1"):
                 self._run_content(task, target_ip, host, scheme, port,
                                   capability=Capability.EXPOSURE_DISCOVERY, wordlist=profile)

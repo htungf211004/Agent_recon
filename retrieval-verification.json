@@ -1,0 +1,123 @@
+{
+  "cases": [
+    {
+      "case": "robots_sitemap",
+      "query": {
+        "asset_types": [
+          "PATH"
+        ],
+        "available_capabilities": [
+          "http_fetch"
+        ],
+        "categories": [
+          "robots",
+          "sitemap"
+        ],
+        "checklist_gaps": [],
+        "limitations": [],
+        "phase": "attack_surface",
+        "risk_ceiling": "R0",
+        "route_categories": [],
+        "verified_services": [],
+        "verified_technologies": []
+      },
+      "returned_knowledge_ids": [
+        "RECON-AS-ROBOTS-01",
+        "RECON-AS-SITEMAP-01"
+      ],
+      "snapshot_ids": [
+        "d7645c2127662cea50a15f128a157a947ca76be3"
+      ]
+    },
+    {
+      "case": "javascript_browser",
+      "query": {
+        "asset_types": [
+          "PATH"
+        ],
+        "available_capabilities": [
+          "http_fetch",
+          "browser_explore",
+          "browser_request"
+        ],
+        "categories": [
+          "javascript_routes",
+          "browser_routes"
+        ],
+        "checklist_gaps": [],
+        "limitations": [],
+        "phase": "attack_surface",
+        "risk_ceiling": "R0",
+        "route_categories": [],
+        "verified_services": [],
+        "verified_technologies": []
+      },
+      "returned_knowledge_ids": [
+        "RECON-AS-JS-01",
+        "RECON-AS-BROWSER-01"
+      ],
+      "snapshot_ids": [
+        "d7645c2127662cea50a15f128a157a947ca76be3"
+      ]
+    },
+    {
+      "case": "technology_cpe",
+      "query": {
+        "asset_types": [
+          "SERVICE"
+        ],
+        "available_capabilities": [],
+        "categories": [
+          "technology_cpe_reference"
+        ],
+        "checklist_gaps": [],
+        "limitations": [],
+        "phase": "attack_surface",
+        "risk_ceiling": "R0",
+        "route_categories": [],
+        "verified_services": [],
+        "verified_technologies": [
+          "Example Product"
+        ]
+      },
+      "returned_knowledge_ids": [
+        "RECON-AS-CPE-01"
+      ],
+      "snapshot_ids": [
+        "d7645c2127662cea50a15f128a157a947ca76be3"
+      ]
+    }
+  ],
+  "retriever": "recon-kb-snapshot-v1",
+  "run_snapshot_bindings": [
+    {
+      "snapshot": "5261c591eef253e12b3397b6e21fc39999e076ed-e569b933325c9c22738d70a070ba6550",
+      "source": "AMASS_OAM",
+      "storage_class": "VECTOR_RAG"
+    },
+    {
+      "snapshot": "04a51b81beae4891f41d472adbdd3cd8be662ed9-386de566ab804c078d13fdbbadb29a34",
+      "source": "KATANA",
+      "storage_class": "VECTOR_RAG"
+    },
+    {
+      "snapshot": "d7645c2127662cea50a15f128a157a947ca76be3",
+      "source": "RECON_CURATED",
+      "storage_class": "VECTOR_RAG"
+    },
+    {
+      "snapshot": "bd8f9b5501f9257e9d39c733540e793602c3da6f",
+      "source": "SECLISTS",
+      "storage_class": "RUNNER_DATA"
+    },
+    {
+      "snapshot": "dd33419e10edb22b78d89325a6c2aad9f184e3a2",
+      "source": "WSTG",
+      "storage_class": "VECTOR_RAG"
+    }
+  ],
+  "runner_data_returned_by_rag": false,
+  "runner_selection": [
+    "SECLISTS:seclists-27f4da6b9b3fcff9"
+  ]
+}

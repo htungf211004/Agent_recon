@@ -188,6 +188,20 @@ sources:
     # Operator populates package identity + version + evidence_ref; banners are rejected.
     package_queries: []
     paths: []
+  - source_id: RECON_CURATED
+    enabled: true
+    fetch_type: local_reviewed
+    source_url: https://github.com/htungf211004/Agent_recon
+    repository: null
+    ref: null
+    canonical_url: https://github.com/htungf211004/Agent_recon
+    storage_class: VECTOR_RAG
+    namespace: attack_surface_methodology
+    license: INTERNAL
+    license_review_required: false
+    refresh_policy: reviewed_runtime_change
+    approved_hosts: [github.com]
+    paths: [src/recon/data/recon_as_curated_knowledge.yaml]
   - source_id: WAPPALYZER
     enabled: false
     fetch_type: git

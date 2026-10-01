@@ -25,7 +25,7 @@ from src.recon.rag.models import KnowledgeReference
 from src.recon.rag.query_builder import build_query
 from src.recon.rag.retriever import NoopKnowledgeRetriever
 from src.recon.urls import canonical_url, known_transport_ip, path_allowed, scoped_ip
-from src.recon.wordlists import TRUSTED
+from src.recon.wordlists import available_wordlist_ids
 
 
 def safe_fact(value):
@@ -112,8 +112,8 @@ def assemble_context(task, repository, service, limits, round_number, actions_us
         checklist=tuple(item.model_copy(update={"reason": item.reason[:48]}) for item in
                         project_checklist_v3(task, repository, service)) if repository.get_authorization(task.id)
                   else project_checklist(task, repository, service),
-        trusted_wordlists=tuple(sorted(key for key, (category, _) in TRUSTED.items()
-                                      if category not in {"vhost", "parameter"})) if Capability.CONTENT_DISCOVERY in available else (),
+        trusted_wordlists=available_wordlist_ids(exclude_categories={"vhost", "parameter"})
+                          if Capability.CONTENT_DISCOVERY in available else (),
         coverage=PlanningCoverage(routes=len(entries), observations=len(result.observations),
             fuzz_ready=sum(entry.status == "FUZZ_READY" for entry in entries),
             limitations=tuple(item[:160] for item in result.coverage.limitations[:16]) if result.coverage else (),

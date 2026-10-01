@@ -18,3 +18,15 @@ def test_nuclei_allowlist_projection_drops_all_execution_sections(staged, tmp_pa
     with pytest.raises(ValueError):
         acceptance([poisoned], manifest, tmp_path, spec)
     assert "Finding" not in json.dumps(record.value)
+
+
+def test_nuclei_rejects_invalid_metadata_record_without_losing_valid_corpus(staged, tmp_path):
+    raw, manifest, spec = staged("NUCLEI_META")
+    invalid = raw / "http/technologies/invalid.yaml"
+    invalid.parent.mkdir(parents=True)
+    invalid.write_text("id: invalid\ninfo:\n  name: Invalid\n  classification:\n    cwe-id: CWE-0\n",
+                       encoding="utf-8")
+    reports = []
+    records = normalize(raw, manifest, spec, tmp_path, reports)
+    assert len(records) == 1
+    assert reports == ["rejected Nuclei metadata: http/technologies/invalid.yaml; rule=INVALID_CWE_ID"]

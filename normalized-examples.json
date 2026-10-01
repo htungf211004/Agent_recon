@@ -1,0 +1,222 @@
+{
+  "CISA_KEV": {
+    "dataset": "CISA_KEV",
+    "lookup_keys": {
+      "cve_id": "CVE-2026-76504"
+    },
+    "record_id": "CISA_KEV:CVE-2026-76504",
+    "retrieved_at": "2026-10-01T08:04:40.051780Z",
+    "snapshot_id": "a0c559f6c53d970e5f196044ef9c50936bbc0e26",
+    "source_commit": "a0c559f6c53d970e5f196044ef9c50936bbc0e26",
+    "source_id": "CISA_KEV",
+    "source_record": "known_exploited_vulnerabilities.json#CVE-2026-76504",
+    "source_url": "https://github.com/cisagov/kev-data",
+    "source_version": "develop",
+    "storage_class": "STRUCTURED_LOOKUP",
+    "value": {
+      "catalog_version": "2026.09.30",
+      "cve_id": "CVE-2026-76504",
+      "cwes": [
+        "CWE-177"
+      ],
+      "date_added": "2026-09-30",
+      "description": "Cisco Catalyst SD-WAN Manager contains a hex encoding vulnerability that could allow an unauthenticated, remote attacker to access an affected system with privileges of the admin user due to improper handling of URI encoding in an HTTP request.",
+      "known_exploited": true,
+      "known_ransomware": "Unknown",
+      "name": "Cisco Catalyst SD-WAN Manager Hex Encoding Vulnerability",
+      "product": "Catalyst SD-WAN Manager",
+      "vendor": "Cisco"
+    }
+  },
+  "CWE": {
+    "dataset": "CWE",
+    "lookup_keys": {
+      "cwe_id": "CWE-1004"
+    },
+    "record_id": "CWE:CWE-1004",
+    "retrieved_at": "2026-10-01T15:02:19.201308Z",
+    "snapshot_id": "20261001T150219201308Z-c1af1fa4586c94e1a8c00b064459c6dcc147c9189f5f83f4e8037c9017c61a6d",
+    "source_commit": null,
+    "source_id": "CWE",
+    "source_record": "cwec_latest.xml.zip#cwec_v4.20.xml#CWE-1004",
+    "source_url": "https://cwe.mitre.org/data/xml/cwec_latest.xml.zip",
+    "source_version": "c1af1fa4586c94e1a8c00b064459c6dcc147c9189f5f83f4e8037c9017c61a6d",
+    "storage_class": "STRUCTURED_LOOKUP",
+    "value": {
+      "abstraction": "Variant",
+      "cwe_id": "CWE-1004",
+      "description": "The product uses a cookie to store sensitive information, but the cookie is not marked with the HttpOnly flag.",
+      "name": "Sensitive Cookie Without 'HttpOnly' Flag",
+      "related_weaknesses": [
+        {
+          "cwe_id": "CWE-732",
+          "nature": "ChildOf",
+          "view_id": "1000"
+        }
+      ],
+      "release_version": "4.20",
+      "status": "Incomplete"
+    }
+  },
+  "NUCLEI_META": {
+    "dataset": "NUCLEI_META",
+    "lookup_keys": {
+      "cve_ids": [
+        "CVE-2000-0114"
+      ],
+      "template_id": "CVE-2000-0114"
+    },
+    "record_id": "NUCLEI_META:CVE-2000-0114",
+    "retrieved_at": "2026-10-01T15:05:09.276412Z",
+    "snapshot_id": "8b9d065ccb0492d39f7680c908b3030a97ddfe1b",
+    "source_commit": "8b9d065ccb0492d39f7680c908b3030a97ddfe1b",
+    "source_id": "NUCLEI_META",
+    "source_record": "http/cves/2000/CVE-2000-0114.yaml",
+    "source_url": "https://github.com/projectdiscovery/nuclei-templates",
+    "source_version": "main",
+    "storage_class": "STRUCTURED_LOOKUP",
+    "value": {
+      "candidate_type": "ValidationCandidate",
+      "cve_ids": [
+        "CVE-2000-0114"
+      ],
+      "cvss_metrics": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+      "cvss_score": 5.3,
+      "cwe_ids": [],
+      "description": "Frontpage Server Extensions allows remote attackers to determine the name of the anonymous account via an RPC POST request to shtml.dll in the /_vti_bin/ virtual directory.\n",
+      "max_request": 1,
+      "name": "Microsoft FrontPage Extensions - Information Disclosure",
+      "product": "internet_information_server",
+      "recon_execution_allowed": false,
+      "references": [
+        "https://exchange.xforce.ibmcloud.com/vulnerabilities/CVE-2000-0114",
+        "https://github.com/adityaks/sparty/blob/777fd944e5d9ff0c5837a5a4f2c8e5c58a11c357/sparty_v_0.1/sparty_v_0.1.py#L298",
+        "https://nvd.nist.gov/vuln/detail/CVE-2000-0114"
+      ],
+      "severity": "medium",
+      "tags": [
+        "cve",
+        "cve2000",
+        "frontpage",
+        "microsoft",
+        "edb",
+        "vuln"
+      ],
+      "template_id": "CVE-2000-0114",
+      "validation_available": true,
+      "vendor": "microsoft"
+    }
+  },
+  "NVD_CPE": {
+    "checkpoint": "raw/NVD_CPE/.partial/.checkpoint.json",
+    "cursor": 54000,
+    "pages": 27,
+    "records": 54000,
+    "resume_command": ".venv\\Scripts\\python.exe -m src.recon.kb.cli sync NVD_CPE",
+    "source": "NVD_CPE",
+    "status": "PARTIAL_SYNC",
+    "total_results": 1850452,
+    "watermark": null
+  },
+  "RECON_CURATED": {
+    "active_testing": false,
+    "api_related": false,
+    "asset_types": [
+      "HOST",
+      "IP",
+      "SERVICE",
+      "PATH",
+      "API",
+      "DOCUMENT"
+    ],
+    "capabilities": [
+      "dns_resolve"
+    ],
+    "category": "scope_seed",
+    "content": {
+      "applies_when": [
+        "The authorized inventory has an unresolved scope_seed coverage gap and the required inputs exist."
+      ],
+      "completion_rule": "All authorized seeds have canonical identities and frozen scope bindings, or a normalization limitation is recorded.",
+      "evidence_required": [
+        "tool_output with gateway evidence_ref, origin or input identity, timestamp and integrity."
+      ],
+      "expected_observations": [
+        "DiscoveredAsset"
+      ],
+      "follow_up": [
+        "Submit candidates to existing scope admission and policy; knowledge grants no authority."
+      ],
+      "objective": "Complete the bounded scope seed inventory step, retaining limitations.",
+      "safe_actions": [
+        "Canonicalize the operator root, host or IP, scheme, port and path prefix using the existing scope contracts; persist the frozen authorization version. Candidate relations grant no authorization."
+      ]
+    },
+    "delivery": "AUTOMATIC",
+    "knowledge_id": "RECON-AS-SCOPE-01",
+    "namespace": "attack_surface_methodology",
+    "phase": "attack_surface",
+    "produces": [
+      "DiscoveredAsset"
+    ],
+    "requires": [
+      "operator_authorized_scope",
+      "operator_authorized_root_and_scope_version"
+    ],
+    "retrieved_at": "2026-10-01T14:56:18.661747Z",
+    "risk": "R0",
+    "snapshot_id": "d7645c2127662cea50a15f128a157a947ca76be3",
+    "source_commit": "d7645c2127662cea50a15f128a157a947ca76be3",
+    "source_id": "RECON_CURATED",
+    "source_record": "src/recon/data/recon_as_curated_knowledge.yaml",
+    "source_refs": [
+      {
+        "sha256": "39590127587a0b3c828db1a4c8f7e6513acf5209d39c99a75c2104152cc0d37a",
+        "source_id": "INTERNAL_RUNTIME",
+        "source_record": "src/recon/scope/models.py"
+      },
+      {
+        "sha256": "77dee20a1ca09895e09f85ef9dc2229110014723ed2288b0598547683b9aa6e2",
+        "source_id": "INTERNAL_RUNTIME",
+        "source_record": "src/recon/capability_catalog.py"
+      },
+      {
+        "sha256": "c61c773c80b925687d19527539d7d838e396407db47e36268fb410cff2baef74",
+        "source_id": "INTERNAL_RUNTIME",
+        "source_record": "src/recon/checklist_v3.py"
+      }
+    ],
+    "source_url": "https://github.com/htungf211004/Agent_recon",
+    "source_version": "11f3c49b3f18e7ca50a71cd6cedea44ded8757381cfd647bacb501a2fab45f6c",
+    "storage_class": "VECTOR_RAG",
+    "technologies": [],
+    "title": "Scope seed"
+  },
+  "SECLISTS": {
+    "capability": "CONTENT_DISCOVERY",
+    "constraints": {
+      "agent_can_override_path": false,
+      "agent_can_supply_payload": false,
+      "api_related": false,
+      "automatic_execution": false,
+      "evidence_required": true,
+      "max_line_length": 512,
+      "recursive": false,
+      "technology_required": null
+    },
+    "line_count": 11424,
+    "local_path": "runner_data/SECLISTS/bd8f9b5501f9257e9d39c733540e793602c3da6f/seclists-27f4da6b9b3fcff9.txt",
+    "retrieved_at": "2026-10-01T14:57:42.361025Z",
+    "risk": "R1",
+    "runner_data_id": "seclists-27f4da6b9b3fcff9",
+    "sha256": "226eaa23b54107ba5eb4c0c0bc415b6c8ce7289109b05591908d695757c019a2",
+    "snapshot_id": "bd8f9b5501f9257e9d39c733540e793602c3da6f",
+    "source_commit": "bd8f9b5501f9257e9d39c733540e793602c3da6f",
+    "source_id": "SECLISTS",
+    "source_record": "Discovery/Web-Content/raft-small-files.txt",
+    "source_url": "https://github.com/danielmiessler/SecLists",
+    "source_version": "master",
+    "storage_class": "RUNNER_DATA",
+    "tool": "ffuf"
+  }
+}

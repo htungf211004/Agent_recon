@@ -15,10 +15,11 @@ def test_manifest_requires_provenance_timezone_hash_and_ingestion_status(staged)
             SourceManifest.model_validate(manifest.model_dump() | update)
 
 
-def test_registry_has_fifteen_official_sources_and_canonical_transport():
+def test_registry_has_sixteen_official_sources_and_canonical_transport():
     specs = load_registry()
-    assert len(specs) == 15
+    assert len(specs) == 16
     assert specs["WSTG"].ref == "v4.2"
+    assert specs["RECON_CURATED"].fetch_type == "local_reviewed"
     assert all(specs[key].fetch_type != "git" for key in ("PSL", "IANA_PORTS", "IANA_WELL_KNOWN", "NVD_CPE", "CWE", "OSV"))
     for change in ({"source_url": "http://github.com/x"}, {"ref": "--upload-pack=bad"}, {"paths": ("../secret",)}):
         with pytest.raises(ValidationError):

@@ -1,0 +1,1620 @@
+version: runtime-curation-v2
+records:
+- knowledge_id: RECON-AS-SCOPE-01
+  namespace: attack_surface_methodology
+  title: Scope seed
+  category: scope_seed
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - dns_resolve
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - operator_authorized_root_and_scope_version
+  produces: &id001
+  - DiscoveredAsset
+  api_related: false
+  content:
+    objective: Complete the bounded scope seed inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved scope_seed coverage gap and the required
+      inputs exist.
+    safe_actions:
+    - Canonicalize the operator root, host or IP, scheme, port and path prefix using
+      the existing scope contracts; persist the frozen authorization version. Candidate
+      relations grant no authorization.
+    expected_observations: *id001
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: All authorized seeds have canonical identities and frozen scope
+      bindings, or a normalization limitation is recorded.
+  source_paths:
+  - src/recon/scope/models.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-DNS-01
+  namespace: attack_surface_methodology
+  title: Domain dns
+  category: domain_dns
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - dns_resolve
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - authorized_hostname
+  produces: &id002
+  - DiscoveredAsset
+  - DNS_RESOLUTION
+  api_related: false
+  content:
+    objective: Complete the bounded domain dns inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved domain_dns coverage gap and the required
+      inputs exist.
+    safe_actions:
+    - Resolve authorized hostnames with the existing bounded resolver; retain FQDN-to-IP
+      evidence and require existing admission logic before any derived-host request.
+    expected_observations: *id002
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Each authorized hostname has a resolution attempt or a recorded
+      DNS/budget limitation.
+  source_paths:
+  - src/recon/dns_adapter.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-SUBDOMAIN-01
+  namespace: attack_surface_methodology
+  title: Passive subdomains
+  category: passive_subdomains
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - passive_subdomain_enum
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - authorized_domain_root
+  produces: &id003
+  - DiscoveredAsset
+  api_related: false
+  content:
+    objective: Complete the bounded passive subdomains inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved passive_subdomains coverage gap and
+      the required inputs exist.
+    safe_actions:
+    - Use the existing bounded passive enumeration profile; retain discovered hosts
+      as candidates until DNS verification and scope admission.
+    expected_observations: *id003
+    evidence_required:
+    - normalized_observation with gateway evidence_ref, origin or input identity,
+      timestamp and integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Every authorized root has a passive attempt or a missing-runtime,
+      policy or budget limitation.
+  source_paths:
+  - src/recon/local_osint.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-INFRA-01
+  namespace: attack_surface_methodology
+  title: Passive infrastructure
+  category: passive_infrastructure
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - passive_infra_enum
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - authorized_domain_root
+  produces: &id004
+  - DiscoveredAsset
+  - METADATA
+  api_related: false
+  content:
+    objective: Complete the bounded passive infrastructure inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved passive_infrastructure coverage gap
+      and the required inputs exist.
+    safe_actions:
+    - Observe the existing passive infrastructure profile and IP/ASN metadata when
+      returned. Empty host-only output does not certify infrastructure coverage.
+    expected_observations: *id004
+    evidence_required:
+    - normalized_observation with gateway evidence_ref, origin or input identity,
+      timestamp and integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: A verified IP/ASN-capable result exists, or metadata_unavailable
+      and the remaining provider gap are recorded.
+  source_paths:
+  - src/recon/local_osint.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-RDAP-01
+  namespace: attack_surface_methodology
+  title: Registration reference
+  category: registration_reference
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - whois_rdap_lookup
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - authorized_domain_root
+  produces: &id005
+  - EXTERNAL_REFERENCE
+  api_related: false
+  content:
+    objective: Complete the bounded registration reference inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved registration_reference coverage gap
+      and the required inputs exist.
+    safe_actions:
+    - Use the reviewed RDAP provider profile; preserve registration references with
+      field-level redaction and existing provider limits.
+    expected_observations: *id005
+    evidence_required:
+    - normalized_observation with gateway evidence_ref, origin or input identity,
+      timestamp and integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: The root has a bounded RDAP response or a provider/registry limitation;
+      no ownership inference expands scope.
+  source_paths:
+  - src/recon/external_osint.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-HISTORY-01
+  namespace: attack_surface_methodology
+  title: Historical routes
+  category: historical_routes
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - historical_url_discovery
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - authorized_domain_root
+  produces: &id006
+  - PATH
+  - EXTERNAL_REFERENCE
+  api_related: false
+  content:
+    objective: Complete the bounded historical routes inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved historical_routes coverage gap and
+      the required inputs exist.
+    safe_actions:
+    - Record bounded historical URL references through the existing local OSINT profile;
+      historic presence is only a candidate and requires a current baseline.
+    expected_observations: *id006
+    evidence_required:
+    - normalized_observation with gateway evidence_ref, origin or input identity,
+      timestamp and integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Historical references were processed up to the existing item
+      budget, or a runtime/provider limitation was recorded.
+  source_paths:
+  - src/recon/local_osint.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-SEARCH-01
+  namespace: attack_surface_methodology
+  title: Public search references
+  category: public_search_references
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - search_engine_osint
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - authorized_domain_root_and_provider_profile
+  produces: &id007
+  - EXTERNAL_REFERENCE
+  - DiscoveredAsset
+  api_related: false
+  content:
+    objective: Complete the bounded public search references inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved public_search_references coverage
+      gap and the required inputs exist.
+    safe_actions:
+    - Use the fixed public-search provider profile for authorized-domain references;
+      do not search credential dumps or copy arbitrary search strings from knowledge.
+    expected_observations: *id007
+    evidence_required:
+    - normalized_observation with gateway evidence_ref, origin or input identity,
+      timestamp and integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Each enabled provider profile has a bounded response or a missing-credential/rate/budget
+      limitation.
+  source_paths:
+  - src/recon/provider_search.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-ASSETSEARCH-01
+  namespace: attack_surface_methodology
+  title: External asset references
+  category: external_asset_references
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - external_asset_search
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - authorized_domain_root_and_provider_profile
+  produces: &id008
+  - EXTERNAL_REFERENCE
+  - DiscoveredAsset
+  api_related: false
+  content:
+    objective: Complete the bounded external asset references inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved external_asset_references coverage
+      gap and the required inputs exist.
+    safe_actions:
+    - Use the existing reviewed external-asset provider profiles; preserve returned
+      hosts/services as non-authoritative references until admission and verification.
+    expected_observations: *id008
+    evidence_required:
+    - normalized_observation with gateway evidence_ref, origin or input identity,
+      timestamp and integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Configured required providers have evidenced attempts or explicit
+      credential/provider limitations.
+  source_paths:
+  - src/recon/provider_search.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-PUBLICCODE-01
+  namespace: attack_surface_methodology
+  title: Public code references
+  category: public_code_references
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - public_code_search
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - authorized_domain_root_and_provider_profile
+  produces: &id009
+  - EXTERNAL_REFERENCE
+  api_related: false
+  content:
+    objective: Complete the bounded public code references inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved public_code_references coverage gap
+      and the required inputs exist.
+    safe_actions:
+    - Collect only the existing bounded public repository references with redaction;
+      do not harvest credentials, reconstruct repositories or weaponize secrets.
+    expected_observations: *id009
+    evidence_required:
+    - normalized_observation with gateway evidence_ref, origin or input identity,
+      timestamp and integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Required public-code provider profiles have a bounded attempt
+      or a recorded credential/provider limitation.
+  source_paths:
+  - src/recon/provider_search.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-SERVICE-01
+  namespace: attack_surface_methodology
+  title: Port service
+  category: port_service
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - nmap_scan
+  risk: R1
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - authorized_ip_and_port_set
+  produces: &id010
+  - Service
+  api_related: false
+  content:
+    objective: Complete the bounded port service inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved port_service coverage gap and the
+      required inputs exist.
+    safe_actions:
+    - Use the fixed bounded service-discovery profile on authorized IPs and ports.
+      Keep observed service evidence distinct from IANA registered-service references;
+      domain roots do not grant IP-wide scans.
+    expected_observations: *id010
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Every authorized IP/port profile has qualifying service evidence
+      or a runtime/policy/budget limitation.
+  source_paths:
+  - src/recon/adapters.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-ORIGIN-01
+  namespace: attack_surface_methodology
+  title: Http origin
+  category: http_origin
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - http_probe
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_host_ip_pin_and_authorized_port
+  produces: &id011
+  - DiscoveredAsset
+  - Service
+  api_related: false
+  content:
+    objective: Complete the bounded http origin inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved http_origin coverage gap and the
+      required inputs exist.
+    safe_actions:
+    - Attempt bounded HTTP/HTTPS baselines with the verified hostname/IP transport
+      pin; record status, headers, TLS and redirects. Follow-up redirects require
+      their own authorization.
+    expected_observations: *id011
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Each applicable verified host/port has an origin attempt or a
+      TLS/transport/policy/budget limitation.
+  source_paths:
+  - src/recon/origin_recon.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-TECH-01
+  namespace: attack_surface_methodology
+  title: Technology fingerprint
+  category: technology_fingerprint
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - whatweb
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_http_origin
+  produces: &id012
+  - TechnologyObservation
+  api_related: false
+  content:
+    objective: Complete the bounded technology fingerprint inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved technology_fingerprint coverage gap
+      and the required inputs exist.
+    safe_actions:
+    - Use the existing bounded WhatWeb/header/HTML observations with evidence references.
+      Cookies are observed safely; a detected technology is not a vulnerability.
+    expected_observations: *id012
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Applicable fingerprint capability was attempted and evidence
+      persisted, or unavailability was recorded.
+  source_paths:
+  - src/recon/parsers.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-HEADERS-01
+  namespace: attack_surface_methodology
+  title: Restricted header fingerprint
+  category: restricted_header_fingerprint
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - technology_scan
+  risk: R1
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_http_origin
+  produces: &id013
+  - TechnologyObservation
+  api_related: false
+  content:
+    objective: Complete the bounded restricted header fingerprint inventory step,
+      retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved restricted_header_fingerprint coverage
+      gap and the required inputs exist.
+    safe_actions:
+    - Use only the existing hash-locked header-only runtime detector catalog through
+      Policy and Gateway. The external Nuclei metadata corpus cannot select or authorize
+      an executable template.
+    expected_observations: *id013
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: A restricted header-fingerprint attempt has evidence, or a runtime/policy/budget
+      limitation is recorded.
+  source_paths:
+  - src/recon/web_tools.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-ROBOTS-01
+  namespace: attack_surface_methodology
+  title: Robots
+  category: robots
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - http_fetch
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_http_origin
+  produces: &id014
+  - PATH
+  - EXTERNAL_REFERENCE
+  api_related: false
+  content:
+    objective: Complete the bounded robots inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved robots coverage gap and the required
+      inputs exist.
+    safe_actions:
+    - Read same-origin robots.txt with bounded GET/HEAD and R0. Parse directives as
+      route references; directives and external sitemap URLs grant no access.
+    expected_observations: *id014
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: A robots.txt attempt is recorded for each applicable origin,
+      including unavailable/blocked/budget outcomes.
+  source_paths:
+  - src/recon/discovery_parsers.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-SITEMAP-01
+  namespace: attack_surface_methodology
+  title: Sitemap
+  category: sitemap
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - http_fetch
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_http_origin
+  produces: &id015
+  - PATH
+  - EXTERNAL_REFERENCE
+  api_related: false
+  content:
+    objective: Complete the bounded sitemap inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved sitemap coverage gap and the required
+      inputs exist.
+    safe_actions:
+    - Read the bounded sitemap and advertised indexes; parse namespaces with DTD/entity
+      rejection and existing candidate limits. Each extracted URL still needs scope
+      admission.
+    expected_observations: *id015
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Sitemap attempts and bounded indexes are processed, or no advertised
+      sitemap / parser / policy / budget limitation is recorded.
+  source_paths:
+  - src/recon/discovery_parsers.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-WELLKNOWN-01
+  namespace: attack_surface_methodology
+  title: Well known
+  category: well_known
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - http_fetch
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_http_origin
+  produces: &id016
+  - PATH
+  - DOCUMENTATION_REFERENCE
+  api_related: false
+  content:
+    objective: Complete the bounded well known inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved well_known coverage gap and the required
+      inputs exist.
+    safe_actions:
+    - Use the existing three curated same-origin well-known paths with GET/HEAD R0.
+      IANA entries are references, not evidence that an endpoint exists; never probe
+      the entire registry.
+    expected_observations: *id016
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Every configured bounded metadata path has an evidenced attempt
+      or a recorded limitation.
+  source_paths:
+  - src/recon/checklist.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-HTML-01
+  namespace: attack_surface_methodology
+  title: Html static links
+  category: html_static_links
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - http_fetch
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_http_response
+  produces: &id017
+  - PATH
+  - EXTERNAL_REFERENCE
+  - ENDPOINT_CANDIDATE
+  api_related: false
+  content:
+    objective: Complete the bounded html static links inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved html_static_links coverage gap and
+      the required inputs exist.
+    safe_actions:
+    - Extract literal anchors, resource/script references and form metadata with the
+      existing parser; forms remain manual indicators and are never submitted automatically.
+    expected_observations: *id017
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: All bounded discovered documents are parsed or have parser/byte/budget
+      limitations recorded.
+  source_paths:
+  - src/recon/discovery_parsers.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-JS-01
+  namespace: attack_surface_methodology
+  title: Javascript routes
+  category: javascript_routes
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - http_fetch
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_script_response
+  produces: &id018
+  - PATH
+  - API_INDICATOR
+  - ENDPOINT_CANDIDATE
+  api_related: true
+  content:
+    objective: Complete the bounded javascript routes inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved javascript_routes coverage gap and
+      the required inputs exist.
+    safe_actions:
+    - Parse literal fetch, XHR and axios route references without evaluating JavaScript.
+      Treat declared write methods and unresolved inputs as inventory/manual data.
+    expected_observations: *id018
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: All bounded discovered script references are processed or a parser/byte/budget
+      limitation is recorded.
+  source_paths:
+  - src/recon/discovery_parsers.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-WEBSOCKET-01
+  namespace: attack_surface_methodology
+  title: Websocket indicators
+  category: websocket_indicators
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - http_fetch
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_script_response
+  produces: &id019
+  - DOCUMENTATION_REFERENCE
+  api_related: false
+  content:
+    objective: Complete the bounded websocket indicators inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved websocket_indicators coverage gap
+      and the required inputs exist.
+    safe_actions:
+    - Record any externally supplied WebSocket documentation reference as advisory
+      evidence. The current static parser has no dedicated WebSocket constructor extractor;
+      do not claim automatic detection or open socket sessions.
+    expected_observations: *id019
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Record the absent dedicated extractor and route remaining WebSocket
+      review to the operator.
+  source_paths:
+  - src/recon/discovery_parsers.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-BROWSER-01
+  namespace: attack_surface_methodology
+  title: Browser routes
+  category: browser_routes
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - browser_explore
+  - browser_request
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_http_origin_and_static_coverage_gap
+  produces: &id020
+  - PATH
+  - ENDPOINT_CANDIDATE
+  api_related: false
+  content:
+    objective: Complete the bounded browser routes inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved browser_routes coverage gap and the
+      required inputs exist.
+    safe_actions:
+    - When static extraction is insufficient, use the existing same-origin read-only
+      bounded BFS. Every GET/HEAD child passes existing authorization with page/depth/request/byte
+      limits; never fill forms or click state-changing controls.
+    expected_observations: *id020
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Static convergence or bounded browser convergence is evidenced,
+      or Chromium/policy/page/depth/request/byte limitations are recorded.
+  source_paths:
+  - src/recon/browser_discovery.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-CRAWL-01
+  namespace: attack_surface_methodology
+  title: Bounded crawl
+  category: bounded_crawl
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - web_crawl
+  risk: R1
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_http_origin
+  produces: &id021
+  - PATH
+  - ENDPOINT_CANDIDATE
+  api_related: false
+  content:
+    objective: Complete the bounded bounded crawl inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved bounded_crawl coverage gap and the
+      required inputs exist.
+    safe_actions:
+    - Use the existing pinned Katana profile and limits to observe scoped links. Keep
+      routes as candidates pending baseline; no arbitrary command, form submission
+      or unrestricted headless mode.
+    expected_observations: *id021
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Crawl convergence or the existing URL/time/response budget limitation
+      is recorded with evidence.
+  source_paths:
+  - src/recon/web_tools.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-CONTENT-01
+  namespace: attack_surface_methodology
+  title: Content discovery
+  category: content_discovery
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - content_discovery
+  risk: R1
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_http_origin_and_operator_selected_runner_id
+  produces: &id022
+  - PATH
+  - ENDPOINT_CANDIDATE
+  api_related: false
+  content:
+    objective: Complete the bounded content discovery inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved content_discovery coverage gap and
+      the required inputs exist.
+    safe_actions:
+    - Select only an existing approved runner_data_id/profile through the existing
+      policy catalog. Use bounded non-recursive candidates; each FFUF candidate requires
+      a separate HTTP baseline before becoming observed.
+    expected_observations: *id022
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Approved bounded profile was attempted and candidates verified,
+      or policy/runtime/request/budget limitations were recorded.
+  source_paths:
+  - src/recon/content_discovery.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-VHOST-01
+  namespace: attack_surface_methodology
+  title: Virtual host candidates
+  category: virtual_host_candidates
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - vhost_discovery
+  risk: R1
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - domain_root_with_authorized_subdomains_and_verified_pin
+  produces: &id023
+  - DiscoveredAsset
+  api_related: false
+  content:
+    objective: Complete the bounded virtual host candidates inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved virtual_host_candidates coverage
+      gap and the required inputs exist.
+    safe_actions:
+    - Use only the existing fixed VHost profile on an authorized domain root with
+      subdomains enabled. Results require DNS verification/admission and cannot authorize
+      an IP sweep.
+    expected_observations: *id023
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: The bounded VHost profile has evidence or a target-kind, runtime,
+      policy or budget limitation.
+  source_paths:
+  - src/recon/web_tools.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-APIDOCS-01
+  namespace: attack_surface_methodology
+  title: Api documentation
+  category: api_documentation
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - http_fetch
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_http_origin
+  produces: &id024
+  - DOCUMENTATION_REFERENCE
+  - API_INDICATOR
+  api_related: true
+  content:
+    objective: Complete the bounded api documentation inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved api_documentation coverage gap and
+      the required inputs exist.
+    safe_actions:
+    - Read only the existing bounded API documentation seeds and advertised documents
+      with GET/HEAD. Record Swagger, OpenAPI, GraphQL and WSDL indicators without
+      active API fuzzing.
+    expected_observations: *id024
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Applicable bounded documentation seeds have evidence or explicit
+      unavailability/policy/budget limitations.
+  source_paths:
+  - src/recon/discovery.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-OPENAPI-01
+  namespace: attack_surface_methodology
+  title: Openapi metadata
+  category: openapi_metadata
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - http_fetch
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_openapi_or_swagger_document
+  produces: &id025
+  - ENDPOINT_CANDIDATE
+  - API_INDICATOR
+  api_related: true
+  content:
+    objective: Complete the bounded openapi metadata inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved openapi_metadata coverage gap and
+      the required inputs exist.
+    safe_actions:
+    - Parse existing OpenAPI 3/Swagger 2 methods, paths, base/server paths, parameter
+      names/types and required inputs. Reject remote/cyclic references; declared POST/PUT/PATCH/DELETE
+      never dispatch automatically.
+    expected_observations: *id025
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: The bounded specification is parsed or parser/input/reference/byte
+      limitations are recorded; unresolved/write operations remain manual inventory.
+  source_paths:
+  - src/recon/discovery_parsers.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-GRAPHQL-01
+  namespace: attack_surface_methodology
+  title: Graphql indicator
+  category: graphql_indicator
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - graphql_discovery
+  risk: R1
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_http_origin
+  produces: &id026
+  - API_INDICATOR
+  - PROTOCOL
+  api_related: true
+  content:
+    objective: Complete the bounded graphql indicator inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved graphql_indicator coverage gap and
+      the required inputs exist.
+    safe_actions:
+    - Use the current fixed bounded GraphQL endpoint-indicator contract through Policy/Gateway.
+      Keep observations as indicators; do not add attack queries or authorize introspection
+      from knowledge.
+    expected_observations: *id026
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Configured GraphQL candidates have qualifying attempts or policy/runtime/budget
+      limitations; a positive indicator routes schema review to HITL.
+  source_paths:
+  - src/recon/graphql_recon.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-INTROSPECTION-01
+  namespace: attack_surface_methodology
+  title: Graphql schema review
+  category: graphql_schema_review
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - graphql_introspection
+  risk: R2
+  delivery: MANUAL_HITL
+  requires:
+  - operator_authorized_scope
+  - explicit_R2_scope_and_operator_review
+  produces: &id027
+  - PROTOCOL
+  api_related: true
+  content:
+    objective: Complete the bounded graphql schema review inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved graphql_schema_review coverage gap
+      and the required inputs exist.
+    safe_actions:
+    - Treat the existing R2 introspection contract as explicit operator-controlled
+      schema review. Advisory knowledge does not authorize it and does not add GraphQL
+      attacks or mutations.
+    expected_observations: *id027
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Record an explicit R2 operator decision and existing evidence,
+      or mark manual/policy-blocked; never count an unattempted review as complete.
+  source_paths:
+  - src/recon/graphql_recon.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-WSDL-01
+  namespace: attack_surface_methodology
+  title: Wsdl soap indicator
+  category: wsdl_soap_indicator
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - wsdl_discovery
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_wsdl_http_evidence
+  produces: &id028
+  - PROTOCOL
+  - DOCUMENTATION_REFERENCE
+  api_related: true
+  content:
+    objective: Complete the bounded wsdl soap indicator inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved wsdl_soap_indicator coverage gap
+      and the required inputs exist.
+    safe_actions:
+    - Analyze already acquired WSDL evidence with the existing bounded offline adapter,
+      rejecting DTD/entities. Inventory service/operation metadata only; never invoke
+      SOAP operations.
+    expected_observations: *id028
+    evidence_required:
+    - analysis_summary with gateway evidence_ref, origin or input identity, timestamp
+      and integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Acquired WSDL evidence is analyzed up to item/byte limits, or
+      missing-evidence/parser limitations are recorded.
+  source_paths:
+  - src/recon/offline_analysis.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-SOURCEMAP-01
+  namespace: attack_surface_methodology
+  title: Source map reference
+  category: source_map_reference
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - sourcemap_analyze
+  risk: R0
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_source_map_http_evidence
+  produces: &id029
+  - METADATA
+  - DOCUMENTATION_REFERENCE
+  api_related: false
+  content:
+    objective: Complete the bounded source map reference inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved source_map_reference coverage gap
+      and the required inputs exist.
+    safe_actions:
+    - Observe sourceMappingURL/map candidates and analyze bounded acquired source-map
+      metadata. Retain references only; no secret harvesting, source exploitation
+      or reconstruction workflow.
+    expected_observations: *id029
+    evidence_required:
+    - analysis_summary with gateway evidence_ref, origin or input identity, timestamp
+      and integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Bounded map references are analyzed or absence/byte/parser/policy/budget
+      limitations are recorded.
+  source_paths:
+  - src/recon/offline_analysis.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-BACKUP-01
+  namespace: attack_surface_methodology
+  title: Backup exposure indicator
+  category: backup_exposure_indicator
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - exposure_discovery
+  risk: R1
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_http_origin_and_backup_small_v2
+  produces: &id030
+  - PATH
+  - METADATA
+  api_related: false
+  content:
+    objective: Complete the bounded backup exposure indicator inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved backup_exposure_indicator coverage
+      gap and the required inputs exist.
+    safe_actions:
+    - Use only the existing bounded backup-small-v2 exposure profile and evidence-backed
+      existence checks. Do not download archives, import exploit dictionaries or create
+      a Finding from a candidate filename.
+    expected_observations: *id030
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Approved backup profile has evidenced attempts and bounded verification,
+      or runtime/policy/budget limitations are recorded.
+  source_paths:
+  - src/recon/wordlists.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-GIT-01
+  namespace: attack_surface_methodology
+  title: Git exposure indicator
+  category: git_exposure_indicator
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - exposure_discovery
+  risk: R1
+  delivery: AUTOMATIC
+  requires:
+  - operator_authorized_scope
+  - verified_http_origin_and_scm_small_v1
+  produces: &id031
+  - PATH
+  - METADATA
+  api_related: false
+  content:
+    objective: Complete the bounded git exposure indicator inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved git_exposure_indicator coverage gap
+      and the required inputs exist.
+    safe_actions:
+    - Use only the existing scm-small-v1 bounded exposure marker profile. Preserve
+      indicator evidence; no repository reconstruction, credential harvesting or secret
+      weaponization.
+    expected_observations: *id031
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Approved SCM marker profile has an evidenced attempt or runtime/policy/budget
+      limitation.
+  source_paths:
+  - src/recon/wordlists.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-ARCH-01
+  namespace: attack_surface_methodology
+  title: Architecture mapping
+  category: architecture_mapping
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities: []
+  risk: R0
+  delivery: METHODOLOGY_ONLY
+  requires:
+  - operator_authorized_scope
+  - evidence_backed_assets_services_routes_and_relations
+  produces: &id032
+  - AttackSurfaceInventory
+  api_related: false
+  content:
+    objective: Complete the bounded architecture mapping inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved architecture_mapping coverage gap
+      and the required inputs exist.
+    safe_actions:
+    - Map evidenced host, origin, service, route, technology and external/API relations
+      with existing inventory/provenance contracts. External relations and OAM semantics
+      never expand authorization.
+    expected_observations: *id032
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: All bounded evidenced relations are projected with valid references
+      and unresolved/manual/blocked states retained; no Findings is not a completion
+      condition.
+  source_paths:
+  - src/contracts/attack_surface.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-CPE-01
+  namespace: attack_surface_methodology
+  title: Technology cpe reference
+  category: technology_cpe_reference
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities: []
+  risk: R0
+  delivery: METHODOLOGY_ONLY
+  requires:
+  - operator_authorized_scope
+  - TechnologyObservation_with_evidence
+  produces: &id033
+  - CPECandidate
+  api_related: false
+  content:
+    objective: Complete the bounded technology cpe reference inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved technology_cpe_reference coverage
+      gap and the required inputs exist.
+    safe_actions:
+    - Normalize evidenced technology/product names and return non-deprecated official
+      CPE candidates. Text/fuzzy matches retain CANDIDATE; version uncertainty and
+      dictionary coverage remain explicit.
+    expected_observations: *id033
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Candidate lookup uses the pinned dictionary or records unavailable/partial
+      dictionary coverage; no product identity or vulnerability is asserted.
+  source_paths:
+  - src/recon/kb/lookups.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-CVE-01
+  namespace: attack_surface_methodology
+  title: Vulnerability references
+  category: vulnerability_references
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities: []
+  risk: R0
+  delivery: METHODOLOGY_ONLY
+  requires:
+  - operator_authorized_scope
+  - evidenced_technology_and_CPE_candidates
+  produces: &id034
+  - REFERENCE
+  api_related: false
+  content:
+    objective: Complete the bounded vulnerability references inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved vulnerability_references coverage
+      gap and the required inputs exist.
+    safe_actions:
+    - Keep CPE and vendor/product template matches as candidate references. Enrich
+      exact CVE IDs with KEV and exact CWE/template metadata only; template availability
+      never permits execution or proves version applicability.
+    expected_observations: *id034
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Reference joins and missing CPE-to-CVE/version applicability
+      data are recorded; confirmed vulnerability remains a separate Validation Agent
+      decision.
+  source_paths:
+  - src/recon/kb/lookups.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-PACKAGE-01
+  namespace: attack_surface_methodology
+  title: Package advisory reference
+  category: package_advisory_reference
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities: []
+  risk: R0
+  delivery: MANUAL_HITL
+  requires:
+  - operator_authorized_scope
+  - operator_approved_package_ecosystem_version_or_PURL_and_evidence_ref
+  produces: &id035
+  - REFERENCE
+  api_related: false
+  content:
+    objective: Complete the bounded package advisory reference inventory step, retaining
+      limitations.
+    applies_when:
+    - The authorized inventory has an unresolved package_advisory_reference coverage
+      gap and the required inputs exist.
+    safe_actions:
+    - Query OSV only for an evidenced versioned package/dependency identity. Service
+      banners are not package evidence; withdrawn advisories are inactive and remain
+      source references.
+    expected_observations: *id035
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Approved package queries have bounded advisory responses or limitations;
+      without package evidence record NOT_APPLICABLE_FOR_LIVE_SYNC.
+  source_paths:
+  - src/recon/kb/fetchers.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-PARAMETER-01
+  namespace: attack_surface_methodology
+  title: Parameter review
+  category: parameter_review
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities:
+  - parameter_discovery
+  risk: R2
+  delivery: MANUAL_HITL
+  requires:
+  - operator_authorized_scope
+  - explicit_R2_scope_and_operator_review
+  produces: &id036
+  - ENDPOINT_CANDIDATE
+  api_related: true
+  content:
+    objective: Complete the bounded parameter review inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved parameter_review coverage gap and
+      the required inputs exist.
+    safe_actions:
+    - Document the existing R2 parameter-discovery boundary for explicit operator
+      review only. This dataset keeps Arjun ingestion disabled and supplies no probing
+      dictionaries or arbitrary payloads.
+    expected_observations: *id036
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Record an explicit operator decision or manual/policy-disabled
+      limitation; this knowledge never initiates parameter testing.
+  source_paths:
+  - src/recon/models.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py
+- knowledge_id: RECON-AS-APIHITL-01
+  namespace: attack_surface_methodology
+  title: Active api review
+  category: active_api_review
+  asset_types:
+  - HOST
+  - IP
+  - SERVICE
+  - PATH
+  - API
+  - DOCUMENT
+  capabilities: []
+  risk: R0
+  delivery: MANUAL_HITL
+  requires:
+  - operator_authorized_scope
+  - operator_and_separate_validation_workflow
+  produces: &id037
+  - DOCUMENTATION_REFERENCE
+  api_related: true
+  content:
+    objective: Complete the bounded active api review inventory step, retaining limitations.
+    applies_when:
+    - The authorized inventory has an unresolved active_api_review coverage gap and
+      the required inputs exist.
+    safe_actions:
+    - Keep write operations, form submission, API mutation/injection, authorization
+      tests and protocol attacks in the manual/Validation workflow; Recon inventories
+      their indicators only.
+    expected_observations: *id037
+    evidence_required:
+    - tool_output with gateway evidence_ref, origin or input identity, timestamp and
+      integrity.
+    follow_up:
+    - Submit candidates to existing scope admission and policy; knowledge grants no
+      authority.
+    completion_rule: Manual handoff contains evidence-backed indicators and unresolved
+      inputs; no automatic API attack work is claimed.
+  source_paths:
+  - src/contracts/recon_planning.py
+  - src/recon/capability_catalog.py
+  - src/recon/checklist_v3.py

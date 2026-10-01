@@ -1,12 +1,14 @@
 """FETCH -> RAW -> NORMALIZE -> FILTER -> SCHEMA -> ACCEPT -> STAGE -> DIFF -> PROMOTE."""
 
 import json
+import re
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from src.contracts.recon_kb import IngestionStatus, SourceManifest, StorageClass
-from src.recon.kb.adapters import ADAPTER_VERSION, assetnote_downloads, normalize
+from src.contracts.recon_kb import ArtifactRejection, IngestionStatus, SourceManifest, StorageClass, ValidationAttempt
+from src.recon.kb.adapters import ADAPTER_VERSION, SECLISTS_PATHS, assetnote_downloads, normalize
 from src.recon.kb.fetchers import GitFetcher, HTTPDownloader, fetch_nvd, fetch_osv
 from src.recon.kb.registry import load_registry
 from src.recon.kb.safety import acceptance
@@ -43,8 +45,9 @@ class IngestionPipeline:
         spec = self.spec(source_id)
         with self.store.lock(source_id):
             now = self.clock()
-            incoming = self.store.path("raw", source_id, ".incoming-" + uuid4().hex)
-            incoming.mkdir(parents=True)
+            incoming = (self.store.path("raw", source_id, ".partial") if source_id == "NVD_CPE"
+                        else self.store.path("raw", source_id, ".incoming-" + uuid4().hex))
+            incoming.mkdir(parents=True, exist_ok=source_id == "NVD_CPE")
             reports, commit, watermark = [], None, None
             base = self.store.pointer(source_id, "CURRENT")
             try:
@@ -64,6 +67,34 @@ class IngestionPipeline:
                                           clock=self.clock)
                 elif spec.fetch_type == "osv_api":
                     fetch_osv(spec, incoming, self.http)
+                elif spec.fetch_type == "local_reviewed":
+                    project_root = Path(__file__).resolve().parents[3]
+                    for relative in spec.paths:
+                        source = contained(project_root, relative)
+                        if not source.is_file():
+                            raise ValueError("reviewed local source is missing")
+                        destination = contained(incoming, relative)
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copyfile(source, destination)
+                    git_entry = project_root / ".git"
+                    if git_entry.is_file():
+                        git_dir = (project_root / git_entry.read_text(encoding="utf-8").split(":", 1)[1].strip()).resolve()
+                    else:
+                        git_dir = git_entry
+                    head = (git_dir / "HEAD").read_text(encoding="ascii").strip()
+                    if head.startswith("ref: "):
+                        ref = head.removeprefix("ref: ")
+                        loose = git_dir / ref
+                        if loose.exists():
+                            commit = loose.read_text(encoding="ascii").strip()
+                        else:
+                            packed = (git_dir / "packed-refs").read_text(encoding="ascii").splitlines()
+                            commit = next(line.split(" ", 1)[0] for line in packed
+                                          if not line.startswith(("#", "^")) and line.endswith(" " + ref))
+                    else:
+                        commit = head
+                    if not re.fullmatch(r"[a-f0-9]{40,64}", commit):
+                        raise ValueError("invalid local Git commit")
                 hashes = artifact_hashes(incoming)
                 if not hashes or sum(path.stat().st_size for path in incoming.rglob("*") if path.is_file()) > spec.max_snapshot_bytes:
                     raise ValueError("empty or excessive raw snapshot")
@@ -116,8 +147,12 @@ class IngestionPipeline:
         return raw
 
     def _quarantine(self, manifest, error):
+        message = type(error).__name__ + ": " + str(error)[:400]
         result = manifest.model_copy(update={"status": IngestionStatus.QUARANTINED,
-                                            "reports": (*manifest.reports, "validation failed: " + type(error).__name__ + ": " + str(error)[:400])})
+                                            "reports": (*manifest.reports, "validation failed: " + message),
+                                            "final_validation_errors": (message,),
+                                            "attempt_history": (*manifest.attempt_history,
+                                                                ValidationAttempt(status="FAILED", errors=(message,)))})
         if manifest.status != IngestionStatus.PROMOTED:
             self.store.save_manifest(result)
         return result
@@ -145,8 +180,38 @@ class IngestionPipeline:
                 content = b"".join(json_bytes(record.model_dump(mode="json")) for record in records)
                 path = self.store.path("normalized", source_id, manifest.snapshot_id, "records.jsonl")
                 atomic_write(path, content)
+                semantics = {"final_validation_errors": (), "final_warnings": tuple(reports)}
+                if source_id == "SECLISTS":
+                    accepted = tuple(record.source_record for record in records)
+                    rejected = []
+                    for name in SECLISTS_PATHS:
+                        if name in accepted:
+                            continue
+                        report = next((item for item in reports if name in item), "artifact unavailable")
+                        rule = report.split("; rule=", 1)[1] if "; rule=" in report else "MISSING"
+                        rejected.append(ArtifactRejection(file=name, reason=report.split("; rule=", 1)[0],
+                                                          first_failing_rule=rule))
+                    semantics.update({"coverage_status": "COMPLETE" if not rejected else "PARTIAL",
+                                      "expected_artifacts": SECLISTS_PATHS,
+                                      "accepted_artifacts": accepted,
+                                      "rejected_artifacts": tuple(rejected)})
+                elif source_id == "NUCLEI_META":
+                    expected = tuple(sorted(path.relative_to(raw).as_posix() for path in raw.rglob("*.yaml")))
+                    accepted = tuple(record.source_record for record in records)
+                    rejected = []
+                    for report in reports:
+                        if not report.startswith("rejected Nuclei metadata: "):
+                            continue
+                        detail = report.removeprefix("rejected Nuclei metadata: ")
+                        name, _, rule = detail.partition("; rule=")
+                        rejected.append(ArtifactRejection(file=name, reason="invalid approved metadata",
+                                                          first_failing_rule=rule or "INVALID_METADATA_SCHEMA"))
+                    semantics.update({"coverage_status": "COMPLETE" if not rejected else "PARTIAL",
+                                      "expected_artifacts": expected, "accepted_artifacts": accepted,
+                                      "rejected_artifacts": tuple(rejected)})
                 result = manifest.model_copy(update={"record_count": len(records), "reports": tuple(reports),
-                                                      "normalized_sha256": sha256_file(path), "status": IngestionStatus.STAGED})
+                                                      "normalized_sha256": sha256_file(path),
+                                                      "status": IngestionStatus.STAGED, **semantics})
                 self.store.save_manifest(result)
                 return result
             except Exception as error:
@@ -191,7 +256,8 @@ class IngestionPipeline:
             try:
                 _, report = self._validate(spec, manifest)
                 atomic_write(self.store.path("normalized", source_id, manifest.snapshot_id, "acceptance.json"), json_bytes(report))
-                result = manifest.model_copy(update={"status": IngestionStatus.READY}) if manifest.status != IngestionStatus.PROMOTED else manifest
+                result = manifest.model_copy(update={"status": IngestionStatus.READY,
+                                                     "final_validation_errors": ()}) if manifest.status != IngestionStatus.PROMOTED else manifest
                 self.store.save_manifest(result)
                 return result
             except Exception as error:

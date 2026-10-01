@@ -149,7 +149,13 @@ the deterministic planner when no provider key is configured (`--planner llm`
 requires a key). Derived hosts use the same recursive `EndpointDiscovery`
 pipeline as roots. Supported content discovery and browser checks run before
 optional model proposals. `coverage_outcome` distinguishes complete, partial
-and limited coverage from worker completion. SQLite schema is v10. Run the
+and limited coverage from worker completion. API endpoint and metadata discovery
+remain part of Recon; GraphQL introspection requires explicit R2 authorization,
+while active GraphQL, SOAP and OpenAPI security testing remains manual/HITL.
+Promoted Recon KB snapshots now guide live planning and remain pinned on resume.
+An operator-reviewed runner dataset can be selected with
+`--runner-data SOURCE_ID:runner_data_id`; it still passes through the existing
+policy and gateway. SQLite schema is v11. Run the
 commands below for current local
 results. The [earlier bounded adaptive report](docs/recon-bounded-verification.md)
 is a historical record for its original revision.

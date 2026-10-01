@@ -21,6 +21,7 @@ from src.contracts.recon_assets import (
     AssetVerificationStatus,
     DiscoveredAsset,
 )
+from src.contracts.recon_kb import StorageClass
 from src.contracts.recon_manual_review import api_manual_review
 from src.contracts.recon_planning import ReconPlanningLimits
 from src.recon.adaptive_agent import AdaptiveReconAgent
@@ -29,13 +30,16 @@ from src.recon.checklist import project_checklist
 from src.recon.checklist_v3 import VERSION as CHECKLIST_V3_VERSION
 from src.recon.checklist_v3 import project_checklist_v3
 from src.recon.completion import completion
+from src.recon.kb.runtime import select_runner_data
 from src.recon.llm_planner import DeterministicReconPlanner, configured_planner
 from src.recon.models import BrowserLimits, Capability, ReconTask
 from src.recon.planner import scheme_for_port
+from src.recon.rag.runtime import live_snapshot_retriever
 from src.recon.scope.admission import admit_target, parse_target
 from src.recon.scope.legacy import resolve_pin
 from src.recon.scope.legacy import scoped_task as _legacy_scoped_task
 from src.recon.scope.models import AuthorizationBoundary
+from src.recon.wordlists import clear_external_wordlists
 
 
 def scoped_task(url: str, task_id: str, *, path_prefix: str | None = None, browser: bool = False,
@@ -120,6 +124,9 @@ def export_run(agent, task_id, directory):
         "authorized_root": boundary.root.model_dump(mode="json") if boundary else None,
         "derived_bindings": [binding.model_dump(mode="json") for binding in agent.repository.list_bindings(task_id)],
         "retriever_implementation_id": agent.retriever.implementation_id,
+        "kb_snapshots": [item.model_dump(mode="json")
+                         for item in agent.repository.kb_snapshots(task.run_id)],
+        "runner_data_selections": list(getattr(agent.engine, "runner_data_selections", ())),
         **agent.planner.identity, "planner_fingerprint": agent.planner.planner_id,
         "proposal_schema_hash": agent.planner.identity["decision_schema_hash"],
         "planner_implementation_version": agent.planner.identity["implementation_version"],
@@ -162,8 +169,11 @@ def main(argv=None):
     parser.add_argument("--planner", choices=("auto", "deterministic", "llm"), default="auto")
     parser.add_argument("--model", help="override MODEL_NAME or GEMINI_MODEL for this run")
     parser.add_argument("--llm-rounds", type=int, choices=(1, 2, 3), default=2)
+    parser.add_argument("--runner-data", action="append", default=[], metavar="SOURCE_ID:RUNNER_DATA_ID",
+                        help="operator-select a promoted runner dataset for bounded content discovery")
     parser.add_argument("--output-root", type=Path, default=Path("data/live-recon"))
     args = parser.parse_args(argv)
+    clear_external_wordlists()
     if args.parameter_discovery and not args.target:
         parser.error("--parameter-discovery requires --target authorization")
     task_id = args.task_id or "live-" + uuid4().hex[:16]
@@ -235,13 +245,28 @@ def main(argv=None):
             ))
     elif task.scope != proposed.scope or task.discovery_seeds != proposed.discovery_seeds:
         parser.error("existing task scope/URL differs; use a new task-id")
+    task = repository.get_task(task_id)
+    if task is None:
+        raise RuntimeError("saved Recon task is unavailable")
     engine.browser_limits = BrowserLimits(max_pages=2, max_depth=1, max_requests=8,
         max_runtime_seconds=10, max_response_bytes=65536, max_total_bytes=131072)
+    runner_selections = tuple(args.runner_data)
+    runner_bindings = tuple(item for item in repository.kb_snapshots(task.run_id)
+                            if item.storage_class == StorageClass.RUNNER_DATA)
+    if runner_bindings and not runner_selections:
+        parser.error("resuming a run with runner data requires repeating its --runner-data selection")
+    try:
+        engine.runner_data_selections = select_runner_data(repository, task.run_id, runner_selections)
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
+    engine.runner_wordlist_ids = tuple(selection.partition(":")[2]
+                                       for selection in engine.runner_data_selections)
     limits = ReconPlanningLimits(max_llm_rounds=args.llm_rounds)
     planner = (configured_planner(model_name=model_name, api_key=api_key,
         base_url=base_url, timeout_seconds=limits.model_timeout_seconds)
         if args.planner == "llm" or args.planner == "auto" and api_key else DeterministicReconPlanner())
-    agent = AdaptiveReconAgent(engine, planner, limits)
+    retriever = live_snapshot_retriever(repository, task.run_id)
+    agent = AdaptiveReconAgent(engine, planner, limits, retriever=retriever)
     export_run(agent, task_id, directory)
     print(f"Running task {task_id}; planner={planner.planner_id}; GET/HEAD only", flush=True)
     try:

@@ -49,6 +49,23 @@ class Provenance(KBModel):
         return self
 
 
+class ArtifactRejection(KBModel):
+    file: str
+    reason: str
+    first_failing_rule: str
+
+
+class ValidationAttempt(KBModel):
+    status: str
+    errors: tuple[str, ...]
+
+
+class SourceReference(KBModel):
+    source_id: str
+    source_record: str
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
 class SourceManifest(Provenance):
     license: str | None = None
     license_status: Literal["DECLARED", "REVIEW_REQUIRED", "APPROVED"]
@@ -63,6 +80,19 @@ class SourceManifest(Provenance):
     sync_watermark: str | None = None
     base_snapshot_id: str | None = None
     reports: tuple[str, ...] = ()
+    coverage_status: Literal["COMPLETE", "PARTIAL", "NOT_APPLICABLE_FOR_LIVE_SYNC"] = "COMPLETE"
+    expected_artifacts: tuple[str, ...] = ()
+    accepted_artifacts: tuple[str, ...] = ()
+    rejected_artifacts: tuple[ArtifactRejection, ...] = ()
+    final_validation_errors: tuple[str, ...] = ()
+    final_warnings: tuple[str, ...] = ()
+    attempt_history: tuple[ValidationAttempt, ...] = ()
+
+    @model_validator(mode="after")
+    def final_state(self):
+        if self.status in {IngestionStatus.READY, IngestionStatus.PROMOTED} and self.final_validation_errors:
+            raise ValueError("READY/PROMOTED cannot contain final validation errors")
+        return self
 
     @field_validator("artifact_sha256")
     @classmethod
@@ -94,12 +124,22 @@ class VectorKnowledgeRecord(Provenance):
     asset_types: tuple[str, ...]
     technologies: tuple[str, ...] = ()
     capabilities: tuple[str, ...]
-    risk: Literal[Risk.R0, Risk.R1]
+    risk: Literal[Risk.R0, Risk.R1, Risk.R2]
+    delivery: Literal["AUTOMATIC", "MANUAL_HITL", "METHODOLOGY_ONLY"] = "AUTOMATIC"
+    source_refs: tuple[SourceReference, ...] = ()
     requires: tuple[str, ...]
     produces: tuple[str, ...]
     active_testing: Literal[False] = False
     api_related: bool = False
     content: ReconContent
+
+    @model_validator(mode="after")
+    def manual_risk(self):
+        if self.risk == Risk.R2 and self.delivery != "MANUAL_HITL":
+            raise ValueError("R2 knowledge is manual/HITL only")
+        if not self.produces:
+            raise ValueError("methodology requires inventory output")
+        return self
 
 
 class LookupRecord(Provenance):

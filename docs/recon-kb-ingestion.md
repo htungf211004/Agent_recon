@@ -73,14 +73,23 @@ It pins its manifests in the Run repository when used by the existing planning c
 source version, commit and snapshot ID on knowledge references. v1 provides deterministic reference
 selection; it does not add an embedding provider or change the Recon Planner prompt.
 
+The live runner selects promoted VECTOR_RAG `CURRENT` snapshots automatically. A resumed run reconstructs
+the retriever from its immutable `recon_kb_bindings` instead of following a newer `CURRENT`. Both the
+retriever implementation ID and full snapshot manifests (`kb_snapshots`) are exported in
+`run-manifest.json`.
+
 `RunnerDataResolver(store, source_id, snapshot_id).resolve(runner_data_id)` resolves an operator-pinned
 catalog by ID, verifies its byte digest and normalization, and returns the existing `TrustedWordlist` shape.
 It accepts no caller-supplied local path or payload. Technology-aware lists require a matching
 `TechnologyObservation` with evidence. Automatic resolution is forbidden, including API-route datasets.
-Ingested IDs are not automatically added to the runtime `TRUSTED` catalog: an operator must separately
-select a bounded list through the existing runner and policy configuration. Existing action fingerprints
-already bind `wordlist_id`; changing it cannot reuse an earlier approval. Metadata ingestion introduces
-no new execution route through the gateway.
+Ingested IDs are not automatically added to the runtime `TRUSTED` catalog. After reviewing and promoting a
+RUNNER_DATA snapshot, an operator can select an exact entry for one live run with
+`--runner-data SOURCE_ID:runner_data_id`. Selection verifies the snapshot, record and bytes, pins the
+manifest to the Run, and installs only that ID in the process-local catalog. The deterministic coverage
+stage then sends it through the existing typed request, policy and gateway path. A resume reloads the
+same pinned snapshot only when the operator repeats the exact `--runner-data` option; the exported manifest
+is informational and is never trusted as selection authority. Existing action fingerprints bind
+`wordlist_id`, so changing a dataset cannot reuse an earlier execution identity.
 
 KEV joins only exact uppercase CVE IDs and returns reference metadata. IANA port helpers return
 `registered_service` references without updating observed services. PSL calculates a registrable-domain

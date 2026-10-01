@@ -4,6 +4,7 @@ import csv
 import hashlib
 import io
 import json
+import os
 import re
 import xml.etree.ElementTree as ET
 import zipfile
@@ -25,7 +26,7 @@ from src.recon.kb.fetchers import package_query
 from src.recon.kb.registry import validate_url
 from src.recon.kb.utils import atomic_write, contained, sha256_file
 
-ADAPTER_VERSION = "1.0.0"
+ADAPTER_VERSION = "2.0.0"
 WSTG_ROOT = "document/4-Web_Application_Security_Testing/01-Information_Gathering"
 SECLISTS_PATHS = (
     "Discovery/Web-Content/common.txt", "Discovery/Web-Content/raft-small-directories.txt",
@@ -90,21 +91,32 @@ def wstg(raw, manifest, reports):
     return records
 
 
+class WordlistSafetyError(ValueError):
+    def __init__(self, rule):
+        self.rule = rule
+        super().__init__("wordlist rejected: " + rule)
+
+
 def sanitize_wordlist(raw: bytes) -> bytes:
     if b"\x00" in raw:
-        raise ValueError("wordlist contains NUL")
+        raise WordlistSafetyError("NUL")
     words, seen = [], set()
     for line in raw.decode("utf-8-sig", errors="strict").splitlines():
         word = line.strip()
         if not word or word.startswith(("#", "//")):
             continue
         decoded = unquote(unquote(word))
-        if (len(word) > 512 or any(ord(char) < 32 or ord(char) == 127 for char in word)
-                or urlsplit(decoded).scheme or decoded.startswith(("/", "\\"))
-                or ".." in decoded.replace("\\", "/").split("/")
-                or any(char in decoded for char in "<>\x00\r\n`|;&{}")
-                or re.search(r"(?i)(\$\(|union\s+select|javascript:|%00)", decoded) or "FUZZ" in decoded):
-            raise ValueError("unsafe wordlist entry rejected without rewriting")
+        rules = (
+            ("MAX_LINE_LENGTH", len(word) > 512),
+            ("CONTROL_CHARACTER", any(ord(char) < 32 or ord(char) == 127 for char in word)),
+            ("ABSOLUTE_URL_OR_PATH", bool(urlsplit(decoded).scheme) or decoded.startswith(("/", "\\"))),
+            ("TRAVERSAL", ".." in decoded.replace("\\", "/").split("/")),
+            ("PAYLOAD_OR_MUTATION_CHARACTER", any(char in decoded for char in "<>\x00\r\n`|;&{}")),
+            ("COMMAND_OR_PLACEHOLDER", bool(re.search(r"(?i)(\$\(|union\s+select|javascript:|%00)", decoded)) or "FUZZ" in decoded),
+        )
+        for rule, failed in rules:
+            if failed:
+                raise WordlistSafetyError(rule)
         if word not in seen:
             seen.add(word)
             words.append(word)
@@ -115,6 +127,13 @@ def sanitize_wordlist(raw: bytes) -> bytes:
 
 def runner_record(raw_path, source_record, manifest, runner_root, *, api=False, technology=None):
     content = sanitize_wordlist(raw_path.read_bytes())
+    digest = hashlib.sha256(content).hexdigest()
+    blob = contained(runner_root, f"runner_data/blobs/{digest}.txt")
+    if blob.exists():
+        if sha256_file(blob) != digest:
+            raise ValueError("immutable runner blob digest mismatch")
+    else:
+        atomic_write(blob, content)
     identity = manifest.source_id.lower() + "-" + hashlib.sha256(source_record.encode()).hexdigest()[:16]
     relative = f"runner_data/{manifest.source_id}/{manifest.snapshot_id}/{identity}.txt"
     output = contained(runner_root, relative)
@@ -122,7 +141,9 @@ def runner_record(raw_path, source_record, manifest, runner_root, *, api=False, 
         if output.read_bytes() != content:
             raise ValueError("immutable normalized runner file differs from source")
     else:
-        atomic_write(output, content)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        # Fail explicitly on filesystems without hardlinks; never claim dedupe after a byte copy.
+        os.link(blob, output)
     return RunnerDataManifest(**provenance(manifest, source_record), runner_data_id=identity,
         local_path=relative, sha256=sha256_file(output), line_count=len(content.splitlines()),
         constraints=RunnerConstraints(api_related=api, technology_required=technology))
@@ -137,9 +158,10 @@ def seclists(raw, manifest, reports, runner_root):
             continue
         try:
             records.append(runner_record(path, name, manifest, runner_root, api=name.endswith("graphql.txt")))
-        except ValueError:
+        except ValueError as error:
             # Reject the entire file, retaining only independently safe allowlisted files. Never repair entries.
-            reports.append("rejected unsafe allowlisted wordlist (no rewrite or substitution): " + name)
+            reports.append("rejected unsafe allowlisted wordlist (no rewrite or substitution): " + name
+                           + "; rule=" + getattr(error, "rule", "INVALID_WORDLIST"))
     if not records:
         raise ValueError("no allowlisted SecLists files")
     return records
@@ -229,25 +251,35 @@ def safe_description(value):
 def nuclei(raw, manifest, reports):
     records = []
     for path in sorted(raw.rglob("*.yaml")):
-        value = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if not isinstance(value, dict) or not isinstance(value.get("info"), dict):
-            raise ValueError("invalid Nuclei metadata")
-        info = value["info"]
-        classification, metadata = info.get("classification", {}), info.get("metadata", {})
-        # Explicit projection: execution sections cannot survive even when new upstream keys are introduced.
-        projected = {
-            "template_id": str(value["id"]), "name": safe_description(info["name"]),
-            "description": safe_description(info.get("description")), "severity": str(info.get("severity", "unknown")),
-            "tags": _strings(info.get("tags")), "references": _strings(info.get("reference")),
-            "cve_ids": [cve_id(item) for item in _strings(classification.get("cve-id"))],
-            "cwe_ids": [cwe_id(item) for item in _strings(classification.get("cwe-id"))],
-            "cvss_score": classification.get("cvss-score"), "cvss_metrics": classification.get("cvss-metrics"),
-            "vendor": metadata.get("vendor"), "product": metadata.get("product"),
-            "max_request": metadata.get("max-request"), "validation_available": True,
-            "recon_execution_allowed": False, "candidate_type": "ValidationCandidate",
-        }
-        records.append(lookup(manifest, path.relative_to(raw).as_posix(), projected["template_id"], projected,
-                              lookup_keys={"cve_ids": projected["cve_ids"], "template_id": projected["template_id"]}))
+        relative = path.relative_to(raw).as_posix()
+        try:
+            value = yaml.safe_load(path.read_text(encoding="utf-8"))
+            if not isinstance(value, dict) or not isinstance(value.get("info"), dict):
+                raise ValueError("invalid metadata schema")
+            info = value["info"]
+            classification, metadata = info.get("classification", {}), info.get("metadata", {})
+            # Explicit projection: execution sections cannot survive even when new upstream keys are introduced.
+            projected = {
+                "template_id": str(value["id"]), "name": safe_description(info["name"]),
+                "description": safe_description(info.get("description")),
+                "severity": str(info.get("severity", "unknown")),
+                "tags": _strings(info.get("tags")), "references": _strings(info.get("reference")),
+                "cve_ids": [cve_id(item) for item in _strings(classification.get("cve-id"))],
+                "cwe_ids": [cwe_id(item) for item in _strings(classification.get("cwe-id"))],
+                "cvss_score": classification.get("cvss-score"), "cvss_metrics": classification.get("cvss-metrics"),
+                "vendor": metadata.get("vendor"), "product": metadata.get("product"),
+                "max_request": metadata.get("max-request"), "validation_available": True,
+                "recon_execution_allowed": False, "candidate_type": "ValidationCandidate",
+            }
+            records.append(lookup(manifest, relative, projected["template_id"], projected,
+                                  lookup_keys={"cve_ids": projected["cve_ids"],
+                                               "template_id": projected["template_id"]}))
+        except (KeyError, TypeError, ValueError, yaml.YAMLError) as error:
+            reason = ("INVALID_CWE_ID" if "CWE" in str(error) else
+                      "INVALID_CVE_ID" if "CVE" in str(error) else "INVALID_METADATA_SCHEMA")
+            reports.append(f"rejected Nuclei metadata: {relative}; rule={reason}")
+    if not records:
+        raise ValueError("no valid Nuclei metadata records")
     return records
 
 
@@ -469,6 +501,10 @@ def curated_tool(raw, manifest, reports, spec):
 
 def normalize(raw, manifest, spec, runner_root, reports):
     source = spec.source_id
+    if source == "RECON_CURATED":
+        from src.recon.kb.coverage import compile_curated_knowledge
+
+        return compile_curated_knowledge(raw, manifest)
     if source == "WSTG":
         return wstg(raw, manifest, reports)
     if source == "SECLISTS":

@@ -1,0 +1,742 @@
+version: recon-attack-surface-coverage-v1
+checklist_source: src/recon/checklist_v3.py:PT_01-STT-01..16
+original_docx_available: false
+semantics: Audit of knowledge/runtime contracts, not evidence that any target was tested. Runtime availability
+  and run completion remain existing projections.
+categories:
+- category: scope_seed
+  checklist_refs:
+  - PT_01-STT-01
+  - PT_01-STT-02
+  knowledge_ids:
+  - RECON-AS-SCOPE-01
+  capabilities:
+  - dns_resolve
+  requires:
+  - operator_authorized_root_and_scope_version
+  evidence:
+  - tool_output
+  produces:
+  - DiscoveredAsset
+  completion: All authorized seeds have canonical identities and frozen scope bindings, or a normalization
+    limitation is recorded.
+  status: COVERED
+  source_paths:
+  - src/recon/scope/models.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: domain_dns
+  checklist_refs:
+  - PT_01-STT-01
+  knowledge_ids:
+  - RECON-AS-DNS-01
+  capabilities:
+  - dns_resolve
+  requires:
+  - authorized_hostname
+  evidence:
+  - tool_output
+  produces:
+  - DiscoveredAsset
+  - DNS_RESOLUTION
+  completion: Each authorized hostname has a resolution attempt or a recorded DNS/budget limitation.
+  status: COVERED
+  source_paths:
+  - src/recon/dns_adapter.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: passive_subdomains
+  checklist_refs:
+  - PT_01-STT-01
+  knowledge_ids:
+  - RECON-AS-SUBDOMAIN-01
+  capabilities:
+  - passive_subdomain_enum
+  requires:
+  - authorized_domain_root
+  evidence:
+  - normalized_observation
+  produces:
+  - DiscoveredAsset
+  completion: Every authorized root has a passive attempt or a missing-runtime, policy or budget limitation.
+  status: COVERED
+  source_paths:
+  - src/recon/local_osint.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: passive_infrastructure
+  checklist_refs:
+  - PT_01-STT-01
+  knowledge_ids:
+  - RECON-AS-INFRA-01
+  capabilities:
+  - passive_infra_enum
+  requires:
+  - authorized_domain_root
+  evidence:
+  - normalized_observation
+  produces:
+  - DiscoveredAsset
+  - METADATA
+  completion: A verified IP/ASN-capable result exists, or metadata_unavailable and the remaining provider
+    gap are recorded.
+  status: PARTIAL
+  source_paths:
+  - src/recon/local_osint.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: registration_reference
+  checklist_refs:
+  - PT_01-STT-01
+  knowledge_ids:
+  - RECON-AS-RDAP-01
+  capabilities:
+  - whois_rdap_lookup
+  requires:
+  - authorized_domain_root
+  evidence:
+  - normalized_observation
+  produces:
+  - EXTERNAL_REFERENCE
+  completion: The root has a bounded RDAP response or a provider/registry limitation; no ownership inference
+    expands scope.
+  status: COVERED
+  source_paths:
+  - src/recon/external_osint.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: historical_routes
+  checklist_refs:
+  - PT_01-STT-01
+  - PT_01-STT-04
+  - PT_01-STT-05
+  knowledge_ids:
+  - RECON-AS-HISTORY-01
+  capabilities:
+  - historical_url_discovery
+  requires:
+  - authorized_domain_root
+  evidence:
+  - normalized_observation
+  produces:
+  - PATH
+  - EXTERNAL_REFERENCE
+  completion: Historical references were processed up to the existing item budget, or a runtime/provider
+    limitation was recorded.
+  status: COVERED
+  source_paths:
+  - src/recon/local_osint.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: public_search_references
+  checklist_refs:
+  - PT_01-STT-16
+  knowledge_ids:
+  - RECON-AS-SEARCH-01
+  capabilities:
+  - search_engine_osint
+  requires:
+  - authorized_domain_root_and_provider_profile
+  evidence:
+  - normalized_observation
+  produces:
+  - EXTERNAL_REFERENCE
+  - DiscoveredAsset
+  completion: Each enabled provider profile has a bounded response or a missing-credential/rate/budget
+    limitation.
+  status: COVERED
+  source_paths:
+  - src/recon/provider_search.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: external_asset_references
+  checklist_refs:
+  - PT_01-STT-14
+  knowledge_ids:
+  - RECON-AS-ASSETSEARCH-01
+  capabilities:
+  - external_asset_search
+  requires:
+  - authorized_domain_root_and_provider_profile
+  evidence:
+  - normalized_observation
+  produces:
+  - EXTERNAL_REFERENCE
+  - DiscoveredAsset
+  completion: Configured required providers have evidenced attempts or explicit credential/provider limitations.
+  status: COVERED
+  source_paths:
+  - src/recon/provider_search.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: public_code_references
+  checklist_refs:
+  - PT_01-STT-15
+  knowledge_ids:
+  - RECON-AS-PUBLICCODE-01
+  capabilities:
+  - public_code_search
+  requires:
+  - authorized_domain_root_and_provider_profile
+  evidence:
+  - normalized_observation
+  produces:
+  - EXTERNAL_REFERENCE
+  completion: Required public-code provider profiles have a bounded attempt or a recorded credential/provider
+    limitation.
+  status: COVERED
+  source_paths:
+  - src/recon/provider_search.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: port_service
+  checklist_refs:
+  - PT_01-STT-02
+  knowledge_ids:
+  - RECON-AS-SERVICE-01
+  capabilities:
+  - nmap_scan
+  requires:
+  - authorized_ip_and_port_set
+  evidence:
+  - tool_output
+  produces:
+  - Service
+  completion: Every authorized IP/port profile has qualifying service evidence or a runtime/policy/budget
+    limitation.
+  status: COVERED
+  source_paths:
+  - src/recon/adapters.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: http_origin
+  checklist_refs:
+  - PT_01-STT-02
+  - PT_01-STT-03
+  knowledge_ids:
+  - RECON-AS-ORIGIN-01
+  capabilities:
+  - http_probe
+  requires:
+  - verified_host_ip_pin_and_authorized_port
+  evidence:
+  - tool_output
+  produces:
+  - DiscoveredAsset
+  - Service
+  completion: Each applicable verified host/port has an origin attempt or a TLS/transport/policy/budget
+    limitation.
+  status: COVERED
+  source_paths:
+  - src/recon/origin_recon.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: technology_fingerprint
+  checklist_refs:
+  - PT_01-STT-03
+  knowledge_ids:
+  - RECON-AS-TECH-01
+  capabilities:
+  - whatweb
+  requires:
+  - verified_http_origin
+  evidence:
+  - tool_output
+  produces:
+  - TechnologyObservation
+  completion: Applicable fingerprint capability was attempted and evidence persisted, or unavailability
+    was recorded.
+  status: COVERED
+  source_paths:
+  - src/recon/parsers.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: restricted_header_fingerprint
+  checklist_refs:
+  - PT_01-STT-03
+  knowledge_ids:
+  - RECON-AS-HEADERS-01
+  capabilities:
+  - technology_scan
+  requires:
+  - verified_http_origin
+  evidence:
+  - tool_output
+  produces:
+  - TechnologyObservation
+  completion: A restricted header-fingerprint attempt has evidence, or a runtime/policy/budget limitation
+    is recorded.
+  status: COVERED
+  source_paths:
+  - src/recon/web_tools.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: robots
+  checklist_refs:
+  - PT_01-STT-04
+  knowledge_ids:
+  - RECON-AS-ROBOTS-01
+  capabilities:
+  - http_fetch
+  requires:
+  - verified_http_origin
+  evidence:
+  - tool_output
+  produces:
+  - PATH
+  - EXTERNAL_REFERENCE
+  completion: A robots.txt attempt is recorded for each applicable origin, including unavailable/blocked/budget
+    outcomes.
+  status: COVERED
+  source_paths:
+  - src/recon/discovery_parsers.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: sitemap
+  checklist_refs:
+  - PT_01-STT-05
+  knowledge_ids:
+  - RECON-AS-SITEMAP-01
+  capabilities:
+  - http_fetch
+  requires:
+  - verified_http_origin
+  evidence:
+  - tool_output
+  produces:
+  - PATH
+  - EXTERNAL_REFERENCE
+  completion: Sitemap attempts and bounded indexes are processed, or no advertised sitemap / parser /
+    policy / budget limitation is recorded.
+  status: COVERED
+  source_paths:
+  - src/recon/discovery_parsers.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: well_known
+  checklist_refs:
+  - PT_01-STT-06
+  knowledge_ids:
+  - RECON-AS-WELLKNOWN-01
+  capabilities:
+  - http_fetch
+  requires:
+  - verified_http_origin
+  evidence:
+  - tool_output
+  produces:
+  - PATH
+  - DOCUMENTATION_REFERENCE
+  completion: Every configured bounded metadata path has an evidenced attempt or a recorded limitation.
+  status: COVERED
+  source_paths:
+  - src/recon/checklist.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: html_static_links
+  checklist_refs:
+  - PT_01-STT-02
+  - PT_01-STT-11
+  knowledge_ids:
+  - RECON-AS-HTML-01
+  capabilities:
+  - http_fetch
+  requires:
+  - verified_http_response
+  evidence:
+  - tool_output
+  produces:
+  - PATH
+  - EXTERNAL_REFERENCE
+  - ENDPOINT_CANDIDATE
+  completion: All bounded discovered documents are parsed or have parser/byte/budget limitations recorded.
+  status: COVERED
+  source_paths:
+  - src/recon/discovery_parsers.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: javascript_routes
+  checklist_refs:
+  - PT_01-STT-11
+  knowledge_ids:
+  - RECON-AS-JS-01
+  capabilities:
+  - http_fetch
+  requires:
+  - verified_script_response
+  evidence:
+  - tool_output
+  produces:
+  - PATH
+  - API_INDICATOR
+  - ENDPOINT_CANDIDATE
+  completion: All bounded discovered script references are processed or a parser/byte/budget limitation
+    is recorded.
+  status: COVERED
+  source_paths:
+  - src/recon/discovery_parsers.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: websocket_indicators
+  checklist_refs:
+  - PT_01-STT-11
+  knowledge_ids:
+  - RECON-AS-WEBSOCKET-01
+  capabilities:
+  - http_fetch
+  requires:
+  - verified_script_response
+  evidence:
+  - tool_output
+  produces:
+  - DOCUMENTATION_REFERENCE
+  completion: Record the absent dedicated extractor and route remaining WebSocket review to the operator.
+  status: PARTIAL
+  source_paths:
+  - src/recon/discovery_parsers.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: browser_routes
+  checklist_refs:
+  - PT_01-STT-11
+  knowledge_ids:
+  - RECON-AS-BROWSER-01
+  capabilities:
+  - browser_explore
+  - browser_request
+  requires:
+  - verified_http_origin_and_static_coverage_gap
+  evidence:
+  - tool_output
+  produces:
+  - PATH
+  - ENDPOINT_CANDIDATE
+  completion: Static convergence or bounded browser convergence is evidenced, or Chromium/policy/page/depth/request/byte
+    limitations are recorded.
+  status: COVERED
+  source_paths:
+  - src/recon/browser_discovery.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: bounded_crawl
+  checklist_refs:
+  - PT_01-STT-02
+  - PT_01-STT-11
+  knowledge_ids:
+  - RECON-AS-CRAWL-01
+  capabilities:
+  - web_crawl
+  requires:
+  - verified_http_origin
+  evidence:
+  - tool_output
+  produces:
+  - PATH
+  - ENDPOINT_CANDIDATE
+  completion: Crawl convergence or the existing URL/time/response budget limitation is recorded with evidence.
+  status: COVERED
+  source_paths:
+  - src/recon/web_tools.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: content_discovery
+  checklist_refs:
+  - PT_01-STT-02
+  - PT_01-STT-11
+  knowledge_ids:
+  - RECON-AS-CONTENT-01
+  capabilities:
+  - content_discovery
+  requires:
+  - verified_http_origin_and_operator_selected_runner_id
+  evidence:
+  - tool_output
+  produces:
+  - PATH
+  - ENDPOINT_CANDIDATE
+  completion: Approved bounded profile was attempted and candidates verified, or policy/runtime/request/budget
+    limitations were recorded.
+  status: COVERED
+  source_paths:
+  - src/recon/content_discovery.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: virtual_host_candidates
+  checklist_refs:
+  - PT_01-STT-02
+  knowledge_ids:
+  - RECON-AS-VHOST-01
+  capabilities:
+  - vhost_discovery
+  requires:
+  - domain_root_with_authorized_subdomains_and_verified_pin
+  evidence:
+  - tool_output
+  produces:
+  - DiscoveredAsset
+  completion: The bounded VHost profile has evidence or a target-kind, runtime, policy or budget limitation.
+  status: COVERED
+  source_paths:
+  - src/recon/web_tools.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: api_documentation
+  checklist_refs:
+  - PT_01-STT-07
+  knowledge_ids:
+  - RECON-AS-APIDOCS-01
+  capabilities:
+  - http_fetch
+  requires:
+  - verified_http_origin
+  evidence:
+  - tool_output
+  produces:
+  - DOCUMENTATION_REFERENCE
+  - API_INDICATOR
+  completion: Applicable bounded documentation seeds have evidence or explicit unavailability/policy/budget
+    limitations.
+  status: COVERED
+  source_paths:
+  - src/recon/discovery.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: openapi_metadata
+  checklist_refs:
+  - PT_01-STT-07
+  knowledge_ids:
+  - RECON-AS-OPENAPI-01
+  capabilities:
+  - http_fetch
+  requires:
+  - verified_openapi_or_swagger_document
+  evidence:
+  - tool_output
+  produces:
+  - ENDPOINT_CANDIDATE
+  - API_INDICATOR
+  completion: The bounded specification is parsed or parser/input/reference/byte limitations are recorded;
+    unresolved/write operations remain manual inventory.
+  status: COVERED
+  source_paths:
+  - src/recon/discovery_parsers.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: graphql_indicator
+  checklist_refs:
+  - PT_01-STT-08
+  knowledge_ids:
+  - RECON-AS-GRAPHQL-01
+  capabilities:
+  - graphql_discovery
+  requires:
+  - verified_http_origin
+  evidence:
+  - tool_output
+  produces:
+  - API_INDICATOR
+  - PROTOCOL
+  completion: Configured GraphQL candidates have qualifying attempts or policy/runtime/budget limitations;
+    a positive indicator routes schema review to HITL.
+  status: COVERED
+  source_paths:
+  - src/recon/graphql_recon.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: graphql_schema_review
+  checklist_refs:
+  - PT_01-STT-08
+  knowledge_ids:
+  - RECON-AS-INTROSPECTION-01
+  capabilities:
+  - graphql_introspection
+  requires:
+  - explicit_R2_scope_and_operator_review
+  evidence:
+  - tool_output
+  produces:
+  - PROTOCOL
+  completion: Record an explicit R2 operator decision and existing evidence, or mark manual/policy-blocked;
+    never count an unattempted review as complete.
+  status: MANUAL_HITL
+  source_paths:
+  - src/recon/graphql_recon.py
+  execution_mode: MANUAL_HITL
+- category: wsdl_soap_indicator
+  checklist_refs:
+  - PT_01-STT-09
+  knowledge_ids:
+  - RECON-AS-WSDL-01
+  capabilities:
+  - wsdl_discovery
+  requires:
+  - verified_wsdl_http_evidence
+  evidence:
+  - analysis_summary
+  produces:
+  - PROTOCOL
+  - DOCUMENTATION_REFERENCE
+  completion: Acquired WSDL evidence is analyzed up to item/byte limits, or missing-evidence/parser limitations
+    are recorded.
+  status: COVERED
+  source_paths:
+  - src/recon/offline_analysis.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: source_map_reference
+  checklist_refs:
+  - PT_01-STT-13
+  knowledge_ids:
+  - RECON-AS-SOURCEMAP-01
+  capabilities:
+  - sourcemap_analyze
+  requires:
+  - verified_source_map_http_evidence
+  evidence:
+  - analysis_summary
+  produces:
+  - METADATA
+  - DOCUMENTATION_REFERENCE
+  completion: Bounded map references are analyzed or absence/byte/parser/policy/budget limitations are
+    recorded.
+  status: COVERED
+  source_paths:
+  - src/recon/offline_analysis.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: backup_exposure_indicator
+  checklist_refs:
+  - PT_01-STT-10
+  knowledge_ids:
+  - RECON-AS-BACKUP-01
+  capabilities:
+  - exposure_discovery
+  requires:
+  - verified_http_origin_and_backup_small_v2
+  evidence:
+  - tool_output
+  produces:
+  - PATH
+  - METADATA
+  completion: Approved backup profile has evidenced attempts and bounded verification, or runtime/policy/budget
+    limitations are recorded.
+  status: COVERED
+  source_paths:
+  - src/recon/wordlists.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: git_exposure_indicator
+  checklist_refs:
+  - PT_01-STT-12
+  knowledge_ids:
+  - RECON-AS-GIT-01
+  capabilities:
+  - exposure_discovery
+  requires:
+  - verified_http_origin_and_scm_small_v1
+  evidence:
+  - tool_output
+  produces:
+  - PATH
+  - METADATA
+  completion: Approved SCM marker profile has an evidenced attempt or runtime/policy/budget limitation.
+  status: COVERED
+  source_paths:
+  - src/recon/wordlists.py
+  execution_mode: RUNTIME_CAPABILITY
+- category: architecture_mapping
+  checklist_refs:
+  - PT_01-STT-02
+  - PT_01-STT-11
+  knowledge_ids:
+  - RECON-AS-ARCH-01
+  capabilities: []
+  requires:
+  - evidence_backed_assets_services_routes_and_relations
+  evidence:
+  - tool_output
+  produces:
+  - AttackSurfaceInventory
+  completion: All bounded evidenced relations are projected with valid references and unresolved/manual/blocked
+    states retained; no Findings is not a completion condition.
+  status: COVERED
+  source_paths:
+  - src/contracts/attack_surface.py
+  execution_mode: INTERNAL_STATE
+- category: technology_cpe_reference
+  checklist_refs:
+  - PT_01-STT-03
+  knowledge_ids:
+  - RECON-AS-CPE-01
+  capabilities: []
+  requires:
+  - TechnologyObservation_with_evidence
+  evidence:
+  - tool_output
+  produces:
+  - CPECandidate
+  completion: Candidate lookup uses the pinned dictionary or records unavailable/partial dictionary coverage;
+    no product identity or vulnerability is asserted.
+  status: PARTIAL
+  source_paths:
+  - src/recon/kb/lookups.py
+  execution_mode: INTERNAL_STATE
+- category: vulnerability_references
+  checklist_refs:
+  - PT_01-STT-03
+  knowledge_ids:
+  - RECON-AS-CVE-01
+  capabilities: []
+  requires:
+  - evidenced_technology_and_CPE_candidates
+  evidence:
+  - tool_output
+  produces:
+  - REFERENCE
+  completion: Reference joins and missing CPE-to-CVE/version applicability data are recorded; confirmed
+    vulnerability remains a separate Validation Agent decision.
+  status: PARTIAL
+  source_paths:
+  - src/recon/kb/lookups.py
+  execution_mode: INTERNAL_STATE
+- category: package_advisory_reference
+  checklist_refs:
+  - PT_01-STT-03
+  knowledge_ids:
+  - RECON-AS-PACKAGE-01
+  capabilities: []
+  requires:
+  - operator_approved_package_ecosystem_version_or_PURL_and_evidence_ref
+  evidence:
+  - tool_output
+  produces:
+  - REFERENCE
+  completion: Approved package queries have bounded advisory responses or limitations; without package
+    evidence record NOT_APPLICABLE_FOR_LIVE_SYNC.
+  status: MANUAL_HITL
+  source_paths:
+  - src/recon/kb/fetchers.py
+  execution_mode: MANUAL_HITL
+- category: parameter_review
+  checklist_refs:
+  - PT_01-STT-02
+  - PT_01-STT-11
+  knowledge_ids:
+  - RECON-AS-PARAMETER-01
+  capabilities:
+  - parameter_discovery
+  requires:
+  - explicit_R2_scope_and_operator_review
+  evidence:
+  - tool_output
+  produces:
+  - ENDPOINT_CANDIDATE
+  completion: Record an explicit operator decision or manual/policy-disabled limitation; this knowledge
+    never initiates parameter testing.
+  status: MANUAL_HITL
+  source_paths:
+  - src/recon/models.py
+  execution_mode: MANUAL_HITL
+- category: active_api_review
+  checklist_refs:
+  - PT_01-STT-07
+  - PT_01-STT-08
+  - PT_01-STT-09
+  knowledge_ids:
+  - RECON-AS-APIHITL-01
+  capabilities: []
+  requires:
+  - operator_and_separate_validation_workflow
+  evidence:
+  - tool_output
+  produces:
+  - DOCUMENTATION_REFERENCE
+  completion: Manual handoff contains evidence-backed indicators and unresolved inputs; no automatic API
+    attack work is claimed.
+  status: MANUAL_HITL
+  source_paths:
+  - src/contracts/recon_planning.py
+  execution_mode: MANUAL_HITL
+- category: exploit_validation
+  checklist_refs: []
+  knowledge_ids: []
+  capabilities: []
+  requires: []
+  evidence: []
+  produces: []
+  completion: Outside Recon MVP; separate explicitly approved Validation Agent workflow.
+  status: OUT_OF_MVP
+  source_paths:
+  - src/contracts/execution.py
+  execution_mode: OUT_OF_MVP

@@ -35,12 +35,16 @@ class SourceSpec(KBModel):
     request_delay_seconds: float = Field(default=6.0, ge=0, le=30)
     assetnote_selections: tuple[dict, ...] = ()
     package_queries: tuple[dict, ...] = ()
+    max_sync_seconds: float = Field(default=300, ge=1, le=3600)
+    max_retries: int = Field(default=3, ge=1, le=5)
 
     @model_validator(mode="after")
     def trusted(self):
         validate_url(self.source_url, self.approved_hosts)
-        if self.fetch_type not in {"git", "http", "nvd_api", "osv_api"}:
+        if self.fetch_type not in {"git", "http", "nvd_api", "osv_api", "local_reviewed"}:
             raise ValueError("unsupported fetch type")
+        if self.fetch_type == "local_reviewed" and self.source_id != "RECON_CURATED":
+            raise ValueError("local review is reserved for the curated Recon source")
         if self.fetch_type == "git":
             if self.repository != self.source_url or not self.ref:
                 raise ValueError("git requires registry repository and explicit ref")

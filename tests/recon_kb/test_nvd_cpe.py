@@ -31,3 +31,24 @@ def test_nvd_pagination_and_incremental_watermark_only_after_complete(registry, 
     assert "lastModStartDate" in calls[0] and mark == "2026-10-01T00:00:00+00:00"
     with pytest.raises(ValueError, match="page bound"):
         fetch_nvd(registry["NVD_CPE"].model_copy(update={"max_pages": 1}), tmp_path, Pages(), pause=lambda _: None)
+
+
+def test_nvd_partial_sync_checkpoints_and_resumes(registry, tmp_path, monkeypatch):
+    calls = []
+
+    class Pages:
+        def download(self, spec, path, *, params):
+            calls.append(params["startIndex"])
+            path.write_text(json.dumps({"startIndex": params["startIndex"], "totalResults": 2,
+                                        "products": [{"cpe": {}}]}))
+
+    ticks = iter((0.0, 2.0))
+    monkeypatch.setattr("src.recon.kb.fetchers.time.monotonic", lambda: next(ticks))
+    spec = registry["NVD_CPE"].model_copy(update={"max_sync_seconds": 1, "request_delay_seconds": 0})
+    with pytest.raises(RuntimeError, match="PARTIAL_SYNC"):
+        fetch_nvd(spec, tmp_path, Pages(), pause=lambda _: None)
+    assert calls == [0] and (tmp_path / ".checkpoint.json").exists()
+
+    monkeypatch.setattr("src.recon.kb.fetchers.time.monotonic", lambda: 0.0)
+    fetch_nvd(spec, tmp_path, Pages(), pause=lambda _: None)
+    assert calls == [0, 1] and not (tmp_path / ".checkpoint.json").exists()
