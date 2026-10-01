@@ -56,10 +56,10 @@ def legacy_database(path, version=5, state=ToolRunState.SUCCEEDED):
 def test_new_task_uses_recon_3_policy(tmp_path):
     task = make_task()
     repository, adapter, gateway = runtime(tmp_path, task)
-    assert task.policy_version == PolicyService.VERSION == "recon-3.0"
+    assert task.policy_version == PolicyService.VERSION == "recon-3.1"
     gateway.execute(fetch_request())
     assert adapter.calls == 1
-    assert repository.get_policy_decision(fetch_request().id).policy_version == "recon-3.0"
+    assert repository.get_policy_decision(fetch_request().id).policy_version == "recon-3.1"
 
 
 def test_policy_version_changes_action_fingerprint():

@@ -16,6 +16,7 @@ from src.recon.models import (
     CapabilityAvailability,
     CapabilityRequest,
     EvidenceArtifact,
+    LocalOsintCapabilityRequest,
     PolicyDecision,
     PolicyOutcome,
     ProviderCapabilityRequest,
@@ -53,7 +54,7 @@ class Adapter(Protocol):
 
 
 class EvidenceWriter(Protocol):
-    def save(self, request: CapabilityRequest, content: bytes) -> EvidenceArtifact: ...
+    def save(self, request: ReconExecutionRequest, content: bytes) -> EvidenceArtifact: ...
 
     def read(self, artifact_id: str) -> bytes | None: ...
 
@@ -61,13 +62,13 @@ class EvidenceWriter(Protocol):
 class ResultWriter(Protocol):
     def get_tool_result(self, request_id: str) -> ToolResult | None: ...
 
-    def acquire_tool_run(self, request: CapabilityRequest) -> ToolRun | None: ...
+    def acquire_tool_run(self, request: ReconExecutionRequest) -> ToolRun | None: ...
 
     def get_tool_run(self, request_id: str) -> ToolRun | None: ...
 
-    def recover_expired_runs(self, task_id: str, request: CapabilityRequest | None = None) -> None: ...
+    def recover_expired_runs(self, task_id: str, request: ReconExecutionRequest | None = None) -> None: ...
 
-    def start_tool_run(self, run: ToolRun, request: CapabilityRequest, decision: PolicyDecision) -> PolicyDecision: ...
+    def start_tool_run(self, run: ToolRun, request: ReconExecutionRequest, decision: PolicyDecision) -> PolicyDecision: ...
 
     def finish_tool_run(self, run: ToolRun, result: ToolResult, *, timed_out: bool = False) -> ToolResult: ...
 
@@ -206,6 +207,9 @@ class ToolExecutionGateway:
             if isinstance(request, ProviderCapabilityRequest) and output.status == "error":
                 output = AdapterOutput(status="error", timed_out=timed_out,
                                        message="provider request failed")
+            if isinstance(request, LocalOsintCapabilityRequest) and output.status == "error":
+                output = AdapterOutput(status="error", timed_out=timed_out,
+                                       message="local OSINT request failed")
             if isinstance(request, ProviderCapabilityRequest) and output.status == "success":
                 for observation in output.observations:
                     value = observation.value
@@ -225,6 +229,32 @@ class ToolExecutionGateway:
                         raise ValueError("provider output is not normalized")
                 except (TypeError, UnicodeError, json.JSONDecodeError) as exc:
                     raise ValueError("provider output is not normalized") from exc
+            if isinstance(request, LocalOsintCapabilityRequest) and output.status == "success":
+                if len(output.observations) > request.parameters.max_results:
+                    raise ValueError("local OSINT result limit exceeded")
+                expected = {"tool": request.tool, "root_domain": request.root_domain,
+                            "observations": [row.model_dump(mode="json") for row in output.observations]}
+                try:
+                    if json.loads(output.raw_output) != expected:
+                        raise ValueError("local OSINT output is not normalized")
+                except (TypeError, UnicodeError, json.JSONDecodeError) as exc:
+                    raise ValueError("local OSINT output is not normalized") from exc
+                for observation in output.observations:
+                    if observation.provider != request.tool or observation.source != request.capability:
+                        raise ValueError("local OSINT source mismatch")
+                    if observation.kind == "HOST":
+                        host = observation.value
+                    elif observation.kind == "URL":
+                        parsed = urlsplit(observation.value)
+                        if (parsed.scheme not in {"http", "https"} or parsed.query or parsed.fragment
+                                or parsed.username or parsed.password):
+                            raise ValueError("local OSINT URL is not normalized")
+                        host = parsed.hostname
+                    else:
+                        raise ValueError("local OSINT observation kind is not allowed")
+                    if host is None or (host != request.root_domain and
+                                        not host.endswith("." + request.root_domain)):
+                        raise ValueError("local OSINT observation outside root")
             terminal = self.results.get_tool_result(request.id)
             if terminal is not None:
                 return terminal
@@ -257,6 +287,7 @@ class ToolExecutionGateway:
                 status="error",
                 parent_request_id=request.parent_request_id,
                 message=("provider execution failed" if isinstance(request, ProviderCapabilityRequest)
+                         else "local OSINT execution failed" if isinstance(request, LocalOsintCapabilityRequest)
                          else f"{type(exc).__name__}: {exc}"),
                 started_at=started_at,
                 finished_at=datetime.now(UTC),

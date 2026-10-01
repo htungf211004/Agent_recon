@@ -11,6 +11,7 @@ from src.recon.browser_runtime import chromium_available
 from src.recon.dns_adapter import DnsResolveAdapter
 from src.recon.gateway import CapabilityRegistry, ToolExecutionGateway
 from src.recon.graphql_recon import GraphqlDiscoveryAdapter, GraphqlIntrospectionAdapter
+from src.recon.local_osint import LocalOsintRouter
 from src.recon.models import Capability
 from src.recon.offline_analysis import OfflineEvidenceAdapter
 from src.recon.pinned_content import ContentDiscoveryAdapter
@@ -50,6 +51,9 @@ def create_recon_service(database_path: Path | str, evidence_dir: Path | str) ->
     registry.register(Capability.PUBLIC_CODE_SEARCH, ProviderRouter(("github", "gitlab")))
     registry.register(Capability.SEARCH_ENGINE_OSINT, ProviderRouter(("brave",)))
     registry.register(Capability.WHOIS_RDAP_LOOKUP, RdapAdapter())
+    registry.register(Capability.PASSIVE_SUBDOMAIN_ENUM, LocalOsintRouter(("subfinder", "amass")))
+    registry.register(Capability.HISTORICAL_URL_DISCOVERY, LocalOsintRouter(("gau",)))
+    registry.mark_unavailable(Capability.PASSIVE_INFRA_ENUM, "UNSUPPORTED_TARGET_KIND")
     for capability in Capability:
         if registry.get(capability) is None:
             registry.mark_unavailable(capability, "MISSING_BINARY")

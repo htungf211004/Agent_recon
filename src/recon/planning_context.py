@@ -144,9 +144,15 @@ def assemble_context(task, repository, service, limits, round_number, actions_us
         "knowledge_excerpts": tuple(chunk.excerpt for chunk in chunks),
         "retriever_id": retriever.implementation_id,
     })
-    for field in ("knowledge_excerpts", "knowledge_refs", "assets", "previous_actions", "routes", "services", "technologies"):
+    for field in ("assets", "previous_actions", "routes", "services", "technologies"):
         while len(context.model_dump_json().encode()) > limits.max_context_bytes and getattr(context, field):
             context = context.model_copy(update={field: getattr(context, field)[:-1], "context_truncated": True})
+    while len(context.model_dump_json().encode()) > limits.max_context_bytes and context.knowledge_refs:
+        context = context.model_copy(update={
+            "knowledge_refs": context.knowledge_refs[:-1],
+            "knowledge_excerpts": context.knowledge_excerpts[:-1],
+            "context_truncated": True,
+        })
     if len(context.model_dump_json().encode()) > limits.max_context_bytes:
         raise ValueError("scope exceeds planning context limit")
     return context

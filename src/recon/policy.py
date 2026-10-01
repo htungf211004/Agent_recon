@@ -13,13 +13,13 @@ from src.recon.models import (
     BrowserExploreParams,
     BrowserRequestParams,
     Capability,
-    CapabilityRequest,
     ContentDiscoveryParams,
     DnsResolveParams,
     EvidenceCapabilityRequest,
     GraphqlDiscoveryParams,
     GraphqlIntrospectionParams,
     HttpFetchParams,
+    LocalOsintCapabilityRequest,
     PolicyDecision,
     ProviderCapabilityRequest,
     ReconExecutionRequest,
@@ -32,7 +32,7 @@ from src.recon.urls import path_allowed
 class TaskReader(Protocol):
     def get_task(self, task_id: str) -> ReconTask | None: ...
 
-    def budget_denial(self, request: CapabilityRequest) -> str | None: ...
+    def budget_denial(self, request: ReconExecutionRequest) -> str | None: ...
 
 
 class PolicyService:
@@ -55,6 +55,15 @@ class PolicyService:
                 run_id=task.run_id, task_id=task.id, target=request.root_domain,
                 tool=request.capability.value,
                 parameters={"request_kind": "provider", "provider": request.provider,
+                            **request.parameters.model_dump(mode="json")},
+                scope_version=task.scope_version, policy_version=task.policy_version,
+                scope_fingerprint=cls.scope_fingerprint(task),
+            )
+        if isinstance(request, LocalOsintCapabilityRequest):
+            return action_fingerprint(
+                run_id=task.run_id, task_id=task.id, target=request.root_domain,
+                tool=request.capability.value,
+                parameters={"request_kind": "local_osint", "tool": request.tool,
                             **request.parameters.model_dump(mode="json")},
                 scope_version=task.scope_version, policy_version=task.policy_version,
                 scope_fingerprint=cls.scope_fingerprint(task),
@@ -132,6 +141,18 @@ class PolicyService:
                 return "RDAP TLD unsupported by configured endpoint"
             if request.parameters.timeout_seconds > task.execution_budget.max_timeout_seconds:
                 return "timeout exceeds task budget"
+            return None
+        if isinstance(request, LocalOsintCapabilityRequest):
+            boundary = self.tasks.get_authorization(task.id)
+            if boundary is None or boundary.root.kind != "DOMAIN" or boundary.root.value != request.root_domain:
+                return "local OSINT root does not match domain authorization"
+            if request.parameters.timeout_seconds > task.execution_budget.max_timeout_seconds:
+                return "timeout exceeds task budget"
+            result_limit = (task.execution_budget.max_historical_urls if
+                            request.capability == Capability.HISTORICAL_URL_DISCOVERY else
+                            task.execution_budget.max_subdomains)
+            if request.parameters.max_results > result_limit:
+                return "local OSINT result limit exceeds task budget"
             return None
         if isinstance(request, EvidenceCapabilityRequest):
             artifact = self.tasks.get_evidence(request.evidence_ref)

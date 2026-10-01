@@ -1,10 +1,12 @@
 """Mandatory final-image smoke: all public adapters through the production Gateway."""
 
 import json
+import os
 import socket
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from shutil import which
 from socketserver import BaseRequestHandler, ThreadingTCPServer
 from tempfile import TemporaryDirectory
 from threading import Thread
@@ -41,11 +43,16 @@ EXTERNAL_PROVIDER_CAPABILITIES = frozenset({Capability.WHOIS_RDAP_LOOKUP,
                                             Capability.EXTERNAL_ASSET_SEARCH,
                                             Capability.PUBLIC_CODE_SEARCH,
                                             Capability.SEARCH_ENGINE_OSINT})
+V3_LOCAL_REQUIRED = frozenset({Capability.PASSIVE_SUBDOMAIN_ENUM,
+                               Capability.HISTORICAL_URL_DISCOVERY,
+                               Capability.WEB_CRAWL, Capability.VHOST_DISCOVERY,
+                               Capability.PARAMETER_DISCOVERY,
+                               Capability.TECHNOLOGY_SCAN})
 
 
 def require_final_capabilities(registry):
     available = set(registry.available_capabilities())
-    unexpected = available - FINAL_CAPABILITIES - {Capability.SOURCEMAP_ANALYZE,
+    unexpected = available - FINAL_CAPABILITIES - V3_LOCAL_REQUIRED - {Capability.SOURCEMAP_ANALYZE,
         Capability.WSDL_DISCOVERY, Capability.EXPOSURE_DISCOVERY,
         Capability.GRAPHQL_DISCOVERY, Capability.GRAPHQL_INTROSPECTION,
         Capability.WHOIS_RDAP_LOOKUP,
@@ -102,6 +109,14 @@ def main():
             repository, service = create_recon_service(root / "recon.db", root / "evidence")
             gateway = service.gateway
             manifest = require_final_capabilities(gateway.registry)
+            if os.getenv("RECON_REQUIRE_V3_RUNTIME") == "1":
+                missing = V3_LOCAL_REQUIRED - set(gateway.registry.available_capabilities())
+                missing_binaries = {name for name in ("subfinder", "amass", "gau", "katana",
+                                                      "ffuf", "arjun", "nuclei") if not which(name)}
+                if missing or missing_binaries:
+                    raise RuntimeError("V3 local runtime incomplete: capabilities=" + ", ".join(
+                        sorted(cap.value for cap in missing)) + "; binaries=" + ", ".join(
+                        sorted(missing_binaries)))
             port = server.server_port
             task = ReconTask(
                 id="runtime-smoke", run_id="runtime-smoke",

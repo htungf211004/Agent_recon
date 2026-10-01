@@ -11,7 +11,7 @@ from src.recon.models import Capability
 class CapabilityDefinition:
     id: Capability
     risk: Risk
-    execution_kind: Literal["target", "provider", "evidence"]
+    execution_kind: Literal["target", "provider", "local_osint", "evidence"]
     required_runtime: str
     default_enabled: bool
     evidence_kind: str
@@ -33,12 +33,14 @@ _TARGET = {
     Capability.TECHNOLOGY_SCAN: (Risk.R1, "nuclei", (3,)),
     Capability.GRAPHQL_DISCOVERY: (Risk.R1, "python", (8,)),
     Capability.GRAPHQL_INTROSPECTION: (Risk.R2, "python", (8,)),
-    Capability.EXPOSURE_DISCOVERY: (Risk.R1, "nuclei", (10, 12)),
+    Capability.EXPOSURE_DISCOVERY: (Risk.R1, "ffuf", (10, 12)),
 }
-_PROVIDER = {
+_LOCAL_OSINT = {
     Capability.PASSIVE_SUBDOMAIN_ENUM: ("subfinder/amass", (1,)),
     Capability.PASSIVE_INFRA_ENUM: ("amass", (1,)),
     Capability.HISTORICAL_URL_DISCOVERY: ("gau", (1, 4, 5)),
+}
+_PROVIDER = {
     Capability.WHOIS_RDAP_LOOKUP: ("rdap", (1,)),
     Capability.EXTERNAL_ASSET_SEARCH: ("shodan/censys/fofa", (14,)),
     Capability.PUBLIC_CODE_SEARCH: ("github/gitlab", (15,)),
@@ -56,6 +58,9 @@ DEFINITIONS = {
     **{cap: CapabilityDefinition(cap, Risk.R0, "provider", runtime, True,
                                  "normalized_observation", tuple(f"PT_01-STT-{n:02d}" for n in checks))
        for cap, (runtime, checks) in _PROVIDER.items()},
+    **{cap: CapabilityDefinition(cap, Risk.R0, "local_osint", runtime, True,
+                                 "normalized_observation", tuple(f"PT_01-STT-{n:02d}" for n in checks))
+       for cap, (runtime, checks) in _LOCAL_OSINT.items()},
     **{cap: CapabilityDefinition(cap, Risk.R0, "evidence", runtime, True,
                                  "analysis_summary", tuple(f"PT_01-STT-{n:02d}" for n in checks))
        for cap, (runtime, checks) in _EVIDENCE.items()},

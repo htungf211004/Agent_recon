@@ -4,12 +4,14 @@ import base64
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 from src.recon.gateway import AdapterOutput, CapabilityRegistry, ToolExecutionGateway
 from src.recon.graphql_recon import GraphqlDiscoveryAdapter, GraphqlIntrospectionAdapter
+from src.recon.local_osint import LocalOsintAdapter
 from src.recon.models import (
     Capability,
     CapabilityRequest,
@@ -19,6 +21,8 @@ from src.recon.models import (
     GraphqlDiscoveryParams,
     GraphqlIntrospectionParams,
     HttpFetchParams,
+    LocalOsintCapabilityRequest,
+    LocalOsintParams,
     ProviderCapabilityRequest,
     ProviderParams,
     ReconTask,
@@ -76,6 +80,133 @@ def test_provider_fingerprint_replay_and_root_boundary(tmp_path, monkeypatch):
         raise AssertionError("request replay with changed limit accepted")
     denied = request.model_copy(update={"id": "provider-2", "root_domain": "other.example"})
     assert gateway.execute(denied).status == "denied" and len(outbound) == 1
+
+
+def test_local_osint_request_is_bound_normalized_and_budgeted(tmp_path, monkeypatch):
+    task, repository, evidence, registry, gateway = _gateway(
+        tmp_path, (Capability.PASSIVE_SUBDOMAIN_ENUM,))
+    seen = []
+
+    def fixed(command, timeout, **_kwargs):
+        seen.append((command, timeout))
+        return AdapterOutput(status="success", raw_output=(
+            b"a.example.com\nother.invalid\na.example.com\nexample.com\n"))
+
+    monkeypatch.setattr("src.recon.local_osint._run_fixed", fixed)
+    registry.register(Capability.PASSIVE_SUBDOMAIN_ENUM, LocalOsintAdapter("subfinder"))
+    request = LocalOsintCapabilityRequest(id="local-1", task_id=task.id, root_domain="example.com",
+        capability=Capability.PASSIVE_SUBDOMAIN_ENUM, tool="subfinder",
+        parameters=LocalOsintParams(max_results=2))
+    result = gateway.execute(request)
+    assert result.status == "success" and result.target_ip is None
+    assert [row.value for row in result.observations] == ["a.example.com", "example.com"]
+    assert seen[0][0] == ["subfinder", "-d", "example.com", "-silent"]
+    assert "other.invalid" not in evidence.read(result.evidence_id).decode()
+    assert parse_execution_request(repository.get_tool_run(request.id).request_payload).tool == "subfinder"
+    with pytest.raises(ValueError, match="reused"):
+        gateway.execute(request.model_copy(update={"parameters": LocalOsintParams(max_results=3)}))
+    denied = request.model_copy(update={"id": "local-2", "root_domain": "other.invalid"})
+    assert gateway.execute(denied).status == "denied" and len(seen) == 1
+
+
+def test_local_osint_strips_historical_query_and_rejects_cross_domain(tmp_path, monkeypatch):
+    task, _repository, evidence, registry, gateway = _gateway(
+        tmp_path, (Capability.HISTORICAL_URL_DISCOVERY,))
+    monkeypatch.setattr("src.recon.local_osint._run_fixed", lambda *_args, **_kwargs: AdapterOutput(
+        status="success", raw_output=(
+            b"https://www.example.com/a?token=secret#fragment\n"
+            b"https://other.invalid/private\n")))
+    registry.register(Capability.HISTORICAL_URL_DISCOVERY, LocalOsintAdapter("gau"))
+    result = gateway.execute(LocalOsintCapabilityRequest(
+        id="history", task_id=task.id, root_domain="example.com",
+        capability=Capability.HISTORICAL_URL_DISCOVERY, tool="gau"))
+    assert result.status == "success"
+    assert [row.value for row in result.observations] == ["https://www.example.com/a"]
+    assert "secret" not in evidence.read(result.evidence_id).decode()
+
+
+def test_amass_passive_profile_uses_isolated_result_file(tmp_path, monkeypatch):
+    task, _repository, _evidence, registry, gateway = _gateway(
+        tmp_path, (Capability.PASSIVE_SUBDOMAIN_ENUM,))
+
+    def fixed(command, timeout, *, env, cwd):
+        assert command[:3] == ["amass", "enum", "-passive"]
+        assert "-active" not in command and command[command.index("-d") + 1] == "example.com"
+        assert env["HOME"] == cwd and "HTTP_PROXY" not in env
+        with open(command[command.index("-o") + 1], "wb") as stream:
+            stream.write(b"api.example.com\noutside.invalid\n")
+        return AdapterOutput(status="success")
+
+    monkeypatch.setattr("src.recon.local_osint._run_fixed", fixed)
+    registry.register(Capability.PASSIVE_SUBDOMAIN_ENUM, LocalOsintAdapter("amass"))
+    request = LocalOsintCapabilityRequest(id="amass", task_id=task.id, root_domain="example.com",
+        capability=Capability.PASSIVE_SUBDOMAIN_ENUM, tool="amass")
+    result = gateway.execute(request)
+    assert result.status == "success"
+    assert [row.value for row in result.observations] == ["api.example.com"]
+
+
+def test_v3_new_tool_evidence_cannot_replace_legacy_check(monkeypatch):
+    from src.contracts.recon_planning import ChecklistSummary
+    from src.recon.checklist_v3 import project_checklist_v3
+
+    old = tuple(ChecklistSummary(id=f"PT_01-STT-{number:02d}", status="PENDING", reason="pending")
+                for number in range(1, 17))
+    monkeypatch.setattr("src.recon.checklist_v3.project_checklist_v2",
+                        lambda *_args, **_kwargs: old)
+    new_only = (Capability.WEB_CRAWL, Capability.VHOST_DISCOVERY,
+                Capability.PARAMETER_DISCOVERY, Capability.TECHNOLOGY_SCAN)
+    repository = SimpleNamespace(
+        list_tool_results=lambda _task_id: tuple(SimpleNamespace(
+            capability=cap, status="success", evidence_id=cap.value, observations=()) for cap in new_only),
+        list_tool_runs=lambda _task_id: (),
+    )
+    registry = SimpleNamespace(availability=lambda _cap, _provider=None: "AVAILABLE")
+    service = SimpleNamespace(gateway=SimpleNamespace(
+        evidence=SimpleNamespace(read=lambda _ref: b"verified"), registry=registry))
+    task = SimpleNamespace(id="task", scope=SimpleNamespace(capabilities=tuple(Capability)))
+    rows = {row.id: row for row in project_checklist_v3(task, repository, service)}
+    assert rows["PT_01-STT-02"].status != "COMPLETE"
+    assert rows["PT_01-STT-03"].status != "COMPLETE"
+    assert rows["PT_01-STT-11"].status != "COMPLETE"
+
+
+def test_api_wordlist_must_cover_each_verified_origin(monkeypatch):
+    from src.contracts.recon_planning import ChecklistSummary
+    from src.recon.checklist_v3 import project_checklist_v3
+    from src.recon.models import ContentDiscoveryParams, HttpProbeParams
+
+    old = tuple(ChecklistSummary(id=f"PT_01-STT-{number:02d}", status="PENDING", reason="pending")
+                for number in range(1, 17))
+    monkeypatch.setattr("src.recon.checklist_v3.project_checklist_v2",
+                        lambda *_args, **_kwargs: old)
+    requests = [CapabilityRequest(id=f"probe-{port}", task_id="task", target_ip="127.0.0.1",
+                capability=Capability.HTTP_PROBE, parameters=HttpProbeParams(port=port))
+                for port in (80, 8080)]
+    requests.append(CapabilityRequest(id="api-80", task_id="task", target_ip="127.0.0.1",
+        capability=Capability.CONTENT_DISCOVERY,
+        parameters=ContentDiscoveryParams(port=80, wordlist_id="api-common-small-v1")))
+    results = {request.id: SimpleNamespace(capability=request.capability, status="success",
+               evidence_id=request.id, observations=()) for request in requests}
+    repository = SimpleNamespace(
+        list_tool_results=lambda _task_id: tuple(results.values()),
+        list_tool_runs=lambda _task_id: tuple(SimpleNamespace(request_payload=request.model_dump_json())
+                                              for request in requests),
+        get_tool_result=lambda request_id: results[request_id],
+    )
+    service = SimpleNamespace(gateway=SimpleNamespace(
+        evidence=SimpleNamespace(read=lambda _ref: b"verified"),
+        registry=SimpleNamespace(availability=lambda _cap, _provider=None: "AVAILABLE")))
+    task = SimpleNamespace(id="task", scope=SimpleNamespace(capabilities=tuple(Capability)))
+    rows = {row.id: row for row in project_checklist_v3(task, repository, service)}
+    assert rows["PT_01-STT-07"].status != "COMPLETE"
+    requests.append(CapabilityRequest(id="api-8080", task_id="task", target_ip="127.0.0.1",
+        capability=Capability.CONTENT_DISCOVERY,
+        parameters=ContentDiscoveryParams(port=8080, wordlist_id="api-common-small-v1")))
+    results["api-8080"] = SimpleNamespace(capability=Capability.CONTENT_DISCOVERY, status="success",
+                                           evidence_id="api-8080", observations=())
+    rows = {row.id: row for row in project_checklist_v3(task, repository, service)}
+    assert rows["PT_01-STT-07"].status == "COMPLETE"
 
 
 def test_missing_provider_credential_denies_before_dispatch(tmp_path, monkeypatch):

@@ -344,7 +344,7 @@ class ReconRepository:
         from src.recon.capability_catalog import DEFINITIONS
 
         process_caps = tuple(cap.value for cap, definition in DEFINITIONS.items()
-                             if definition.execution_kind == "target"
+                             if definition.execution_kind in {"target", "local_osint"}
                              and definition.required_runtime not in {"python", "chromium"})
         if request.capability.value in process_caps:
             used_processes = connection.execute(
@@ -352,7 +352,23 @@ class ReconRepository:
                 ",".join("?" for _ in process_caps) + ")", (task.id, *process_caps)).fetchone()[0]
             if used_processes >= budget.max_tool_processes:
                 return "tool process budget exhausted"
-        from src.recon.models import EvidenceCapabilityRequest, ProviderCapabilityRequest
+        from src.recon.models import EvidenceCapabilityRequest, LocalOsintCapabilityRequest, ProviderCapabilityRequest
+
+        if isinstance(request, LocalOsintCapabilityRequest):
+            reserve = 0
+            for row in connection.execute("SELECT payload FROM tool_runs WHERE task_id = ?", (task.id,)):
+                run = ToolRun.model_validate_json(row[0])
+                if run.request_id == request.id or run.state in {ToolRunState.DENIED, ToolRunState.CANCELLED}:
+                    continue
+                previous = parse_execution_request(run.request_payload) if run.request_payload else None
+                if (isinstance(previous, LocalOsintCapabilityRequest) and
+                        (previous.capability == Capability.HISTORICAL_URL_DISCOVERY) ==
+                        (request.capability == Capability.HISTORICAL_URL_DISCOVERY)):
+                    reserve += previous.parameters.max_results
+            cap = (budget.max_historical_urls if request.capability == Capability.HISTORICAL_URL_DISCOVERY
+                   else budget.max_subdomains)
+            if reserve + request.parameters.max_results > cap:
+                return "local OSINT result budget exhausted"
 
         if isinstance(request, ProviderCapabilityRequest):
             used = connection.execute(

@@ -88,7 +88,7 @@ def test_browser_only_read_promotes_to_fuzz_ready(tmp_path, method):
     proof = repository.get_tool_result(baseline.request_id)
     assert proof.capability == Capability.HTTP_FETCH and proof.status == "success"
     assert repository.get_policy_decision(proof.request_id).allowed
-    assert repository.get_policy_decision(proof.request_id).policy_version == "recon-3.0"
+    assert repository.get_policy_decision(proof.request_id).policy_version == "recon-3.1"
     assert repository.get_tool_run(proof.request_id).state == "SUCCEEDED"
     assert service.gateway.evidence.read(baseline.evidence_id)
     expected = "browser-baseline-" + stable_id("browser-baseline-v1", task.id, endpoint.id, old.id, old.url, method)

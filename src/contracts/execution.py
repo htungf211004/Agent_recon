@@ -4,7 +4,7 @@ import hashlib
 import json
 from enum import StrEnum
 
-CURRENT_RECON_POLICY_VERSION = "recon-3.0"
+CURRENT_RECON_POLICY_VERSION = "recon-3.1"
 
 
 class Risk(StrEnum):

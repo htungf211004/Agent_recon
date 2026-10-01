@@ -287,7 +287,7 @@ class ContentDiscoveryParams(StrictModel):
 
 class ExposureDiscoveryParams(ContentDiscoveryParams):
     kind: Literal["exposure_discovery"] = "exposure_discovery"
-    wordlist_id: Literal["backup-small-v1", "scm-small-v1"]
+    wordlist_id: Literal["backup-small-v1", "backup-small-v2", "scm-small-v1"]
 
 
 class GraphqlDiscoveryParams(StrictModel):
@@ -416,6 +416,43 @@ class ProviderCapabilityRequest(StrictModel):
         return self
 
 
+class LocalOsintParams(StrictModel):
+    """A bounded local passive CLI invocation; no caller-supplied flags or URLs."""
+
+    profile: Literal["root_domain"] = "root_domain"
+    max_results: int = Field(default=128, ge=1, le=512)
+    timeout_seconds: float = Field(default=20, gt=0, le=60)
+
+
+class LocalOsintCapabilityRequest(StrictModel):
+    request_kind: Literal["local_osint"] = "local_osint"
+    id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
+    run_id: str | None = None
+    scope_version: str | None = None
+    action_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    root_domain: str
+    capability: Literal[Capability.PASSIVE_SUBDOMAIN_ENUM, Capability.PASSIVE_INFRA_ENUM,
+                        Capability.HISTORICAL_URL_DISCOVERY]
+    tool: Literal["subfinder", "amass", "gau"]
+    parameters: LocalOsintParams = Field(default_factory=LocalOsintParams)
+    budget_context: BudgetContext | None = None
+    parent_request_id: None = None
+
+    _root = field_validator("root_domain")(canonical_host)
+
+    @model_validator(mode="after")
+    def matching_tool(self):
+        tools = {
+            Capability.PASSIVE_SUBDOMAIN_ENUM: {"subfinder", "amass"},
+            Capability.PASSIVE_INFRA_ENUM: {"amass"},
+            Capability.HISTORICAL_URL_DISCOVERY: {"gau"},
+        }
+        if self.tool not in tools[self.capability]:
+            raise ValueError("local tool does not implement capability")
+        return self
+
+
 class EvidenceParams(StrictModel):
     profile: Literal["sourcemap_metadata", "wsdl_metadata"]
     max_input_bytes: int = Field(default=131072, ge=1, le=262144)
@@ -444,7 +481,8 @@ class EvidenceCapabilityRequest(StrictModel):
         return self
 
 
-ReconExecutionRequest = CapabilityRequest | ProviderCapabilityRequest | EvidenceCapabilityRequest
+ReconExecutionRequest = (CapabilityRequest | ProviderCapabilityRequest | LocalOsintCapabilityRequest
+                         | EvidenceCapabilityRequest)
 
 
 def parse_execution_request(payload: str) -> ReconExecutionRequest:
@@ -453,6 +491,7 @@ def parse_execution_request(payload: str) -> ReconExecutionRequest:
     data = json.loads(payload)
     kind = data.get("request_kind", "target")
     models = {"target": CapabilityRequest, "provider": ProviderCapabilityRequest,
+              "local_osint": LocalOsintCapabilityRequest,
               "evidence": EvidenceCapabilityRequest}
     if kind not in models:
         raise ValueError("unknown request kind")

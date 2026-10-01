@@ -12,6 +12,9 @@ TRUSTED = {
                                             ".well-known/jwks.json", ".well-known/assetlinks.json")),
     "backup-small-v1": ("backup", ("backup.zip", "backup.tar.gz", "backup.sql", "db.sql", "database.sql",
                                           "config.bak", "config.old", ".env.backup", "site.zip", "www.zip")),
+    "backup-small-v2": ("backup", ("backup.zip", "backup.tar.gz", "backup.sql", "db.sql", "database.sql",
+                                          "config.bak", "config.old", ".env.backup", "site.zip", "www.zip",
+                                          "index.php.bak", "config.php~", "web.config.old", "dump.sql.gz")),
     "scm-small-v1": ("scm", (".git/HEAD", ".git/config", ".svn/entries", ".hg/requires",
                                     ".bzr/branch/branch.conf")),
 }

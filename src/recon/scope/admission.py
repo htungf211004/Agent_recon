@@ -52,6 +52,8 @@ def admit_target(value: str, task_id: str, *, resolver: Callable[[str, int], tup
                         Capability.WHOIS_RDAP_LOOKUP,
                         Capability.EXTERNAL_ASSET_SEARCH, Capability.PUBLIC_CODE_SEARCH,
                         Capability.SEARCH_ENGINE_OSINT)
+        capabilities += (Capability.PASSIVE_SUBDOMAIN_ENUM, Capability.PASSIVE_INFRA_ENUM,
+                         Capability.HISTORICAL_URL_DISCOVERY)
     else:
         ports = (80, 443, 8080, 8443)
         pin = root.value

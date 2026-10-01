@@ -194,7 +194,7 @@ See [final hardening verification](docs/recon-final-hardening.md) and [container
 
 - `ReconAgent` chạy `BrowserBaselinePromotion` sau passive browser discovery. Browser-observed GET/HEAD hợp lệ được chọn xác định, rồi baseline bằng một request `HTTP_FETCH` riêng qua Policy/Gateway.
 - Chỉ complete 2xx evidence hợp lệ mới tạo `BaselineRequest` và đạt `FUZZ_READY`; giữ browser provenance, không tạo fake discovery source. Restart không gửi lại baseline hoặc đổi concrete URL đã chọn.
-- Trusted task snapshot dùng `recon-3.0`; migration v6 gắn `recon-2.2` cho task cũ. Completed request cũ vẫn replay đúng fingerprint; action mới trên policy cũ bị DENY.
+- Trusted task snapshot hiện dùng `recon-3.1`; migration v6 gắn `recon-2.2` cho task cũ. Completed request cũ vẫn replay đúng fingerprint; action mới trên policy cũ bị DENY.
 - Final container manifest requires six public capabilities, including bounded `content_discovery`; `browser_request` remains internal.
 - Xem [báo cáo P0 và các gate](docs/recon-final-p0.md).
 

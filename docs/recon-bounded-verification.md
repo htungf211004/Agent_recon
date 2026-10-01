@@ -72,7 +72,7 @@ SQLite migration **v8**, `adaptive_stages_and_bounded_content_budget`:
 | `recon_planning_rounds.error_code` | Persist sanitized provider/schema diagnostics |
 | `execution_reservations.request_units` | Reserve the whole trusted FFUF wordlist atomically; old rows default to 1 |
 
-Policy remains `recon-3.0`. ASI remains **v1.0**. Historical action/task fingerprints,
+Policy is now `recon-3.1` after the local OSINT execution contract. ASI remains **v1.0**. Historical action/task fingerprints,
 ToolRuns, browser continuation identity and evidence bytes are preserved.
 `ReconAgent.run()` and the URL-only HTTP profile retain compatibility.
 `ReconResult.worker_status` and `handoff_ready` are additive fields.

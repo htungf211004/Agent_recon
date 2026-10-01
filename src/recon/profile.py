@@ -3,5 +3,5 @@
 ROOT_SEEDS = ("/", "/robots.txt", "/sitemap.xml", "/openapi.json", "/swagger.json",
               "/.well-known/security.txt", "/.well-known/openid-configuration",
               "/.well-known/jwks.json", "/.well-known/assetlinks.json",
-              "/.git/HEAD", "/graphql", "/service.wsdl")
+              "/.git/HEAD", "/graphql", "/service.wsdl", "/?wsdl", "/?WSDL")
 BACKUP_PROBE = "/backup.zip"

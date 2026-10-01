@@ -402,7 +402,7 @@ def test_browser_only_endpoint_gets_one_complete_baseline_and_replays(tmp_path, 
     baseline = repository.get_baseline(endpoint.baseline_ref)
     assert baseline.request_id.startswith("browser-baseline-")
     assert baseline.response.body_size > 0 and not baseline.response.truncated
-    assert repository.get_policy_decision(baseline.request_id).policy_version == "recon-3.0"
+    assert repository.get_policy_decision(baseline.request_id).policy_version == "recon-3.1"
     assert gateway.evidence.read(baseline.evidence_id)
     assert result.coverage.sources == before.coverage.sources and result.coverage.rounds == before.coverage.rounds
     assert not any("/dynamic" in source.url for source in repository.list_sources(task.id))

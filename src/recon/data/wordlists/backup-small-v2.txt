@@ -1,0 +1,14 @@
+backup.zip
+backup.tar.gz
+backup.sql
+db.sql
+database.sql
+config.bak
+config.old
+.env.backup
+site.zip
+www.zip
+index.php.bak
+config.php~
+web.config.old
+dump.sql.gz

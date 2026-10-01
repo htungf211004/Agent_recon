@@ -27,7 +27,8 @@ ITEMS = (
     ChecklistItemV3("PT_01-STT-04", "AUTO", (Capability.HTTP_FETCH,)),
     ChecklistItemV3("PT_01-STT-05", "AUTO", (Capability.HTTP_FETCH,)),
     ChecklistItemV3("PT_01-STT-06", "AUTO", (Capability.HTTP_FETCH,)),
-    ChecklistItemV3("PT_01-STT-07", "DISCOVERY_ONLY", (Capability.HTTP_FETCH,)),
+    ChecklistItemV3("PT_01-STT-07", "DISCOVERY_ONLY", (Capability.HTTP_FETCH,
+                    Capability.CONTENT_DISCOVERY)),
     ChecklistItemV3("PT_01-STT-08", "AUTO_CONFIGURABLE", (Capability.GRAPHQL_DISCOVERY,
                     Capability.GRAPHQL_INTROSPECTION)),
     ChecklistItemV3("PT_01-STT-09", "DISCOVERY_ONLY", (Capability.WSDL_DISCOVERY,)),
@@ -60,6 +61,8 @@ def project_checklist_v3(task, repository, service, *, finalize=False) -> tuple[
     executed_profiles = set()
     completed_providers = {}
     graphql_paths = set()
+    verified_origins = set()
+    api_checked_origins = set()
     for run in repository.list_tool_runs(task.id):
         if not run.request_payload:
             continue
@@ -69,6 +72,13 @@ def project_checklist_v3(task, repository, service, *, finalize=False) -> tuple[
             continue
         if request.capability == Capability.EXPOSURE_DISCOVERY:
             executed_profiles.add(request.parameters.wordlist_id)
+        if request.capability in {Capability.HTTP_PROBE, Capability.CONTENT_DISCOVERY}:
+            origin = (request.target_ip, request.target_host, request.parameters.scheme,
+                      request.parameters.port)
+            if request.capability == Capability.HTTP_PROBE:
+                verified_origins.add(origin)
+            elif request.parameters.wordlist_id == "api-common-small-v1":
+                api_checked_origins.add(origin)
         if request.capability == Capability.GRAPHQL_DISCOVERY:
             graphql_paths.add(request.parameters.path)
         if hasattr(request, "provider"):
@@ -76,11 +86,10 @@ def project_checklist_v3(task, repository, service, *, finalize=False) -> tuple[
     rows = []
     for item in ITEMS:
         old = legacy[item.id]
-        # Existing coverage remains usable only for checks whose V3 requirement
-        # did not add a new capability.
+        # A new tool must not silently replace required legacy coverage.
         added = tuple(cap for cap in item.capabilities if cap not in {
             Capability.HTTP_FETCH, Capability.NMAP_SCAN, Capability.CONTENT_DISCOVERY, Capability.WHATWEB})
-        required = added or item.capabilities
+        required = item.capabilities
         missing = [cap for cap in required if cap not in task.scope.capabilities]
         unavailable = [f"{cap.value}:{service.gateway.registry.availability(cap)}" for cap in required
                        if service.gateway.registry.availability(cap) != "AVAILABLE"]
@@ -91,9 +100,11 @@ def project_checklist_v3(task, repository, service, *, finalize=False) -> tuple[
         if item.providers:
             ran = set(item.providers) <= completed_providers.get(item.capabilities[0], set())
         if item.id == "PT_01-STT-10":
-            ran = "backup-small-v1" in executed_profiles
+            ran = "backup-small-v2" in executed_profiles
         if item.id == "PT_01-STT-12":
             ran = "scm-small-v1" in executed_profiles
+        if item.id == "PT_01-STT-07":
+            ran = bool(verified_origins) and verified_origins <= api_checked_origins
         if (item.id == "PT_01-STT-08" and Capability.GRAPHQL_DISCOVERY in verified
                 and Capability.GRAPHQL_INTROSPECTION not in task.scope.capabilities):
             found = any(row.observations for row in verified[Capability.GRAPHQL_DISCOVERY])
@@ -102,7 +113,9 @@ def project_checklist_v3(task, repository, service, *, finalize=False) -> tuple[
             finding = "FOUND" if found else "NOT_FOUND" if len(graphql_paths) == 4 else "NOT_TESTED"
             reason = ("GraphQL endpoint found; R2 introspection requires explicit scope" if found
                       else "bounded GraphQL discovery checked without indicator")
-        elif ran or not added and old.status in {"COMPLETE", "NOT_APPLICABLE", "MANUAL_REVIEW"}:
+        elif (ran and (item.id not in {"PT_01-STT-02", "PT_01-STT-03", "PT_01-STT-11"}
+                       or old.status == "COMPLETE")) or (not added and old.status in {
+                           "COMPLETE", "NOT_APPLICABLE", "MANUAL_REVIEW"} and item.id != "PT_01-STT-07"):
             status = "COMPLETE" if ran else old.status
             evidence_results = [row for cap in required for row in verified.get(cap, ())]
             finding = ("FOUND" if any(row.observations for row in evidence_results) else

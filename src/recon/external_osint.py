@@ -4,7 +4,13 @@ import hashlib
 
 from src.contracts.recon_assets import AssetRelation, AssetType
 from src.recon.asset_extraction import record_candidate
-from src.recon.models import Capability, ProviderCapabilityRequest, ProviderParams
+from src.recon.models import (
+    Capability,
+    LocalOsintCapabilityRequest,
+    LocalOsintParams,
+    ProviderCapabilityRequest,
+    ProviderParams,
+)
 
 PROFILES = (
     (Capability.WHOIS_RDAP_LOOKUP, "rdap", "root_domain"),
@@ -26,6 +32,30 @@ class ExternalOsintExecutor:
         boundary = self.repository.get_authorization(task.id)
         if boundary is None or boundary.root.kind != "DOMAIN":
             return
+        for tool, capability in (("subfinder", Capability.PASSIVE_SUBDOMAIN_ENUM),
+                                 ("amass", Capability.PASSIVE_SUBDOMAIN_ENUM),
+                                 ("gau", Capability.HISTORICAL_URL_DISCOVERY)):
+            if capability not in task.scope.capabilities:
+                continue
+            if self.gateway.registry.availability(capability, tool) != "AVAILABLE":
+                continue
+            limit = (task.execution_budget.max_historical_urls if tool == "gau" else
+                     task.execution_budget.max_subdomains // 2)
+            if limit == 0:
+                continue
+            identity = hashlib.sha256(f"{task.id}\0{capability.value}\0{tool}".encode()).hexdigest()[:24]
+            request = LocalOsintCapabilityRequest(id=f"osint-{identity}", task_id=task.id,
+                root_domain=boundary.root.value, capability=capability, tool=tool,
+                parameters=LocalOsintParams(max_results=min(limit, 512), timeout_seconds=20))
+            result = self.gateway.execute(request)
+            if result.status == "success" and result.evidence_id:
+                try:
+                    if self.gateway.evidence.read(result.evidence_id) is not None:
+                        self._project(task, boundary, result)
+                except (ValueError, OSError):
+                    self.repository.add_limitation(task.id, f"osint:{tool}:evidence_unavailable")
+            elif result.status != "success":
+                self.repository.add_limitation(task.id, f"osint:{tool}:failed")
         if task.execution_budget.max_external_results == 0:
             self.repository.add_limitation(task.id, "osint:result_budget_zero")
             return
@@ -52,19 +82,22 @@ class ExternalOsintExecutor:
                     continue
             except (ValueError, OSError):
                 continue
-            base = f"https://{boundary.root.value}/"
-            for observation in result.observations:
-                if observation.kind == "HOST":
-                    hosts = {asset.canonical_value for asset in self.repository.list_assets(task.id)
-                             if asset.asset_type == AssetType.HOST}
-                    if len(hosts) >= task.execution_budget.max_subdomains:
-                        self.repository.add_limitation(task.id, "osint:subdomain_limit")
-                        break
-                    record_candidate(self.repository, task, boundary, base, result.evidence_id,
-                                     f"https://{observation.value}/", AssetRelation.OTHER_REFERENCE)
-                elif observation.kind == "URL":
-                    record_candidate(self.repository, task, boundary, base, result.evidence_id,
-                                     observation.value, AssetRelation.OTHER_REFERENCE)
-                elif observation.kind in {"CODE_REFERENCE", "SEARCH_REFERENCE"} and observation.value.startswith("https://"):
-                    record_candidate(self.repository, task, boundary, base, result.evidence_id,
-                                     observation.value, AssetRelation.OTHER_REFERENCE)
+            self._project(task, boundary, result)
+
+    def _project(self, task, boundary, result):
+        base = f"https://{boundary.root.value}/"
+        for observation in result.observations:
+            if observation.kind == "HOST":
+                hosts = {asset.canonical_value for asset in self.repository.list_assets(task.id)
+                         if asset.asset_type == AssetType.HOST}
+                if len(hosts) >= task.execution_budget.max_subdomains:
+                    self.repository.add_limitation(task.id, "osint:subdomain_limit")
+                    break
+                record_candidate(self.repository, task, boundary, base, result.evidence_id,
+                                 f"https://{observation.value}/", AssetRelation.OTHER_REFERENCE)
+            elif observation.kind == "URL":
+                record_candidate(self.repository, task, boundary, base, result.evidence_id,
+                                 observation.value, AssetRelation.OTHER_REFERENCE)
+            elif observation.kind in {"CODE_REFERENCE", "SEARCH_REFERENCE"} and observation.value.startswith("https://"):
+                record_candidate(self.repository, task, boundary, base, result.evidence_id,
+                                 observation.value, AssetRelation.OTHER_REFERENCE)

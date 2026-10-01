@@ -39,7 +39,8 @@ class DeterministicCoverageExecutor:
             visited.add(origin[0])
             _, target_ip, host, scheme, port = origin
             self._run_content(task, target_ip, host, scheme, port)
-            for profile in ("backup-small-v1", "scm-small-v1"):
+            self._run_content(task, target_ip, host, scheme, port, wordlist="api-common-small-v1")
+            for profile in ("backup-small-v2", "scm-small-v1"):
                 self._run_content(task, target_ip, host, scheme, port,
                                   capability=Capability.EXPOSURE_DISCOVERY, wordlist=profile)
             EndpointDiscovery(self.repository, self.engine.planner, self.service).run(
@@ -128,7 +129,7 @@ class DeterministicCoverageExecutor:
             return
         params = (ExposureDiscoveryParams(port=port, scheme=scheme, path_prefix="/", wordlist_id=wordlist)
                   if capability == Capability.EXPOSURE_DISCOVERY else
-                  ContentDiscoveryParams(port=port, scheme=scheme, path_prefix="/", wordlist_id=self.WORDLIST))
+                  ContentDiscoveryParams(port=port, scheme=scheme, path_prefix="/", wordlist_id=wordlist or self.WORDLIST))
         action = ReconPlanner._action(task, target_ip, capability, params, target_host=host)
         if hasattr(adapter, "supports") and not adapter.supports(action.request):
             return
