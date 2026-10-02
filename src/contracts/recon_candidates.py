@@ -10,7 +10,8 @@ class AttackSurfaceCandidate(BaseModel):
 
     id: str = Field(min_length=1)
     category: str = Field(min_length=1)
-    asset_id: str = Field(min_length=1)
+    asset_id: str | None = None
+    endpoint_id: str | None = None
     title: str = Field(min_length=1)
     observation: str = Field(min_length=1)
     confidence: Literal["LOW", "MEDIUM", "HIGH"]
@@ -23,6 +24,8 @@ class AttackSurfaceCandidate(BaseModel):
 
     @model_validator(mode="after")
     def no_vulnerability_claim(self):
+        if bool(self.asset_id) == bool(self.endpoint_id):
+            raise ValueError("candidate requires exactly one asset or endpoint identity")
         if "confirmed vulnerability" in (self.title + " " + self.observation).lower():
             raise ValueError("Recon cannot assert a confirmed vulnerability")
         return self

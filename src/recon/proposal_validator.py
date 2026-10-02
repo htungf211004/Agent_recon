@@ -134,7 +134,7 @@ class ReconProposalValidator:
         return ReconAction(id=request_id, request=request)
 
     def validate(self, task, decision: ReconPlanningDecision, remaining_actions: int, knowledge_ids=(),
-                 *, may_stop=None):
+                 *, may_stop=None, stop_context=None):
         if self.repository.get_task(task.id) != task:
             return ReconPlan(task_id=task.id), ("trusted task changed",)
         if len(decision.proposals) > self.limits.max_proposals_per_round:
@@ -143,6 +143,13 @@ class ReconProposalValidator:
             stop = decision.proposals[0]
             if len(decision.proposals) != 1:
                 return ReconPlan(task_id=task.id), ("malformed_stop",)
+            if stop_context is not None:
+                from src.recon.stop_evaluator import assess_stop
+
+                rejection = assess_stop(stop.reason_code, task, stop_context, remaining_actions,
+                    task.execution_budget.max_requests - self.repository.budget_usage(task.id))
+                if rejection:
+                    return ReconPlan(task_id=task.id), (rejection,)
             if stop.reason_code == "COVERAGE_SUFFICIENT" and may_stop is False:
                 return ReconPlan(task_id=task.id), ("inconsistent_stop_coverage",)
             if (stop.reason_code == "BUDGET_EXHAUSTED" and remaining_actions > 0
@@ -162,6 +169,7 @@ class ReconProposalValidator:
                 if not set(proposal.knowledge_refs) <= set(knowledge_ids):
                     raise ValueError("unknown knowledge reference")
                 action = self._action(task, proposal)
+                action = action.model_copy(update={"knowledge_refs": proposal.knowledge_refs})
                 request, capability, params = action.request, action.request.capability, action.request.parameters
                 adapter = self.service.gateway.registry.get(capability)
                 selector = getattr(request, "provider", getattr(request, "tool", None))

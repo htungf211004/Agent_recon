@@ -275,7 +275,8 @@ class AdaptiveReconAgent:
             plan, rejected = self.validator.validate(task, ReconPlanningDecision.model_validate_json(row["decision"]),
                 self.limits.max_total_llm_actions - self.store.actions_used(task.id),
                 (ref.knowledge_id for ref in context.knowledge_refs),
-                may_stop=may_stop(context.checklist, context.residual_signals) if self.execution_mode == "llm" else None)
+                may_stop=may_stop(context.checklist, context.residual_signals) if self.execution_mode == "llm" else None,
+                stop_context=context if self.execution_mode == "llm" else None)
             self.store.validate(task.id, row["number"], plan, rejected, self.limits)
         return {}
 

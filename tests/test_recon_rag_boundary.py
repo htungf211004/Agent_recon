@@ -1,7 +1,9 @@
 import hashlib
 from types import SimpleNamespace
 
+from src.contracts.recon_planning import ReconPlanningLimits
 from src.recon.adaptive_agent import AdaptiveReconAgent
+from src.recon.models import ReconPlan
 from src.recon.rag.models import KnowledgeChunk, ReconKnowledgeQuery
 from src.recon.rag.query_builder import build_query
 from src.recon.rag.retriever import InMemoryKnowledgeRetriever, NoopKnowledgeRetriever
@@ -49,3 +51,19 @@ def test_knowledge_refs_persist_but_cannot_authorize_out_of_scope_action(tmp_pat
     assert context["knowledge_query"]["checklist_gaps"]
     assert calls == [("GET", "/seed")]
     assert agent.store.rounds(task.id)[0]["context"]
+
+
+def test_candidate_cites_only_the_executed_proposal_knowledge(tmp_path):
+    chunks = tuple(KnowledgeChunk(knowledge_id=f"k{index}", namespace="attack_surface_methodology",
+        source_id="fixture", title="JavaScript method", excerpt=f"Inspect JavaScript {index}",
+        content_hash=hashlib.sha256(f"Inspect JavaScript {index}".encode()).hexdigest(), version="1")
+        for index in (1, 2))
+    agent, _, task, _ = adaptive(tmp_path, [{"proposals": [proposal("/app.js", knowledge_refs=["k2"])]}])
+    agent = AdaptiveReconAgent(agent.engine, agent.planner, ReconPlanningLimits(max_llm_rounds=1),
+        retriever=InMemoryKnowledgeRetriever(chunks), execution_mode="deterministic_fallback")
+    result = agent.run(task.id)
+    action = ReconPlan.model_validate_json(agent.store.rounds(task.id)[0]["plan"]).actions[0]
+    assert action.knowledge_refs == ("k2",)
+    candidate = next(row for row in result.attack_surface_candidates if row.category == "JAVASCRIPT_ROUTE")
+    assert candidate.knowledge_refs == ("k2",)
+    assert bool(candidate.asset_id) != bool(candidate.endpoint_id)

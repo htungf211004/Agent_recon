@@ -296,8 +296,7 @@ def main(argv=None):
         agent.run(task_id)
     finally:
         summary = export_run(agent, task_id, directory)
-    completed = summary["terminal"]
-    return 0 if completed and summary["llm_decisions_recorded"] and summary["evidence_verified"] else 2
+    return 0 if summary["terminal"] and summary["coverage_outcome"] == "COMPLETE" else 2
 
 
 if __name__ == "__main__":

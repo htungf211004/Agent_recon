@@ -30,11 +30,12 @@ from scripts.run_recon_live import scoped_task
 from src.config import Settings
 from src.recon.browser_runtime import chromium_available
 from src.recon.planner import scheme_for_port
-from src.recon.scope.admission import parse_target
+from src.recon.scope.admission import normalize_target_input
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "data" / "live-recon"
-ARTIFACTS = {"summary.json", "inventory.json", "planning.json", "result.json", "report.json",
+ARTIFACTS = {"summary.json", "inventory.json", "planning.json", "result.json", "recon-report.json",
+             "attack-surface-candidates.json",
              "run-manifest.json", "evidence-index.json", "asset-inventory.json",
              "checklist.json", "manual-review.json"}
 
@@ -54,15 +55,18 @@ class Launch(BaseModel):
 
 def runner_args(spec: Launch, task_id: str) -> list[str]:
     """Validate with the production task builder before launching the existing CLI."""
-    profile = "url" if spec.profile == "target" and "://" in spec.target else spec.profile
+    profile = spec.profile
     if profile == "target":
-        parse_target(spec.target)
+        normalized = normalize_target_input(spec.target)
         args = [sys.executable, "-u", "-m", "scripts.run_recon_live",
                 "--task-id", task_id, "--output-root", str(OUTPUT),
                 "--provider", spec.provider, "--llm-rounds", str(spec.rounds),
                 "--target", spec.target]
         if spec.model:
             args.append("--model=" + spec.model)
+        if normalized.explicit_origin and normalized.root.kind == "DOMAIN":
+            task = scoped_task(spec.target if "://" in spec.target else f"{normalized.scheme}://{spec.target}", task_id)
+            args += ["--pinned-ip", task.scope.web_origin.pinned_ip]
         return args
     ports = None
     if profile == "full":
@@ -284,7 +288,7 @@ def create_app() -> FastAPI:
                 "assets": read_json(safe_file(directory, "asset-inventory.json"), {}),
                 "checklist": read_json(safe_file(directory, "checklist.json"), {}),
                 "manual_review": read_json(safe_file(directory, "manual-review.json"), {}),
-                "report": read_json(safe_file(directory, "report.json"), {}),
+                "report": read_json(safe_file(directory, "recon-report.json"), {}),
                 "manifest": read_json(safe_file(directory, "run-manifest.json"), {}),
                 "planning": read_json(safe_file(directory, "planning.json"), []),
                 "evidence": read_json(safe_file(directory, "evidence-index.json"), []),

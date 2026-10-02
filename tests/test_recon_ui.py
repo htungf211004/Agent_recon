@@ -127,6 +127,14 @@ def test_primary_ui_target_uses_canonical_admission_without_tool_flags():
     assert "--ports" not in args and "--browser" not in args and "--content-discovery" not in args
 
 
+def test_primary_ui_accepts_host_port_and_exposes_current_report_files(monkeypatch):
+    monkeypatch.setattr("scripts.run_recon_live.resolve_pin", lambda *_: "127.0.0.1")
+    args = ui.runner_args(ui.Launch(target="example.test:8080/app"), "test-run")
+    assert args[args.index("--target") + 1] == "example.test:8080/app"
+    assert args[args.index("--pinned-ip") + 1] == "127.0.0.1"
+    assert {"recon-report.json", "attack-surface-candidates.json"} <= ui.ARTIFACTS
+
+
 @pytest.mark.parametrize("domain", [False, True])
 def test_real_ui_cli_lab_and_evidence_with_local_provider(client, monkeypatch, domain):
     calls = []
@@ -168,7 +176,7 @@ def test_real_ui_cli_lab_and_evidence_with_local_provider(client, monkeypatch, d
         if domain:
             monkeypatch.setattr("scripts.run_recon_live.resolve_pin", lambda *_: "127.0.0.1")
             url = url.replace("127.0.0.1", "recon.test")
-        response = client.post("/api/runs", json={"target": url, "provider": "openai", "model": "local-fixture"})
+        response = client.post("/api/runs", json={"target": url, "provider": "openai", "model": "local-fixture", "rounds": 2})
         assert response.status_code == 200
         task_id = response.json()["task_id"]
         snapshot = {}
@@ -179,21 +187,21 @@ def test_real_ui_cli_lab_and_evidence_with_local_provider(client, monkeypatch, d
                 break
             time.sleep(0.1)
         assert snapshot["process_status"] == "FINISHED", snapshot
-        assert snapshot["exit_code"] == 0, (ui.OUTPUT / task_id / "runner.log").read_text(errors="replace")
+        assert snapshot["exit_code"] == 2, (ui.OUTPUT / task_id / "runner.log").read_text(errors="replace")
         assert len(calls) == 2
         assert snapshot["summary"]["llm_decisions_recorded"] == 2
         assert snapshot["summary"]["evidence_verified"] > 0
-        assert snapshot["summary"]["run_status"] == "COMPLETED"
+        assert snapshot["summary"]["coverage_outcome"] in {"PARTIAL", "LIMITED"}
         assert any(e["canonical_path"] == "/health" for e in snapshot["inventory"]["entries"])
         if domain:
             assert all(e["authority"].startswith("recon.test:") and e["resolved_ip"] == "127.0.0.1"
                        for e in snapshot["inventory"]["entries"])
             # recon.test has no public DNS: resume must recover the stored pin without resolving again.
-            command = ui.runner_args(ui.Launch(target=url, provider="openai", model="local-fixture"), task_id)
+            command = ui.runner_args(ui.Launch(target=url, provider="openai", model="local-fixture", rounds=2), task_id)
             index = command.index("--pinned-ip")
             del command[index:index + 2]
             resumed = ui.subprocess.run(command, cwd=ui.ROOT, capture_output=True, timeout=30, shell=False)
-            assert resumed.returncode == 0, resumed.stdout.decode(errors="replace")
+            assert resumed.returncode == 2, resumed.stdout.decode(errors="replace")
             assert len(calls) == 2
         evidence_id = snapshot["evidence"][0]["id"]
         assert client.get(f"/api/runs/{task_id}/evidence/{evidence_id}").status_code == 200

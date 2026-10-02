@@ -1,10 +1,11 @@
 """Coverage and capability conversion checks for the autonomous controller."""
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import httpx
 
-from src.contracts.recon_planning import ChecklistSummary, ReconPlanningDecision, ReconPlanningLimits
+from src.contracts.recon_planning import ChecklistSummary, ReconPlanningDecision, ReconPlanningLimits, StopReason
 from src.recon.adapters import HttpFetchAdapter, HttpProbeAdapter
 from src.recon.coverage_evaluator import score_coverage
 from src.recon.gateway import AdapterOutput, CapabilityRegistry, ToolExecutionGateway
@@ -17,6 +18,7 @@ from src.recon.residual_signals import ReconResidualSignal, may_stop
 from src.recon.scope.admission import admit_target, normalize_target_input
 from src.recon.scope.models import AuthorizationBoundary, AuthorizedTarget
 from src.recon.service import ReconService
+from src.recon.stop_evaluator import assess_stop
 from src.recon.storage import EvidenceStore, ReconRepository
 
 
@@ -32,6 +34,32 @@ def test_coverage_score_exact_and_residual_blocks_ninety_percent():
     assert not may_stop(rows, (signal,))
 
 
+def test_not_applicable_goals_are_excluded_from_coverage_denominator():
+    rows = (ChecklistSummary(id="PT_01-STT-02", status="COMPLETE", reason="verified"),
+            ChecklistSummary(id="PT_01-STT-11", status="PENDING", reason="not attempted"),
+            ChecklistSummary(id="PT_01-STT-13", status="NOT_APPLICABLE", reason="no source map"))
+    score = score_coverage(rows)
+    assert score.score == 50 and score.applicable_items == 2
+
+
+def test_stop_reasons_require_deterministic_evidence():
+    pending = ChecklistSummary(id="PT_01-STT-11", status="PENDING", reason="not attempted",
+                               recommended_capabilities=("http_fetch",))
+    task = SimpleNamespace(scope=SimpleNamespace(capabilities=("http_fetch",)))
+    context = SimpleNamespace(checklist=(pending,), residual_signals=(), capabilities=("http_fetch",))
+    assert assess_stop(StopReason.NO_SAFE_SUPPORTED_ACTION, task, context, 8, 8) == "available_checklist_action"
+    assert assess_stop(StopReason.SCOPE_BLOCKED, task, context, 8, 8) == "available_checklist_action"
+    assert assess_stop(StopReason.BUDGET_EXHAUSTED, task, context, 8, 8) == "inconsistent_stop_budget"
+    assert assess_stop(StopReason.COVERAGE_SUFFICIENT, task, context, 8, 8) == "inconsistent_stop_coverage"
+    context.capabilities = ()
+    assert assess_stop(StopReason.NO_SAFE_SUPPORTED_ACTION, task, context, 8, 8) is None
+    assert assess_stop(StopReason.SCOPE_BLOCKED, task, context, 8, 8) == "inconsistent_stop_scope"
+    task.scope.capabilities = ()
+    assert assess_stop(StopReason.SCOPE_BLOCKED, task, context, 8, 8) is None
+    context.residual_signals = (SimpleNamespace(kind="UNANALYZED_SOURCE_MAP"),)
+    assert assess_stop(StopReason.NO_SAFE_SUPPORTED_ACTION, task, context, 8, 8) == "actionable_residual_signal"
+
+
 def test_universal_target_normalization_preserves_root_and_explicit_path():
     assert normalize_target_input("example.com") == normalize_target_input("https://example.com/")
     assert normalize_target_input("example.com:8080").port == 8080
@@ -40,6 +68,13 @@ def test_universal_target_normalization_preserves_root_and_explicit_path():
                                   pinned_addresses=("127.0.0.1",))
     assert boundary.root.value == "example.com"
     assert task.scope.allowed_paths == ("/app",) and task.discovery_seeds == ("/app",)
+
+
+def test_domain_root_does_not_authorize_shared_ip_nmap():
+    domain, _ = admit_target("example.com", "domain-scope", pinned_addresses=("127.0.0.1",))
+    address, _ = admit_target("127.0.0.1", "ip-scope")
+    assert Capability.NMAP_SCAN not in domain.scope.capabilities
+    assert Capability.NMAP_SCAN in address.scope.capabilities
 
 
 def test_capability_factory_uses_typed_gateway_requests_and_prerequisites(tmp_path):

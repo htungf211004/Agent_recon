@@ -125,7 +125,7 @@ def test_invalid_or_failed_model_response_stops_durably_without_retry(tmp_path, 
 def test_total_action_and_round_limits_survive_restart(tmp_path):
     rounds = [{"proposals": [proposal(f"/r{n}-{i}") for i in range(5)]} for n in range(3)]
     agent, model, task, calls = adaptive(tmp_path, rounds,
-        limits=ReconPlanningLimits(max_llm_rounds=3, max_total_llm_actions=8))
+        limits=ReconPlanningLimits(max_llm_rounds=3, max_total_llm_actions=8, max_proposals_per_round=5))
     agent.run(task.id)
     assert agent.store.actions_used(task.id) == 8
     assert agent.store.status(task.id) == "action_limit"
@@ -146,7 +146,8 @@ def test_one_round_and_smaller_proposal_limit(tmp_path):
 
 def test_prior_actions_dedup_ignores_priority_rationale_and_request_id(tmp_path):
     agent, _, task, calls = adaptive(tmp_path, [{"proposals": [proposal("/seed"), proposal(), proposal(priority=4)]},
-                                              {"proposals": [proposal(rationale="try again", priority=2)]}])
+                                              {"proposals": [proposal(rationale="try again", priority=2)]}],
+                                    limits=ReconPlanningLimits(max_proposals_per_round=5))
     agent.run(task.id)
     assert calls == [("GET", "/seed"), ("GET", "/new")]
     assert agent.store.actions_used(task.id) == 1
@@ -154,7 +155,8 @@ def test_prior_actions_dedup_ignores_priority_rationale_and_request_id(tmp_path)
 
 
 def test_required_inputs_and_manual_forms_rejected(tmp_path):
-    agent, _, task, calls = adaptive(tmp_path, [{"proposals": [proposal("/form"), proposal("/search"), proposal("/users/7")]}])
+    agent, _, task, calls = adaptive(tmp_path, [{"proposals": [proposal("/form"), proposal("/search"), proposal("/users/7")]}],
+                                    limits=ReconPlanningLimits(max_proposals_per_round=5))
     for path, params, manual, template in [
         ("/form", (), True, None),
         ("/search", (EndpointParameter(name="q", location="query", required=True),), False, None),

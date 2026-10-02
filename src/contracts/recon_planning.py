@@ -129,7 +129,7 @@ class ReconPlanningDecision(PlanningModel):
 
 class ReconPlanningLimits(PlanningModel):
     max_llm_rounds: int = Field(default=32, ge=1, le=128, strict=True)
-    max_proposals_per_round: int = Field(default=5, ge=1, le=5, strict=True)
+    max_proposals_per_round: int = Field(default=1, ge=1, le=5, strict=True)
     max_total_llm_actions: int = Field(default=96, ge=1, le=512, strict=True)
     max_context_bytes: int = Field(default=32768, ge=2048, le=65536, strict=True)
     model_timeout_seconds: float = Field(default=20, gt=0, le=30)

@@ -558,6 +558,7 @@ def request_target_ip(request: ReconExecutionRequest) -> str | None:
 class ReconAction(StrictModel):
     id: str = Field(min_length=1)
     request: ReconExecutionRequest
+    knowledge_refs: tuple[str, ...] = ()
 
 
 class ReconPlan(StrictModel):
