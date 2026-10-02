@@ -5,6 +5,25 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.recon.models import (
+    BrowserExploreParams,
+    ContentDiscoveryParams,
+    DnsResolveParams,
+    EvidenceParams,
+    ExposureDiscoveryParams,
+    GraphqlDiscoveryParams,
+    GraphqlIntrospectionParams,
+    HttpFetchParams,
+    HttpProbeParams,
+    LocalOsintParams,
+    NmapScanParams,
+    ParameterDiscoveryParams,
+    ProviderParams,
+    TechnologyScanParams,
+    VhostDiscoveryParams,
+    WebCrawlParams,
+    WhatWebParams,
+)
 from src.recon.rag.models import KnowledgeReference, ReconKnowledgeQuery
 
 
@@ -42,6 +61,44 @@ class ContentDiscoveryProposal(TargetProposal):
     wordlist_id: str = Field(min_length=1, max_length=128)
 
 
+class TargetCapabilityProposal(ProposalBase):
+    kind: Literal["target_capability"] = "target_capability"
+    asset_id: str | None = Field(default=None, max_length=64)
+    target_ip: str | None = Field(default=None, max_length=45)
+    parameters: Annotated[
+        HttpProbeParams | NmapScanParams | WhatWebParams | HttpFetchParams | BrowserExploreParams
+        | ContentDiscoveryParams | ExposureDiscoveryParams | GraphqlDiscoveryParams
+        | GraphqlIntrospectionParams | DnsResolveParams | WebCrawlParams | VhostDiscoveryParams
+        | ParameterDiscoveryParams | TechnologyScanParams, Field(discriminator="kind")]
+
+    @model_validator(mode="after")
+    def no_query_values(self):
+        if getattr(self.parameters, "query", ""):
+            raise ValueError("planner cannot supply query values")
+        return self
+
+
+class ProviderCapabilityProposal(ProposalBase):
+    kind: Literal["provider_capability"] = "provider_capability"
+    capability: Literal["external_asset_search", "public_code_search", "search_engine_osint", "whois_rdap_lookup"]
+    provider: Literal["shodan", "censys", "fofa", "github", "gitlab", "brave", "rdap"]
+    parameters: ProviderParams
+
+
+class LocalOsintCapabilityProposal(ProposalBase):
+    kind: Literal["local_osint_capability"] = "local_osint_capability"
+    capability: Literal["passive_subdomain_enum", "passive_infra_enum", "historical_url_discovery"]
+    tool: Literal["subfinder", "amass", "gau"]
+    parameters: LocalOsintParams = Field(default_factory=LocalOsintParams)
+
+
+class EvidenceCapabilityProposal(ProposalBase):
+    kind: Literal["evidence_capability"] = "evidence_capability"
+    capability: Literal["sourcemap_analyze", "wsdl_discovery"]
+    evidence_ref: str = Field(min_length=1, max_length=128)
+    parameters: EvidenceParams
+
+
 class StopReason(StrEnum):
     COVERAGE_SUFFICIENT = "COVERAGE_SUFFICIENT"
     NO_SAFE_SUPPORTED_ACTION = "NO_SAFE_SUPPORTED_ACTION"
@@ -54,7 +111,9 @@ class StopProposal(ProposalBase):
     reason_code: StopReason
 
 
-ReconProposal = Annotated[SafeHttpProbeProposal | BrowserExploreProposal | ContentDiscoveryProposal | StopProposal,
+ReconProposal = Annotated[SafeHttpProbeProposal | BrowserExploreProposal | ContentDiscoveryProposal
+                          | TargetCapabilityProposal | ProviderCapabilityProposal | LocalOsintCapabilityProposal
+                          | EvidenceCapabilityProposal | StopProposal,
                           Field(discriminator="kind")]
 
 
@@ -69,9 +128,9 @@ class ReconPlanningDecision(PlanningModel):
 
 
 class ReconPlanningLimits(PlanningModel):
-    max_llm_rounds: int = Field(default=2, ge=1, le=3, strict=True)
+    max_llm_rounds: int = Field(default=32, ge=1, le=128, strict=True)
     max_proposals_per_round: int = Field(default=5, ge=1, le=5, strict=True)
-    max_total_llm_actions: int = Field(default=8, ge=1, le=8, strict=True)
+    max_total_llm_actions: int = Field(default=96, ge=1, le=512, strict=True)
     max_context_bytes: int = Field(default=32768, ge=2048, le=65536, strict=True)
     model_timeout_seconds: float = Field(default=20, gt=0, le=30)
 
@@ -111,11 +170,12 @@ class PlanningRoute(PlanningModel):
 class PlanningAction(PlanningModel):
     request_id: str
     capability: str
-    target_ip: str
+    target_ip: str | None
     port: int | None
     method: str | None
     path: str | None
     status: str
+    selector: str | None = None
 
 
 class PlanningCoverage(PlanningModel):
@@ -167,6 +227,48 @@ class ChecklistSummary(PlanningModel):
     status: Literal["PENDING", "COMPLETE", "BLOCKED", "UNSUPPORTED", "NOT_APPLICABLE", "MANUAL_REVIEW"]
     reason: str
     finding: Literal["FOUND", "NOT_FOUND", "NOT_TESTED"] = "NOT_TESTED"
+    recommended_capabilities: tuple[str, ...] = ()
+    suggested_paths: tuple[str, ...] = ()
+
+
+class PlanningTool(PlanningModel):
+    capability: str
+    execution_kind: Literal["target", "provider", "local_osint", "evidence"]
+    risk: Literal["R0", "R1", "R2"]
+    availability: str
+    provider: str | None = None
+
+
+class PlanningEvidence(PlanningModel):
+    evidence_ref: str
+    request_id: str
+    capability: str
+    status_code: int | None = None
+    path: str | None = None
+
+
+class PlanningBinding(PlanningModel):
+    host: str
+    target_ip: str
+    scheme: str
+    port: int
+    evidence_ref: str
+
+
+class PlanningSignal(PlanningModel):
+    signal_id: str
+    kind: str
+    asset_id: str | None = None
+    evidence_refs: tuple[str, ...] = ()
+    suggested_capabilities: tuple[str, ...] = ()
+
+
+class PlanningRunnerData(PlanningModel):
+    id: str
+    category: str
+    source_id: str
+    entry_count: int
+    intended_phase: str
 
 
 class ReconPlanningContext(PlanningModel):
@@ -177,6 +279,15 @@ class ReconPlanningContext(PlanningModel):
     planning: PlanningProgress
     scope: PlanningScope
     capabilities: tuple[str, ...]
+    root_target: str | None = None
+    discovery_seeds: tuple[str, ...] = ()
+    tools: tuple[PlanningTool, ...] = ()
+    evidence: tuple[PlanningEvidence, ...] = ()
+    bindings: tuple[PlanningBinding, ...] = ()
+    previous_rejections: tuple[str, ...] = ()
+    coverage_score: float = Field(default=0, ge=0, le=100)
+    mandatory_resolved: bool = False
+    residual_signals: tuple[PlanningSignal, ...] = ()
     coverage: PlanningCoverage
     services: tuple[PlanningService, ...]
     technologies: tuple[PlanningTechnology, ...]
@@ -185,6 +296,7 @@ class ReconPlanningContext(PlanningModel):
     checklist: tuple[ChecklistSummary, ...]
     available_actions: tuple[str, ...]
     trusted_wordlists: tuple[str, ...] = ()
+    approved_runner_datasets: tuple[PlanningRunnerData, ...] = ()
     routes: tuple[PlanningRoute, ...]
     previous_actions: tuple[PlanningAction, ...]
     remaining_budget: PlanningBudget

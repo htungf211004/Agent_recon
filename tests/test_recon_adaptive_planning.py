@@ -57,7 +57,9 @@ def adaptive(tmp_path, decisions, *, task=None, limits=None, status=200, body=b"
     repository, _, _, service = stack(tmp_path, task, handler)
     engine = ReconAgent(repository, ReconPlanner(), service)
     model = FakeModel(*decisions)
-    agent = AdaptiveReconAgent(engine, LLMReconPlanner(model, planner_id="fake-v1"), limits)
+    agent = AdaptiveReconAgent(engine, LLMReconPlanner(model, planner_id="fake-v1"),
+        limits or ReconPlanningLimits(max_llm_rounds=2, max_total_llm_actions=8),
+        execution_mode="deterministic_fallback")
     return agent, model, task, calls
 
 
@@ -76,7 +78,8 @@ def test_adaptive_http_updates_inventory_and_restart_replays_without_model_or_ne
     reopened = ReconRepository(agent.repository.database_path)
     gateway = ToolExecutionGateway(PolicyService(reopened), agent.service.gateway.registry,
         EvidenceStore(agent.service.gateway.evidence.directory, reopened), reopened)
-    resumed = AdaptiveReconAgent(ReconAgent(reopened, ReconPlanner(), ReconService(reopened, gateway)), agent.planner)
+    resumed = AdaptiveReconAgent(ReconAgent(reopened, ReconPlanner(), ReconService(reopened, gateway)),
+        agent.planner, execution_mode="deterministic_fallback")
     assert resumed.run(task.id).attack_surface_inventory == first.attack_surface_inventory
     assert len(model.contexts) == 2 and len(calls) == 2
 
@@ -121,7 +124,8 @@ def test_invalid_or_failed_model_response_stops_durably_without_retry(tmp_path, 
 
 def test_total_action_and_round_limits_survive_restart(tmp_path):
     rounds = [{"proposals": [proposal(f"/r{n}-{i}") for i in range(5)]} for n in range(3)]
-    agent, model, task, calls = adaptive(tmp_path, rounds, limits=ReconPlanningLimits(max_llm_rounds=3))
+    agent, model, task, calls = adaptive(tmp_path, rounds,
+        limits=ReconPlanningLimits(max_llm_rounds=3, max_total_llm_actions=8))
     agent.run(task.id)
     assert agent.store.actions_used(task.id) == 8
     assert agent.store.status(task.id) == "action_limit"
@@ -129,7 +133,8 @@ def test_total_action_and_round_limits_survive_restart(tmp_path):
     agent.run(task.id)
     assert len(calls) == 9 and len(model.contexts) == 2
     with pytest.raises(ValueError, match="configuration"):
-        AdaptiveReconAgent(agent.engine, agent.planner, ReconPlanningLimits(max_llm_rounds=1)).run(task.id)
+        AdaptiveReconAgent(agent.engine, agent.planner, ReconPlanningLimits(max_llm_rounds=1),
+            execution_mode="deterministic_fallback").run(task.id)
 
 
 def test_one_round_and_smaller_proposal_limit(tmp_path):

@@ -21,7 +21,6 @@ from src.contracts.recon_assets import (
     AssetVerificationStatus,
     DiscoveredAsset,
 )
-from src.contracts.recon_kb import StorageClass
 from src.contracts.recon_manual_review import api_manual_review
 from src.contracts.recon_planning import ReconPlanningLimits
 from src.recon.adaptive_agent import AdaptiveReconAgent
@@ -35,7 +34,7 @@ from src.recon.llm_planner import DeterministicReconPlanner, configured_planner
 from src.recon.models import BrowserLimits, Capability, ReconTask
 from src.recon.planner import scheme_for_port
 from src.recon.rag.runtime import live_snapshot_retriever
-from src.recon.scope.admission import admit_target, parse_target
+from src.recon.scope.admission import admit_target, normalize_target_input
 from src.recon.scope.legacy import resolve_pin
 from src.recon.scope.legacy import scoped_task as _legacy_scoped_task
 from src.recon.scope.models import AuthorizationBoundary
@@ -51,13 +50,24 @@ def scoped_task(url: str, task_id: str, *, path_prefix: str | None = None, brows
 
 
 def export_run(agent, task_id, directory):
-    result = agent.service.snapshot(task_id)
+    result = agent.repository.get_recon_result(task_id) or agent.service.snapshot(task_id)
     state = completion(agent, task_id, result)
     result = result.model_copy(update={"worker_status": state["run_status"],
                                        "handoff_ready": state["handoff_ready"],
                                        "coverage_outcome": state["coverage_outcome"]})
     (directory / "result.json").write_text(result.model_dump_json(indent=2), encoding="utf-8")
     (directory / "inventory.json").write_text(result.attack_surface_inventory.model_dump_json(indent=2), encoding="utf-8")
+    (directory / "attack-surface-candidates.json").write_text(json.dumps([
+        row.model_dump(mode="json") for row in result.attack_surface_candidates], indent=2), encoding="utf-8")
+    (directory / "recon-report.json").write_text(json.dumps({
+        "task_id": task_id, "coverage_score": result.coverage_score,
+        "mandatory_resolved": result.mandatory_resolved,
+        "checklist": list(result.checklist), "residual_signals": list(result.residual_signals),
+        "candidates": [row.model_dump(mode="json") for row in result.attack_surface_candidates],
+        "evidence_refs": list(result.evidence_ids),
+        "limitations": list(result.coverage.limitations) if result.coverage else [],
+        "stop_reason": result.stop_reason,
+    }, indent=2), encoding="utf-8")
     boundary = agent.repository.get_authorization(task_id)
     asset_inventory = agent.repository.asset_inventory(task_id)
     (directory / "asset-inventory.json").write_text(asset_inventory.model_dump_json(indent=2), encoding="utf-8")
@@ -80,6 +90,19 @@ def export_run(agent, task_id, directory):
     for row in planning:
         if row["context"]:
             row["context"].pop("knowledge_excerpts", None)
+            row["coverage_before"] = row["context"].get("coverage_score")
+            row["signals_before"] = [signal["signal_id"] for signal in row["context"].get("residual_signals", ())]
+            row["selected_actions"] = [action["request"]["capability"]
+                                       for action in (row["plan"] or {}).get("actions", ())]
+            row["knowledge_refs"] = [item["knowledge_id"] for item in row["context"].get("knowledge_refs", ())]
+    for index, row in enumerate(planning):
+        following = planning[index + 1]["context"] if index + 1 < len(planning) else None
+        row["coverage_after"] = following.get("coverage_score") if following else result.coverage_score
+        row["signals_after"] = ([signal["signal_id"] for signal in following.get("residual_signals", ())]
+                                if following else [signal["signal_id"] for signal in result.residual_signals])
+        row["reason_for_continue"] = ("residual_signals" if row["signals_after"] else "coverage_pending"
+                                      if row["coverage_after"] < 90 else "coverage_threshold") if following else None
+        row["reason_for_stop"] = result.stop_reason if not following else None
     (directory / "planning.json").write_text(json.dumps(planning, indent=2, ensure_ascii=False), encoding="utf-8")
     verified = 0
     for reference in result.evidence_ids:
@@ -104,6 +127,10 @@ def export_run(agent, task_id, directory):
         "fuzz_ready": sum(item.status == "FUZZ_READY" for item in result.attack_surface_inventory.entries),
         "llm_rounds_recorded": len(rows), "llm_decisions_recorded": sum(bool(row["decision"]) for row in rows),
         "planning_stop_reason": agent.store.status(task_id),
+        "coverage_score": result.coverage_score,
+        "mandatory_resolved": result.mandatory_resolved,
+        "residual_signal_count": len(result.residual_signals),
+        "attack_surface_candidates": len(result.attack_surface_candidates),
         "capability_availability": agent.service.gateway.registry.availability_manifest(),
     }
     manifest_path = directory / "run-manifest.json"
@@ -154,8 +181,8 @@ def export_run(agent, task_id, directory):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     target_group = parser.add_mutually_exclusive_group(required=True)
-    target_group.add_argument("--target", help="bare authorized domain, IPv4, or IPv6 (default Recon profile)")
-    target_group.add_argument("--url", help="compatibility: authorized HTTP(S) URL")
+    target_group.add_argument("--target", help="authorized domain, IP, URL, URL path, or host:port")
+    target_group.add_argument("--url", help="authorized HTTP(S) URL (same admission path as --target)")
     target_group.add_argument("--target-ip", help="compatibility: literal IP mission")
     parser.add_argument("--ports", help="explicit comma-separated authorized ports; required with --target-ip")
     parser.add_argument("--pinned-ip", help="trusted fixed IP for the URL hostname; otherwise resolve once at task creation")
@@ -164,18 +191,18 @@ def main(argv=None):
     parser.add_argument("--path-prefix", help="allowed path prefix; defaults to the URL path")
     parser.add_argument("--browser", action="store_true", help="also allow bounded passive Chromium exploration")
     parser.add_argument("--parameter-discovery", action="store_true",
-                        help="explicitly authorize R2 bounded GET parameter discovery on verified baselines (--target only)")
+                        help="compatibility flag; admitted targets already include bounded R2 parameter discovery")
     parser.add_argument("--provider", choices=("openai", "gemini"), default="openai")
-    parser.add_argument("--planner", choices=("auto", "deterministic", "llm"), default="auto")
+    parser.add_argument("--planner", choices=("auto", "deterministic", "llm"), default="llm")
     parser.add_argument("--model", help="override MODEL_NAME or GEMINI_MODEL for this run")
-    parser.add_argument("--llm-rounds", type=int, choices=(1, 2, 3), default=2)
+    parser.add_argument("--llm-rounds", type=int, choices=range(1, 129), default=32)
     parser.add_argument("--runner-data", action="append", default=[], metavar="SOURCE_ID:RUNNER_DATA_ID",
                         help="operator-select a promoted runner dataset for bounded content discovery")
     parser.add_argument("--output-root", type=Path, default=Path("data/live-recon"))
     args = parser.parse_args(argv)
     clear_external_wordlists()
-    if args.parameter_discovery and not args.target:
-        parser.error("--parameter-discovery requires --target authorization")
+    if args.parameter_discovery and not (args.target or args.url):
+        parser.error("--parameter-discovery requires admitted target authorization")
     task_id = args.task_id or "live-" + uuid4().hex[:16]
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", task_id):
         parser.error("invalid task-id")
@@ -187,30 +214,29 @@ def main(argv=None):
         with closing(sqlite3.connect((directory / "recon.db").resolve().as_uri() + "?mode=ro", uri=True)) as db:
             row = db.execute("SELECT payload FROM recon_tasks WHERE id = ?", (task_id,)).fetchone()
             previous = ReconTask.model_validate_json(row[0]) if row else None
-            if args.target:
+            if args.target or args.url:
                 row = db.execute("SELECT payload FROM recon_authorizations WHERE task_id = ?", (task_id,)).fetchone()
                 previous_boundary = AuthorizationBoundary.model_validate_json(row[0]) if row else None
     try:
         ports = tuple(int(port) for port in args.ports.split(",")) if args.ports else None
-        if args.target:
-            if ports or args.pinned_ip or args.path_prefix:
-                raise ValueError("--ports, --pinned-ip and --path-prefix are legacy scope options; use a new target profile")
+        if args.target or args.url:
+            if ports or args.path_prefix:
+                raise ValueError("--ports and --path-prefix are legacy scope options; use a new target profile")
+            raw_target = args.target or args.url
             if previous:
-                if previous_boundary is None or previous_boundary.root != parse_target(args.target):
+                if previous_boundary is None or previous_boundary.root != normalize_target_input(raw_target).root:
                     raise ValueError("existing task root authorization differs; use a new task-id")
                 proposed, boundary = previous, previous_boundary
                 if args.parameter_discovery and Capability.PARAMETER_DISCOVERY not in previous.scope.capabilities:
                     raise ValueError("existing task did not authorize R2 parameter discovery; use a new task-id")
             else:
-                proposed, boundary = admit_target(args.target, task_id)
-                if args.parameter_discovery:
-                    proposed = proposed.model_copy(update={"scope": proposed.scope.model_copy(update={
-                        "capabilities": (*proposed.scope.capabilities, Capability.PARAMETER_DISCOVERY)})})
+                proposed, boundary = admit_target(raw_target, task_id,
+                    pinned_addresses=(args.pinned_ip,) if args.pinned_ip else None)
         else:
             boundary = None
         if args.target_ip and not ports:
             raise ValueError("--target-ip requires --ports")
-        if not args.target:
+        if not (args.target or args.url):
             host = f"[{args.target_ip}]" if args.target_ip and ":" in args.target_ip else args.target_ip
             url = args.url or f"{scheme_for_port(ports[0])}://{host}:{ports[0]}/"
             proposed = scoped_task(url, task_id, path_prefix=args.path_prefix, browser=args.browser,
@@ -226,7 +252,7 @@ def main(argv=None):
     else:
         api_key, model_name = settings.openai_api_key, args.model or settings.model_name
         base_url, key_name = settings.openai_base_url, "OPENAI_API_KEY"
-    if args.planner == "llm" and not api_key:
+    if args.planner != "deterministic" and not api_key:
         parser.error(f"{key_name} is missing; configure it locally in .env (never in command arguments)")
     repository, engine = create_recon_agent(directory / "recon.db", directory / "evidence")
     if args.browser and engine.service.gateway.registry.get(Capability.BROWSER_EXPLORE) is None:
@@ -251,12 +277,9 @@ def main(argv=None):
     engine.browser_limits = BrowserLimits(max_pages=2, max_depth=1, max_requests=8,
         max_runtime_seconds=10, max_response_bytes=65536, max_total_bytes=131072)
     runner_selections = tuple(args.runner_data)
-    runner_bindings = tuple(item for item in repository.kb_snapshots(task.run_id)
-                            if item.storage_class == StorageClass.RUNNER_DATA)
-    if runner_bindings and not runner_selections:
-        parser.error("resuming a run with runner data requires repeating its --runner-data selection")
     try:
-        engine.runner_data_selections = select_runner_data(repository, task.run_id, runner_selections)
+        engine.runner_data_selections = select_runner_data(repository, task.run_id, runner_selections,
+            automatic=args.planner != "deterministic")
     except (OSError, ValueError) as error:
         parser.error(str(error))
     engine.runner_wordlist_ids = tuple(selection.partition(":")[2]
@@ -264,7 +287,7 @@ def main(argv=None):
     limits = ReconPlanningLimits(max_llm_rounds=args.llm_rounds)
     planner = (configured_planner(model_name=model_name, api_key=api_key,
         base_url=base_url, timeout_seconds=limits.model_timeout_seconds)
-        if args.planner == "llm" or args.planner == "auto" and api_key else DeterministicReconPlanner())
+        if args.planner != "deterministic" else DeterministicReconPlanner())
     retriever = live_snapshot_retriever(repository, task.run_id)
     agent = AdaptiveReconAgent(engine, planner, limits, retriever=retriever)
     export_run(agent, task_id, directory)

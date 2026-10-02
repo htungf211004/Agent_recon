@@ -7,25 +7,31 @@ from urllib.parse import urljoin, urlsplit
 from src.contracts.recon_planning import (
     PlanningAction,
     PlanningAsset,
+    PlanningBinding,
     PlanningBudget,
     PlanningCoverage,
+    PlanningEvidence,
     PlanningProgress,
     PlanningRedirect,
     PlanningRoute,
+    PlanningRunnerData,
     PlanningScope,
     PlanningService,
+    PlanningSignal,
     PlanningTechnology,
+    PlanningTool,
     ReconPlanningContext,
 )
-from src.recon.checklist import project_checklist
+from src.recon.capability_catalog import DEFINITIONS
 from src.recon.checklist_v3 import VERSION as CHECKLIST_V3_VERSION
-from src.recon.checklist_v3 import project_checklist_v3
+from src.recon.coverage_evaluator import CoverageEvaluator, score_coverage
 from src.recon.models import Capability
 from src.recon.rag.models import KnowledgeReference
 from src.recon.rag.query_builder import build_query
 from src.recon.rag.retriever import NoopKnowledgeRetriever
+from src.recon.residual_signals import residual_signals
 from src.recon.urls import canonical_url, known_transport_ip, path_allowed, scoped_ip
-from src.recon.wordlists import available_wordlist_ids
+from src.recon.wordlists import available_wordlist_ids, load_wordlist
 
 
 def safe_fact(value):
@@ -87,15 +93,37 @@ def assemble_context(task, repository, service, limits, round_number, actions_us
     for run in repository.list_tool_runs(task.id):
         if not run.request_payload:
             continue
-        from src.recon.models import parse_target_request
+        from src.recon.models import parse_execution_request
 
-        request = parse_target_request(run.request_payload)
-        if request is None:
-            continue
+        request = parse_execution_request(run.request_payload)
         params = request.parameters
         previous.append(PlanningAction(request_id=request.id, capability=request.capability.value,
-            target_ip=request.target_ip, port=getattr(params, "port", None), method=getattr(params, "method", None),
-            path=getattr(params, "path", None), status=run.state.value))
+            target_ip=getattr(request, "target_ip", None), port=getattr(params, "port", None),
+            method=getattr(params, "method", None), path=getattr(params, "path", None),
+            status=run.state.value, selector=getattr(request, "provider", getattr(request, "tool", None))))
+    checklist = CoverageEvaluator(repository, service).project(task)
+    score = score_coverage(checklist)
+    signals = residual_signals(task, repository, service)
+    boundary = repository.get_authorization(task.id)
+    tool_rows = []
+    for row in service.gateway.registry.availability_manifest():
+        capability = Capability(row["capability"])
+        if capability not in task.scope.capabilities or capability == Capability.BROWSER_REQUEST:
+            continue
+        definition = DEFINITIONS[capability]
+        tool_rows.append(PlanningTool(capability=capability.value, execution_kind=definition.execution_kind,
+            risk=definition.risk, availability=row["status"], provider=row.get("provider")))
+    evidence_rows = []
+    for run in repository.list_tool_runs(task.id):
+        result_row = repository.get_tool_result(run.request_id)
+        if not result_row or result_row.evidence_id not in verified_facts:
+            continue
+        from src.recon.models import parse_execution_request
+        request_row = parse_execution_request(run.request_payload)
+        evidence_rows.append(PlanningEvidence(evidence_ref=result_row.evidence_id,
+            request_id=run.request_id, capability=request_row.capability.value,
+            status_code=result_row.http_response.status_code if result_row.http_response else None,
+            path=getattr(request_row.parameters, "path", None)))
     context = ReconPlanningContext(
         task_id=task.id, run_id=task.run_id, planning_round=round_number,
         planning=PlanningProgress(current_round=round_number, max_rounds=limits.max_llm_rounds,
@@ -105,15 +133,30 @@ def assemble_context(task, repository, service, limits, round_number, actions_us
                             capabilities=tuple(sorted(task.scope.capabilities)), scope_version=task.scope_version,
                             policy_version=task.policy_version),
         capabilities=tuple(sorted(available)),
-        available_actions=tuple(action for cap, action in ((Capability.HTTP_FETCH, "safe_http_probe"),
-            (Capability.BROWSER_EXPLORE, "browser_explore"), (Capability.CONTENT_DISCOVERY, "content_discovery"))
-            if cap in available) + ("stop",),
+        root_target=boundary.root.value if boundary else None,
+        discovery_seeds=tuple(urlsplit(seed).path for seed in task.discovery_seeds[:32]),
+        tools=tuple(tool_rows[:48]),
+        evidence=tuple(evidence_rows[-64:]),
+        bindings=tuple(PlanningBinding(host=b.host, target_ip=b.address, scheme=b.scheme,
+            port=b.port, evidence_ref=b.dns_evidence_ref)
+            for b in repository.list_bindings(task.id)[:32]),
+        previous_rejections=tuple(str(reason)[:160] for row in repository.planning_rejections(task.id)[-8:]
+                                  for reason in row) if hasattr(repository, "planning_rejections") else (),
+        coverage_score=score.score, mandatory_resolved=score.mandatory_resolved,
+        residual_signals=tuple(PlanningSignal(signal_id=s.signal_id, kind=s.kind, asset_id=s.asset_id,
+            evidence_refs=s.source_evidence_refs, suggested_capabilities=s.suggested_capabilities)
+            for s in signals[:32]),
+        available_actions=tuple(cap.value for cap in sorted(available)) + ("stop",),
         checklist_version=CHECKLIST_V3_VERSION if repository.get_authorization(task.id) else "recon-checklist-v1",
-        checklist=tuple(item.model_copy(update={"reason": item.reason[:48]}) for item in
-                        project_checklist_v3(task, repository, service)) if repository.get_authorization(task.id)
-                  else project_checklist(task, repository, service),
+        checklist=tuple(item.model_copy(update={"reason": item.reason[:80]}) for item in checklist),
         trusted_wordlists=available_wordlist_ids(exclude_categories={"vhost", "parameter"})
                           if Capability.CONTENT_DISCOVERY in available else (),
+        approved_runner_datasets=tuple(PlanningRunnerData(id=wordlist.id, category=wordlist.category,
+            source_id=wordlist.source_id, entry_count=wordlist.max_entries,
+            intended_phase=wordlist.intended_phase)
+            for wordlist in (load_wordlist(identifier) for identifier in
+                available_wordlist_ids(exclude_categories={"vhost", "parameter"}))
+            if wordlist.source_id != "packaged") if Capability.CONTENT_DISCOVERY in available else (),
         coverage=PlanningCoverage(routes=len(entries), observations=len(result.observations),
             fuzz_ready=sum(entry.status == "FUZZ_READY" for entry in entries),
             limitations=tuple(item[:160] for item in result.coverage.limitations[:16]) if result.coverage else (),
@@ -149,7 +192,8 @@ def assemble_context(task, repository, service, limits, round_number, actions_us
         "knowledge_excerpts": tuple(chunk.excerpt for chunk in chunks),
         "retriever_id": retriever.implementation_id,
     })
-    for field in ("assets", "previous_actions", "routes", "services", "technologies"):
+    for field in ("assets", "previous_actions", "routes", "services", "technologies", "evidence",
+                  "residual_signals", "bindings", "tools"):
         while len(context.model_dump_json().encode()) > limits.max_context_bytes and getattr(context, field):
             context = context.model_copy(update={field: getattr(context, field)[:-1], "context_truncated": True})
     while len(context.model_dump_json().encode()) > limits.max_context_bytes and context.knowledge_refs:

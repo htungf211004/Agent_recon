@@ -144,23 +144,23 @@ The V2 Recon profile accepts a bare authorized domain or IP with `--target`. A
 domain probes bounded HTTP and HTTPS web ports using its frozen DNS pin. An IP
 root can inherit a hostname only after Gateway DNS evidence resolves it to that
 same IP. Checklist rows report attempted coverage separately from a finding;
-API manual review records require verified positive assets. The runner selects
-the deterministic planner when no provider key is configured (`--planner llm`
-requires a key). Derived hosts use the same recursive `EndpointDiscovery`
-pipeline as roots. Supported content discovery and browser checks run before
-optional model proposals. `coverage_outcome` distinguishes complete, partial
-and limited coverage from worker completion. API endpoint and metadata discovery
-remain part of Recon; GraphQL introspection requires explicit R2 authorization,
-while active GraphQL, SOAP and OpenAPI security testing remains manual/HITL.
-Promoted Recon KB snapshots now guide live planning and remain pinned on resume.
-An operator-reviewed runner dataset can be selected with
-`--runner-data SOURCE_ID:runner_data_id`; it still passes through the existing
-policy and gateway. SQLite schema is v11. Run the
+manual review records require verified positive assets. The live runner requires
+an LLM key by default; `--planner deterministic` selects a compatibility fallback.
+The first LLM decision precedes Recon tool execution. Subsequent decisions receive
+updated evidence, inventory, checklist, coverage score and residual signals.
+All authorized R0–R2 Recon capabilities can be proposed through typed requests
+and checked by the validator, Policy and Gateway. Exploit and payload testing
+remain outside Recon. `coverage_outcome` distinguishes complete, partial and
+limited coverage from worker completion. Promoted Recon KB snapshots guide
+planning and stay pinned on resume. Promoted automatic runner datasets are
+selected from their registry; `--runner-data SOURCE_ID:runner_data_id` remains an
+override. SQLite schema is v11. Run the
 commands below for current local
 results. The [earlier bounded adaptive report](docs/recon-bounded-verification.md)
 is a historical record for its original revision.
-`coverage_outcome=COMPLETE` covers supported, authorized checks; the checklist
-still marks external OSINT steps as `UNSUPPORTED` and active API tests for review.
+`coverage_outcome=COMPLETE` requires resolved mandatory checklist rows, at least
+90% weighted coverage and no actionable residual signals, or every applicable
+row resolved. Budget exhaustion is `LIMITED`.
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m ruff check --no-cache src tests scripts/check_recon_runtime.py
@@ -206,12 +206,12 @@ See [final hardening verification](docs/recon-final-hardening.md) and [container
 
 ## Bounded adaptive Recon worker
 
-`AdaptiveReconAgent` performs sequential service discovery, HTTP verification, technology fingerprinting and static discovery before bounded LLM planning. Browser runs only after a persisted validated proposal. All execution passes through Policy/Gateway and produces durable evidence.
+`AdaptiveReconAgent` runs a bounded LLM → validate → execute → normalize → evaluate loop. The deterministic pipeline remains an explicit fallback. Browser runs only after a persisted validated proposal. All execution passes through Policy/Gateway and produces durable evidence.
 
-The model proposes scoped HTTP verification, passive Browser exploration, trusted-wordlist `CONTENT_DISCOVERY`, or an exclusive typed STOP. A curated checklist provides coverage gaps without granting permissions. Default planning is two rounds, hard maximum three, with at most eight accepted adaptive root actions.
+The model can propose any available, authorized Recon capability using typed parameters, or an exclusive STOP. A curated checklist and promoted knowledge provide coverage gaps without granting permissions. Default planning allows 32 rounds and 96 accepted actions; hard limits are 128 and 512. STOP for sufficient coverage is validated against checklist score and residual signals.
 
 ```powershell
-python -m scripts.run_recon_live --target-ip 127.0.0.1 --ports 8000,8080 --provider gemini --browser --content-discovery
+python -m scripts.run_recon_live --target https://example.test/ --provider gemini
 ```
 
 Use only an authorized lab/staging target. The primary command is
@@ -219,7 +219,8 @@ Use only an authorized lab/staging target. The primary command is
 address). `--url` and `--target-ip` remain compatibility paths. V2 records an
 immutable root, evidence-backed discovered assets, bounded derived host bindings,
 checklist STT 1–16, and a provider-neutral RAG boundary. LLM and RAG never grant
-scope. Active API security testing is manual/HITL. See
+scope. Bounded Recon R2 discovery is autonomous within that scope. Exploit and
+payload validation require their separate authorization. See
 [domain support](docs/recon-domain-support.md).
 
 Migration v9 adds root authorization, DNS observations, derived bindings and discovered assets. Migration v10 adds durable derived-origin work items. The runner exports ASI v1.0 and companion V2 audit artifacts. Worker completion is separate from `coverage_outcome` and `handoff_ready`; zero FUZZ_READY entries never justify a future FuzzTask.

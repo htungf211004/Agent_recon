@@ -20,7 +20,7 @@ class ReconKnowledgeQuery(RagModel):
     phase: Literal["attack_surface"] = "attack_surface"
     categories: tuple[str, ...] = Field(default=(), max_length=16)
     available_capabilities: tuple[str, ...] = Field(default=(), max_length=32)
-    risk_ceiling: Literal[Risk.R0, Risk.R1] = Risk.R0
+    risk_ceiling: Literal[Risk.R0, Risk.R1, Risk.R2] = Risk.R0
     checklist_gaps: tuple[str, ...] = Field(default=(), max_length=16)
     asset_types: tuple[str, ...] = Field(default=(), max_length=16)
     verified_technologies: tuple[str, ...] = Field(default=(), max_length=16)

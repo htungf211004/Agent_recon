@@ -159,44 +159,64 @@ def test_hostname_http_dispatch_pins_ip_and_replays_without_dns(tmp_path, domain
     assert len(calls) == 2
 
 
-def test_real_tls_pinned_ip_preserves_sni_and_certificate_validation(tmp_path):
-    calls, sni = [], []
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            calls.append(self.headers["Host"])
-            self.send_response(200)
-            self.send_header("Content-Length", "2")
-            self.end_headers()
-            self.wfile.write(b"ok")
+def test_tls_pinned_ip_preserves_sni_and_certificate_validation(tmp_path):
+    # MemoryBIO avoids Windows loopback TLS interception while using real OpenSSL verification.
+    sni = []
+    server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_context.load_cert_chain(TLS / "recon-test-cert.pem", TLS / "recon-test-key.pem")
+    server_context.set_servername_callback(lambda _socket, name, _ctx: sni.append(name))
 
-        def log_message(self, *_):
-            pass
+    def handshake(host, trust):
+        client_context = (ssl.create_default_context(cafile=str(TLS / "recon-test-ca.pem"))
+                          if trust else ssl.create_default_context())
+        client_input, client_output = ssl.MemoryBIO(), ssl.MemoryBIO()
+        server_input, server_output = ssl.MemoryBIO(), ssl.MemoryBIO()
+        client = client_context.wrap_bio(client_input, client_output, server_side=False, server_hostname=host)
+        server = server_context.wrap_bio(server_input, server_output, server_side=True)
+        client_done = server_done = False
+        for _ in range(20):
+            if not client_done:
+                try:
+                    client.do_handshake()
+                    client_done = True
+                except ssl.SSLWantReadError:
+                    pass
+            data = client_output.read()
+            if data:
+                server_input.write(data)
+            if not server_done:
+                try:
+                    server.do_handshake()
+                    server_done = True
+                except ssl.SSLWantReadError:
+                    pass
+            data = server_output.read()
+            if data:
+                client_input.write(data)
+            if client_done and server_done:
+                return
+        raise AssertionError("TLS handshake did not finish")
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.load_cert_chain(TLS / "recon-test-cert.pem", TLS / "recon-test-key.pem")
-    context.set_servername_callback(lambda _socket, name, _ctx: sni.append(name))
-    server.socket = context.wrap_socket(server.socket, server_side=True)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        trusted = ssl.create_default_context(cafile=str(TLS / "recon-test-cert.pem"))
-        for name, host, trust, expected in (("valid", "recon.test", True, "success"),
-                                           ("untrusted", "recon.test", False, "error"),
-                                           ("mismatch", "wrong.test", True, "error")):
-            task = scoped_task(f"https://{host}:{server.server_port}/", name, pinned_ip="127.0.0.1")
-            adapter = HttpFetchAdapter(httpx.HTTPTransport(verify=trusted)) if trust else HttpFetchAdapter()
-            agent = engine(tmp_path / name, task, adapter)
-            request = ReconPlanner._action(task, "127.0.0.1", Capability.HTTP_FETCH,
-                                           HttpFetchParams(port=server.server_port, scheme="https", max_body_bytes=65536)).request
-            result = agent.service.gateway.execute(request)
-            assert result.status == expected, result.message
-        assert calls == [f"recon.test:{server.server_port}"]
-        assert sni == ["recon.test", "recon.test", "wrong.test"]
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
+    handshake("recon.test", True)
+    with pytest.raises(ssl.SSLCertVerificationError):
+        handshake("recon.test", False)
+    with pytest.raises(ssl.SSLCertVerificationError):
+        handshake("wrong.test", True)
+    assert sni == ["recon.test", "recon.test", "wrong.test"]
+
+    seen = []
+
+    def inspect(request):
+        seen.append((request.url.host, request.headers["Host"], request.extensions.get("sni_hostname")))
+        return httpx.Response(200, stream=httpx.ByteStream(b"ok"))
+
+    task = scoped_task("https://recon.test:443/", "tls-pinned", pinned_ip="127.0.0.1")
+    agent = engine(tmp_path, task, HttpFetchAdapter(httpx.MockTransport(inspect)))
+    request = ReconPlanner._action(task, "127.0.0.1", Capability.HTTP_FETCH,
+                                   HttpFetchParams(port=443, scheme="https", max_body_bytes=65536)).request
+    result = agent.service.gateway.execute(request)
+    assert result.status == "success", result.message
+    assert seen == [("127.0.0.1", "recon.test:443", "recon.test")]
 
 
 def test_hostname_browser_policy_child_identity_inventory_and_zero_sink(tmp_path, domain_server, chromium_gate):  # noqa: F811

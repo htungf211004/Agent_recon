@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serial
 from src.contracts.attack_surface import AttackSurfaceInventory
 from src.contracts.evidence import EvidenceManifest
 from src.contracts.execution import CURRENT_RECON_POLICY_VERSION, Risk
+from src.contracts.recon_candidates import AttackSurfaceCandidate
 from src.recon.execution import BudgetContext, ExecutionBudget
 from src.recon.urls import canonical_host, validate_path, validate_query
 from src.recon.web_models import (
@@ -556,7 +557,7 @@ def request_target_ip(request: ReconExecutionRequest) -> str | None:
 
 class ReconAction(StrictModel):
     id: str = Field(min_length=1)
-    request: CapabilityRequest
+    request: ReconExecutionRequest
 
 
 class ReconPlan(StrictModel):
@@ -668,3 +669,10 @@ class ReconResult(StrictModel):
     worker_status: Literal["RUNNING", "COMPLETED", "FAILED", "CANCELLED"] | None = None
     handoff_ready: bool = False
     coverage_outcome: Literal["COMPLETE", "PARTIAL", "LIMITED"] | None = None
+    checklist: tuple[dict, ...] = ()
+    coverage_score: float = Field(default=0, ge=0, le=100)
+    mandatory_resolved: bool = False
+    residual_signals: tuple[dict, ...] = ()
+    attack_surface_candidates: tuple[AttackSurfaceCandidate, ...] = ()
+    execution_mode: Literal["llm", "deterministic_fallback"] | None = None
+    stop_reason: str | None = None

@@ -52,7 +52,7 @@ _EVIDENCE = {
 }
 
 DEFINITIONS = {
-    **{cap: CapabilityDefinition(cap, risk, "target", runtime, risk != Risk.R2,
+    **{cap: CapabilityDefinition(cap, risk, "target", runtime, True,
                                  "tool_output", tuple(f"PT_01-STT-{n:02d}" for n in checks))
        for cap, (risk, runtime, checks) in _TARGET.items()},
     **{cap: CapabilityDefinition(cap, Risk.R0, "provider", runtime, True,

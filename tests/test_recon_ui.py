@@ -67,7 +67,7 @@ def test_ui_launch_delegates_to_existing_cli_with_fixed_argv(client, monkeypatch
     task_id = response.json()["task_id"]
     args, options = calls[0]
     assert args[:4] == [ui.sys.executable, "-u", "-m", "scripts.run_recon_live"]
-    assert args[args.index("--url") + 1] == "http://127.0.0.1:8080/"
+    assert args[args.index("--target") + 1] == "http://127.0.0.1:8080/"
     assert "--model=test-model" in args and options["shell"] is False
     assert "test-secret" not in " ".join(args)
     assert client.get("/api/runs/" + task_id).json()["process_status"] == "FINISHED"
@@ -134,8 +134,14 @@ def test_real_ui_cli_lab_and_evidence_with_local_provider(client, monkeypatch, d
     class Provider(BaseHTTPRequestHandler):
         def do_POST(self):
             calls.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
-            decision = {"proposals": [{"kind": "stop", "reason_code": "COVERAGE_SUFFICIENT",
-                                      "rationale": "local fixture complete", "priority": 1}]}
+            state = json.loads(calls[-1]["messages"][-1]["content"])
+            if len(calls) == 1:
+                decision = {"proposals": [{"kind": "safe_http_probe", "asset_id": state["assets"][0]["asset_id"],
+                    "port": state["scope"]["ports"][0], "scheme": "http", "path": "/health",
+                    "method": "GET", "rationale": "read local health route", "priority": 1}]}
+            else:
+                decision = {"proposals": [{"kind": "stop", "reason_code": "NO_SAFE_SUPPORTED_ACTION",
+                                          "rationale": "fixture has no further steps", "priority": 1}]}
             payload = json.dumps({"id": "local-completion", "object": "chat.completion", "created": 1,
                                   "model": "local-fixture", "choices": [{"index": 0, "finish_reason": "stop",
                                   "message": {"role": "assistant", "content": json.dumps(decision)}}]}).encode()
@@ -161,7 +167,7 @@ def test_real_ui_cli_lab_and_evidence_with_local_provider(client, monkeypatch, d
         url = client.post("/api/lab").json()["url"]
         if domain:
             monkeypatch.setattr("scripts.run_recon_live.resolve_pin", lambda *_: "127.0.0.1")
-            url = url.replace("127.0.0.1", "recon.test") + "#/"
+            url = url.replace("127.0.0.1", "recon.test")
         response = client.post("/api/runs", json={"target": url, "provider": "openai", "model": "local-fixture"})
         assert response.status_code == 200
         task_id = response.json()["task_id"]
@@ -174,8 +180,8 @@ def test_real_ui_cli_lab_and_evidence_with_local_provider(client, monkeypatch, d
             time.sleep(0.1)
         assert snapshot["process_status"] == "FINISHED", snapshot
         assert snapshot["exit_code"] == 0, (ui.OUTPUT / task_id / "runner.log").read_text(errors="replace")
-        assert len(calls) == 1
-        assert snapshot["summary"]["llm_decisions_recorded"] == 1
+        assert len(calls) == 2
+        assert snapshot["summary"]["llm_decisions_recorded"] == 2
         assert snapshot["summary"]["evidence_verified"] > 0
         assert snapshot["summary"]["run_status"] == "COMPLETED"
         assert any(e["canonical_path"] == "/health" for e in snapshot["inventory"]["entries"])
@@ -188,7 +194,7 @@ def test_real_ui_cli_lab_and_evidence_with_local_provider(client, monkeypatch, d
             del command[index:index + 2]
             resumed = ui.subprocess.run(command, cwd=ui.ROOT, capture_output=True, timeout=30, shell=False)
             assert resumed.returncode == 0, resumed.stdout.decode(errors="replace")
-            assert len(calls) == 1
+            assert len(calls) == 2
         evidence_id = snapshot["evidence"][0]["id"]
         assert client.get(f"/api/runs/{task_id}/evidence/{evidence_id}").status_code == 200
         assert client.get(f"/api/runs/{task_id}/files/planning.json").status_code == 200

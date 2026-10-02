@@ -434,7 +434,8 @@ def test_adaptive_browser_proposal_uses_real_boundary_and_baseline(tmp_path, bro
         return original_invoke(messages)
 
     model.invoke = checked_invoke
-    agent = AdaptiveReconAgent(engine, LLMReconPlanner(model, planner_id="fake-browser-v1"))
+    agent = AdaptiveReconAgent(engine, LLMReconPlanner(model, planner_id="fake-browser-v1"),
+        execution_mode="deterministic_fallback")
     result = agent.run(task.id)
     dynamic = next(e for e in result.attack_surface_inventory.entries if e.canonical_path == "/dynamic")
     assert dynamic.status == "FUZZ_READY" and dynamic.has_verified_baseline
@@ -450,7 +451,8 @@ def test_adaptive_browser_proposal_uses_real_boundary_and_baseline(tmp_path, bro
     reopened = ReconRepository(repository.database_path)
     resumed_gateway = ToolExecutionGateway(PolicyService(reopened), gateway.registry,
         EvidenceStore(gateway.evidence.directory, reopened), reopened)
-    resumed = AdaptiveReconAgent(ReconAgent(reopened, ReconPlanner(), ReconService(reopened, resumed_gateway)), agent.planner)
+    resumed = AdaptiveReconAgent(ReconAgent(reopened, ReconPlanner(), ReconService(reopened, resumed_gateway)),
+        agent.planner, execution_mode="deterministic_fallback")
     assert resumed.run(task.id).attack_surface_inventory == result.attack_surface_inventory
     assert calls == count and len(model.contexts) == 2
     assert forbidden_sink[1] == []

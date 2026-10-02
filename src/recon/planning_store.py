@@ -17,9 +17,9 @@ class ReconPlanningStore:
         connection.row_factory = sqlite3.Row
         return connection
 
-    def open_session(self, task, limits, planner_id, retriever_id="noop-v1"):
+    def open_session(self, task, limits, planner_id, retriever_id="noop-v1", *, execution_mode="deterministic_fallback"):
         config = json.dumps({"limits": limits.model_dump(), "planner_id": planner_id,
-                             "retriever_id": retriever_id}, sort_keys=True)
+                             "retriever_id": retriever_id, "execution_mode": execution_mode}, sort_keys=True)
         binding = PolicyService.scope_fingerprint(task)
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -43,6 +43,9 @@ class ReconPlanningStore:
         with self._connect() as connection:
             return tuple(dict(row) for row in connection.execute(
                 "SELECT * FROM recon_planning_rounds WHERE task_id = ? ORDER BY number", (task_id,)))
+
+    def planning_rejections(self, task_id):
+        return tuple(json.loads(row["rejections"]) for row in self.rounds(task_id) if row["rejections"])
 
     def get(self, task_id, number):
         return next((row for row in self.rounds(task_id) if row["number"] == number), None)

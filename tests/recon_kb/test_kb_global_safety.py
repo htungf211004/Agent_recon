@@ -120,8 +120,7 @@ def test_runner_id_resolution_hash_and_technology_gate(pipeline, staged):
             resolver.resolve(identity_bad)
     with pytest.raises(TypeError):
         resolver.resolve(identity, local_path="C:/secret.txt")
-    with pytest.raises(ValueError, match="operator"):
-        resolver.resolve(identity, automatic=True)
+    assert resolver.resolve(identity, automatic=True).sha256 == resolved.sha256
     resolved.path.write_bytes(b"tampered\n")
     with pytest.raises(ValueError, match="hash"):
         resolver.resolve(identity)
@@ -146,6 +145,23 @@ def test_operator_selected_runner_data_enters_runtime_catalog_and_pins_snapshot(
         select_runner_data(repository, "run-1", selected, root=pipeline.store.root)
         assert load_wordlist(identity).version == manifest.snapshot_id
         assert repository.kb_snapshots("run-1") == (manifest,)
+    finally:
+        clear_external_wordlists()
+
+
+def test_autonomous_runner_selects_promoted_catalog_and_reuses_pin(pipeline, tmp_path):
+    manifest = promote_fixture(pipeline, "SECLISTS")
+    repository = ReconRepository(tmp_path / "automatic.db")
+    try:
+        first = select_runner_data(repository, "run-auto", (), root=pipeline.store.root, automatic=True)
+        assert first and all(item.startswith("SECLISTS:") for item in first)
+        assert repository.kb_snapshots("run-auto") == (manifest,)
+        clear_external_wordlists()
+        pipeline.git.commit = "b" * 40
+        promote_fixture(pipeline, "SECLISTS")
+        resumed = select_runner_data(repository, "run-auto", (), root=pipeline.store.root, automatic=True)
+        assert resumed == first
+        assert repository.kb_snapshots("run-auto") == (manifest,)
     finally:
         clear_external_wordlists()
 

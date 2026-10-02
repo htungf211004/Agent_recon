@@ -135,8 +135,6 @@ class VectorKnowledgeRecord(Provenance):
 
     @model_validator(mode="after")
     def manual_risk(self):
-        if self.risk == Risk.R2 and self.delivery != "MANUAL_HITL":
-            raise ValueError("R2 knowledge is manual/HITL only")
         if not self.produces:
             raise ValueError("methodology requires inventory output")
         return self

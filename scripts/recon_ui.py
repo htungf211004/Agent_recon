@@ -34,7 +34,7 @@ from src.recon.scope.admission import parse_target
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "data" / "live-recon"
-ARTIFACTS = {"summary.json", "inventory.json", "planning.json", "result.json",
+ARTIFACTS = {"summary.json", "inventory.json", "planning.json", "result.json", "report.json",
              "run-manifest.json", "evidence-index.json", "asset-inventory.json",
              "checklist.json", "manual-review.json"}
 
@@ -49,7 +49,7 @@ class Launch(BaseModel):
     model: str = Field(default="", max_length=160, pattern=r"^[A-Za-z0-9._:/-]*$")
     browser: bool = False
     content_discovery: bool = False
-    rounds: int = Field(default=2, ge=1, le=3)
+    rounds: int = Field(default=32, ge=1, le=128)
 
 
 def runner_args(spec: Launch, task_id: str) -> list[str]:
@@ -76,9 +76,12 @@ def runner_args(spec: Launch, task_id: str) -> list[str]:
                        ports=ports, content_discovery=spec.content_discovery, full_profile=profile == "full")
     args = [sys.executable, "-u", "-m", "scripts.run_recon_live",
             "--task-id", task_id, "--output-root", str(OUTPUT),
-            "--provider", spec.provider, "--path-prefix", spec.path_prefix,
-            "--llm-rounds", str(spec.rounds)]
-    args += ["--target-ip", spec.target, "--ports", ",".join(map(str, ports))] if ports else ["--url", url]
+            "--provider", spec.provider, "--llm-rounds", str(spec.rounds)]
+    if ports:
+        args += ["--target-ip", spec.target, "--ports", ",".join(map(str, ports)),
+                 "--path-prefix", spec.path_prefix]
+    else:
+        args += ["--target", url]
     if task.scope.web_origin:
         args += ["--pinned-ip", task.scope.web_origin.pinned_ip]
     if spec.model:
@@ -281,6 +284,7 @@ def create_app() -> FastAPI:
                 "assets": read_json(safe_file(directory, "asset-inventory.json"), {}),
                 "checklist": read_json(safe_file(directory, "checklist.json"), {}),
                 "manual_review": read_json(safe_file(directory, "manual-review.json"), {}),
+                "report": read_json(safe_file(directory, "report.json"), {}),
                 "manifest": read_json(safe_file(directory, "run-manifest.json"), {}),
                 "planning": read_json(safe_file(directory, "planning.json"), []),
                 "evidence": read_json(safe_file(directory, "evidence-index.json"), []),
@@ -358,7 +362,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 Consolas,monospace
 <label class="field" id="portsField" hidden>Ports được phép<input id="ports" value="8080" placeholder="80,443,8080"></label>
 <label class="field">Path prefix được phép<input id="path" value="/"></label>
 <div class="row"><label class="field">Provider<select id="provider"><option value="gemini">Gemini</option><option value="openai">OpenAI compatible</option></select></label>
-<label class="field">LLM rounds<select id="rounds"><option>1</option><option selected>2</option><option>3</option></select></label></div>
+<label class="field">LLM rounds<select id="rounds"><option>8</option><option>16</option><option selected>32</option><option>64</option><option>128</option></select></label></div>
 <label class="field">Model<input id="model" placeholder="Dùng cấu hình .env"></label><div class="muted" id="keyState"></div>
 <label class="check"><input type="checkbox" id="browser" disabled> Cho phép Browser thụ động</label>
 <label class="check"><input type="checkbox" id="content" disabled> Cho phép FFUF bounded</label>
@@ -369,8 +373,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 Consolas,monospace
 <section class="workspace"><div class="topline"><div><div class="eyebrow">02 / OBSERVATIONS</div><h2>Kết quả & bằng chứng</h2></div><select id="history" aria-label="Lịch sử run"><option value="">Chọn lượt chạy…</option></select></div>
 <div class="panel"><div class="topline" style="margin-bottom:0"><span id="runTitle">Chưa có lượt chạy</span><span id="state" class="state">READY</span></div>
 <div class="muted" id="progress">Bắt đầu với lab localhost hoặc target IP của bạn.</div><div class="notice" id="runMessage"></div></div>
-<div class="metrics"><div class="metric"><strong id="routes">—</strong><span>ENDPOINTS</span></div><div class="metric"><strong id="ready">—</strong><span>FUZZ_READY</span></div><div class="metric"><strong id="proof">—</strong><span>EVIDENCE VERIFIED</span></div><div class="metric"><strong id="decisions">—</strong><span>LLM DECISIONS</span></div></div>
-<div class="panel"><nav class="tabs" aria-label="Kết quả"><button class="active" data-tab="inventory">Routes</button><button data-tab="assets">Assets</button><button data-tab="checklist">Checklist</button><button data-tab="manual">Manual review</button><button data-tab="planning">Planning</button><button data-tab="evidence">Evidence</button><button data-tab="summary">Summary</button></nav>
+<div class="metrics"><div class="metric"><strong id="routes">—</strong><span>ENDPOINTS</span></div><div class="metric"><strong id="ready">—</strong><span>FUZZ_READY</span></div><div class="metric"><strong id="proof">—</strong><span>EVIDENCE VERIFIED</span></div><div class="metric"><strong id="decisions">—</strong><span>LLM DECISIONS</span></div><div class="metric"><strong id="score">—</strong><span>COVERAGE %</span></div></div>
+<div class="panel"><nav class="tabs" aria-label="Kết quả"><button class="active" data-tab="inventory">Routes</button><button data-tab="assets">Assets</button><button data-tab="candidates">Candidates</button><button data-tab="checklist">Checklist</button><button data-tab="manual">Manual review</button><button data-tab="planning">Planning</button><button data-tab="evidence">Evidence</button><button data-tab="summary">Summary</button></nav>
 <div id="view"><div class="empty">◎<b>Từ scope đến evidence</b>Endpoint, quyết định LLM và bằng chứng sẽ xuất hiện ở đây.</div></div>
 <div id="downloads" class="downloads"></div></div><footer id="location">HTTP GET/HEAD · Policy/Gateway kiểm soát mọi execution · SQLite lưu lịch sử</footer>
 <footer>Đóng tab không hủy run. Giữ cửa sổ terminal chạy đến khi hoàn tất.</footer></section></main>
@@ -396,9 +400,10 @@ function render(){if(!snapshot)return;const d=snapshot,s=d.summary;el('runTitle'
 el('progress').textContent=d.progress.stages.map(x=>x.name+': '+x.state).join(' · ')+' | Tools: '+JSON.stringify(d.progress.tools);
 if(d.manifest.authorized_root)el('progress').textContent='Authorized root: '+d.manifest.authorized_root.value+' | '+el('progress').textContent;
 el('runMessage').textContent=d.process_status==='UNTRACKED'?'Đây là run lưu trên đĩa; phiên UI này không theo dõi tiến trình của nó. Xem summary và planning.':d.exit_code!==null&&d.exit_code!==0?'Runner kết thúc với mã '+d.exit_code+'. Xem LLM planning/error_code; runner.log nằm trong thư mục run.':'';
-for(const [id,key] of [['routes','routes'],['ready','fuzz_ready'],['proof','evidence_verified'],['decisions','llm_decisions_recorded']])el(id).textContent=s[key]??'—';el('location').textContent=d.directory;
+for(const [id,key] of [['routes','routes'],['ready','fuzz_ready'],['proof','evidence_verified'],['decisions','llm_decisions_recorded'],['score','coverage_score']])el(id).textContent=s[key]??'—';el('location').textContent=d.directory;
 if(tab==='inventory'){const rows=d.inventory.entries||[];if(!rows.length){const p=document.createElement('p');p.className='empty';p.textContent=d.process_status==='RUNNING'?'Đang chạy. Inventory đầy đủ được export khi kết thúc.':'Chưa có endpoint được export.';el('view').replaceChildren(p);}else{const t=table(['METHOD','ROUTE','LIFECYCLE','EVIDENCE']);for(const x of rows){const r=document.createElement('tr');cell(r,x.method);cell(r,x.authority+x.canonical_path,'path');cell(r,x.status);cell(r,x.evidence_refs.length);t.append(r);}}}
 else if(tab==='assets'){const t=table(['TYPE','VALUE','SCOPE','VERIFICATION','EVIDENCE']);for(const x of d.assets.assets||[]){const r=document.createElement('tr');cell(r,x.asset_type);cell(r,x.canonical_value,'path');cell(r,x.scope_status);cell(r,x.verification_status);cell(r,(x.discovery_evidence_refs||[]).concat(x.verification_evidence_refs||[]).join(', '),'path');t.append(r);}}
+else if(tab==='candidates')jsonView(d.report.candidates||[]);
 else if(tab==='checklist'){const t=table(['ITEM','STATUS','FINDING','REASON']);for(const x of d.checklist.items||[]){const r=document.createElement('tr');cell(r,x.id);cell(r,x.status);cell(r,x.finding);cell(r,x.reason);t.append(r);}}
 else if(tab==='manual')jsonView(d.manual_review.items||[]);
 else if(tab==='planning')jsonView(d.planning.length?d.planning:d.progress.rounds);

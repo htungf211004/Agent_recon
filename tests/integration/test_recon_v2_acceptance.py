@@ -95,7 +95,8 @@ def test_root_only_input_discovers_verifies_and_never_dispatches_external(tmp_pa
                                content_hash=hashlib.sha256(excerpt.encode()).hexdigest(), version="1")
         model = FakeModel(STOP)
         agent = AdaptiveReconAgent(engine, LLMReconPlanner(model, planner_id="v2-local"),
-                                   retriever=InMemoryKnowledgeRetriever((chunk,)))
+                                   retriever=InMemoryKnowledgeRetriever((chunk,)),
+                                   execution_mode="deterministic_fallback")
         result = agent.run(task.id)
         assets = repository.asset_inventory(task.id).assets
         assert any(a.canonical_value.endswith("/admin") and a.verification_status == AssetVerificationStatus.VERIFIED

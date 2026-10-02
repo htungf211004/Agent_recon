@@ -20,6 +20,8 @@ from src.recon.web_models import (
 
 
 def project_action(repository, service, request):
+    if not isinstance(request, CapabilityRequest):
+        return
     result = repository.get_tool_result(request.id)
     run = repository.get_tool_run(request.id)
     if not result or not run or run.state not in {ToolRunState.SUCCEEDED, ToolRunState.FAILED, ToolRunState.TIMED_OUT}:

@@ -1,4 +1,4 @@
-"""Optional LangGraph stage orchestration over the unchanged deterministic engine."""
+"""Autonomous bounded Recon loop with an explicit deterministic fallback."""
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -10,6 +10,7 @@ from src.contracts.recon_planning import ReconPlanningContext, ReconPlanningDeci
 from src.recon.adaptive_projection import project_action
 from src.recon.asset_verification import AssetVerifier
 from src.recon.baseline_promotion import BrowserBaselinePromotion
+from src.recon.coverage_evaluator import CoverageEvaluator, score_coverage
 from src.recon.deterministic_coverage import DeterministicCoverageExecutor
 from src.recon.external_osint import ExternalOsintExecutor
 from src.recon.models import Capability, ReconPlan
@@ -21,6 +22,7 @@ from src.recon.policy import PolicyService
 from src.recon.proposal_validator import ReconProposalValidator
 from src.recon.protocol_phase import ProtocolCoverageExecutor
 from src.recon.rag.retriever import NoopKnowledgeRetriever
+from src.recon.residual_signals import may_stop, residual_signals
 
 
 class ReconGraphState(TypedDict):
@@ -30,13 +32,22 @@ class ReconGraphState(TypedDict):
 
 
 class AdaptiveReconAgent:
-    def __init__(self, engine, planner, limits: ReconPlanningLimits | None = None, retriever=None):
+    def __init__(self, engine, planner, limits: ReconPlanningLimits | None = None, retriever=None,
+                 *, execution_mode=None):
         self.engine, self.planner = engine, planner
         self.repository, self.service = engine.repository, engine.service
-        self.limits = limits or ReconPlanningLimits()
+        self.execution_mode = execution_mode or getattr(planner, "execution_mode", "llm")
+        if self.execution_mode not in {"llm", "deterministic_fallback"}:
+            raise ValueError("unknown Recon execution mode")
+        self.limits = limits or (ReconPlanningLimits(max_llm_rounds=2, max_total_llm_actions=8)
+                                if self.execution_mode == "deterministic_fallback" else ReconPlanningLimits())
         self.retriever = retriever or NoopKnowledgeRetriever()
         self.store = ReconPlanningStore(self.repository)
         self.validator = ReconProposalValidator(self.repository, self.service, self.limits)
+        self.coverage_evaluator = CoverageEvaluator(self.repository, self.service)
+        if self.execution_mode == "llm":
+            self.graph = self._llm_graph()
+            return
         graph = StateGraph(ReconGraphState)
         graph.add_node("load_task", lambda state: {})
         graph.add_node("external_osint", self._external_osint)
@@ -67,13 +78,54 @@ class AdaptiveReconAgent:
                                     {"stop": END, "next": "verify_assets"})
         self.graph = graph.compile()  # SQLite owns durability; graph state only carries refs.
 
+    def _llm_graph(self):
+        graph = StateGraph(ReconGraphState)
+        graph.add_node("load_state", self._load_state)
+        graph.add_node("evaluate_coverage", self._evaluate_coverage)
+        graph.add_node("llm_plan", self._plan)
+        graph.add_node("validate", self._validate)
+        graph.add_node("execute", self._execute)
+        graph.add_node("normalize", self._refresh)
+        graph.add_edge(START, "load_state")
+        graph.add_edge("load_state", "evaluate_coverage")
+        graph.add_conditional_edges("evaluate_coverage", lambda s: "stop" if s["stop_reason"] else "plan",
+                                    {"stop": END, "plan": "llm_plan"})
+        graph.add_conditional_edges("llm_plan", lambda s: "stop" if s["stop_reason"] else "validate",
+                                    {"stop": END, "validate": "validate"})
+        graph.add_edge("validate", "execute")
+        graph.add_conditional_edges("execute", lambda s: "stop" if s["stop_reason"] else "normalize",
+                                    {"stop": END, "normalize": "normalize"})
+        graph.add_conditional_edges("normalize", lambda s: "stop" if s["stop_reason"] else "next",
+                                    {"stop": END, "next": "evaluate_coverage"})
+        return graph.compile()
+
+    def _load_state(self, state):
+        from src.recon.loop_projection import ensure_root_asset
+        ensure_root_asset(self.repository, self.repository.get_task(state["task_id"]))
+        return {}
+
+    def _evaluate_coverage(self, state):
+        if self.store.status(state["task_id"]):
+            return {"stop_reason": self.store.status(state["task_id"])}
+        rounds = self.store.rounds(state["task_id"])
+        if rounds and rounds[-1]["state"] != "EXECUTED":
+            return {}
+        task = self.repository.get_task(state["task_id"])
+        rows = self.coverage_evaluator.project(task)
+        signals = residual_signals(task, self.repository, self.service)
+        if rounds and may_stop(rows, signals):
+            self.store.stop(task.id, "coverage_complete")
+            return {"stop_reason": "coverage_complete"}
+        return {}
+
     def run(self, task_id):
         task = self.repository.get_task(task_id)
         if task is None:
             raise ValueError("unknown Recon task")
-        self.store.open_session(task, self.limits, self.planner.planner_id, self.retriever.implementation_id)
+        self.store.open_session(task, self.limits, self.planner.planner_id, self.retriever.implementation_id,
+                                execution_mode=self.execution_mode)
         self.graph.invoke({"task_id": task_id, "planning_round": 0, "stop_reason": None},
-                          config={"recursion_limit": 48})
+                          config={"recursion_limit": max(48, self.limits.max_llm_rounds * 6 + 16)})
         from src.recon.completion import completion
         result = self.service.snapshot(task_id)
         state = completion(self, task_id, result)
@@ -82,9 +134,21 @@ class AdaptiveReconAgent:
                 (*result.coverage.limitations, "handoff:no_fuzz_ready"))))})
             self.repository.save_coverage(coverage)
             result = result.model_copy(update={"coverage": coverage})
+        final_task = self.repository.get_task(task_id)
+        final_checklist = self.coverage_evaluator.project(final_task, finalize=state["terminal"])
+        final_signals = residual_signals(final_task, self.repository, self.service)
+        from src.recon.candidate_synthesis import synthesize_candidates
+        candidates = synthesize_candidates(final_task, result, self.repository, self.service, self.store)
         result = result.model_copy(update={"worker_status": state["run_status"],
                                            "handoff_ready": state["handoff_ready"],
-                                           "coverage_outcome": state["coverage_outcome"]})
+                                           "coverage_outcome": state["coverage_outcome"],
+                                           "checklist": tuple(row.model_dump(mode="json") for row in final_checklist),
+                                           "coverage_score": score_coverage(final_checklist).score,
+                                           "mandatory_resolved": score_coverage(final_checklist).mandatory_resolved,
+                                           "residual_signals": tuple(row.model_dump(mode="json") for row in final_signals),
+                                           "attack_surface_candidates": candidates,
+                                           "execution_mode": self.execution_mode,
+                                           "stop_reason": self.store.status(task_id)})
         self.repository.save_recon_result(result)
         return result
 
@@ -144,7 +208,8 @@ class AdaptiveReconAgent:
         from src.recon.web_models import SourceStatus
         self.repository.recover_expired_runs(task.id)
         if (any(run.state in {ToolRunState.RUNNING, ToolRunState.QUEUED} for run in self.repository.list_tool_runs(task.id))
-                or any(s.status == SourceStatus.PENDING for s in self.repository.list_sources(task.id))):
+                or self.execution_mode == "deterministic_fallback" and any(
+                    s.status == SourceStatus.PENDING for s in self.repository.list_sources(task.id))):
             return {"stop_reason": "execution_in_progress"}
         reason = self.store.status(task.id)
         if reason:
@@ -156,9 +221,13 @@ class AdaptiveReconAgent:
         if rounds and rounds[-1]["state"] == "EXECUTED" and rounds[-1]["plan"]:
             previous = ReconPlan.model_validate_json(rounds[-1]["plan"])
             if not previous.actions:
-                reason = "model_stop" if '"model_stop"' in rounds[-1]["rejections"] else "no_valid_actions"
-                self.store.stop(task.id, reason)
-                return {"stop_reason": reason}
+                rejected = rounds[-1]["rejections"] or ""
+                if self.execution_mode == "deterministic_fallback" or '"model_stop"' in rejected or (
+                        len(rounds) >= 3 and all(row["plan"] and not ReconPlan.model_validate_json(
+                            row["plan"]).actions for row in rounds[-3:])):
+                    reason = "model_stop" if '"model_stop"' in rejected else "no_valid_actions"
+                    self.store.stop(task.id, reason)
+                    return {"stop_reason": reason}
         if rounds and rounds[-1]["state"] in {"DECIDED", "VALIDATED"}:
             return {"planning_round": rounds[-1]["number"]}
         number = len(rounds) + 1
@@ -205,7 +274,8 @@ class AdaptiveReconAgent:
             context = ReconPlanningContext.model_validate_json(row["context"])
             plan, rejected = self.validator.validate(task, ReconPlanningDecision.model_validate_json(row["decision"]),
                 self.limits.max_total_llm_actions - self.store.actions_used(task.id),
-                (ref.knowledge_id for ref in context.knowledge_refs))
+                (ref.knowledge_id for ref in context.knowledge_refs),
+                may_stop=may_stop(context.checklist, context.residual_signals) if self.execution_mode == "llm" else None)
             self.store.validate(task.id, row["number"], plan, rejected, self.limits)
         return {}
 
@@ -219,8 +289,10 @@ class AdaptiveReconAgent:
         if not plan.actions:
             reason = "model_stop" if '"model_stop"' in row["rejections"] else "no_valid_actions"
             self.store.executed(plan.task_id, row["number"])
-            self.store.stop(plan.task_id, reason)
-            return {"stop_reason": reason}
+            if reason == "model_stop" or self.execution_mode == "deterministic_fallback":
+                self.store.stop(plan.task_id, reason)
+                return {"stop_reason": reason}
+            return {}
         try:
             self.service.run(plan)
         except RuntimeError:
@@ -229,12 +301,16 @@ class AdaptiveReconAgent:
             raise
         for action in plan.actions:
             project_action(self.repository, self.service, action.request)
+            if self.execution_mode == "llm":
+                from src.recon.loop_projection import normalize_action
+                normalize_action(self.repository, self.service, action.request)
         return {}
 
     def _refresh(self, state):
         from src.recon.content_discovery import baseline_content
         task = self.repository.get_task(state["task_id"])
-        if not state["stop_reason"] and Capability.HTTP_FETCH in task.scope.capabilities:
+        if (self.execution_mode == "deterministic_fallback" and not state["stop_reason"]
+                and Capability.HTTP_FETCH in task.scope.capabilities):
             BrowserBaselinePromotion(self.repository, self.engine.planner, self.service).run(task)
             baseline_content(self.repository, self.service, task)
         self.service.snapshot(state["task_id"])

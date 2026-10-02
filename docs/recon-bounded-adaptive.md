@@ -1,5 +1,9 @@
 # Bounded adaptive Recon worker
 
+This document describes the earlier bounded adaptive implementation. The
+current default controller and completion rules are in
+[the autonomous Recon ADR](adr-autonomous-recon-mvp.md).
+
 Recon receives one immutable authorized domain/IP root and a deterministically
 growing set of concrete execution bindings. See [domain support](recon-domain-support.md). Supervisor
 consumes the worker result; it does not sequence individual tools. Actors remain

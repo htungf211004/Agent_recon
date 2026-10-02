@@ -5,6 +5,7 @@ import hashlib
 from src.contracts.recon_kb import IngestionStatus, StorageClass
 from src.recon.kb.utils import json_bytes
 from src.recon.rag.models import KnowledgeChunk
+from src.recon.rag.query_builder import GAP_CATEGORIES
 
 
 class SnapshotKnowledgeRetriever:
@@ -30,11 +31,20 @@ class SnapshotKnowledgeRetriever:
             return ()
         records = [record for record in self.records
             if record.phase == query.phase and not record.active_testing and record.risk <= query.risk_ceiling
+            and record.delivery != "MANUAL_HITL"
             and (not record.asset_types or bool(set(record.asset_types) & set(query.asset_types)))
             and (not record.technologies or bool(set(record.technologies) & set(query.verified_technologies)))
             and set(record.capabilities).issubset(query.available_capabilities)
             and (not query.categories or record.category in query.categories)]
-        # No embedding provider is added in v1. This adapter uses the existing bounded retriever interface.
+        def rank(record):
+            gap_hits = sum(record.category in GAP_CATEGORIES.get(gap, ()) for gap in query.checklist_gaps)
+            category = int(record.category in query.categories)
+            capability = len(set(record.capabilities) & set(query.available_capabilities))
+            technology = len(set(record.technologies) & set(query.verified_technologies))
+            asset = len(set(record.asset_types) & set(query.asset_types))
+            route = sum(token in record.category for token in query.route_categories)
+            return -(100 * category + 80 * gap_hits + 40 * capability + 30 * technology + 20 * asset + 10 * route)
+        records.sort(key=lambda record: (rank(record), record.knowledge_id))
         chunks = []
         for record in records[:limit]:
             text = record.content.objective + " " + " ".join(record.content.safe_actions) + " " + record.content.completion_rule

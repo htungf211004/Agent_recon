@@ -66,7 +66,8 @@ def test_root_dynamic_browser_runs_only_after_durable_decision_and_restart(tmp_p
     port, calls, _, sink_calls = root_server
     repository, gateway, engine, task = browser_agent(tmp_path, port, BrowserLimits(), http=True, seeds=("/",))
     model = FakeModel({"proposals": [proposal("/", kind="browser_explore", port=port)]}, STOP)
-    agent = AdaptiveReconAgent(engine, LLMReconPlanner(model, planner_id="root-acceptance-v1"))
+    agent = AdaptiveReconAgent(engine, LLMReconPlanner(model, planner_id="root-acceptance-v1"),
+        execution_mode="deterministic_fallback")
     invoke = model.invoke
 
     def checked(messages):
@@ -117,7 +118,8 @@ def test_real_offscope_https_redirect_has_zero_sink_tcp_dispatch_and_no_handoff(
     port, calls, sink_port, sink_calls = root_server
     _, _, engine, task = browser_agent(tmp_path, port, BrowserLimits(), http=True, seeds=("/redirect",))
     model = FakeModel(STOP)
-    agent = AdaptiveReconAgent(engine, LLMReconPlanner(model, planner_id="redirect-acceptance"))
+    agent = AdaptiveReconAgent(engine, LLMReconPlanner(model, planner_id="redirect-acceptance"),
+        execution_mode="deterministic_fallback")
     result = agent.run(task.id)
     route = model.contexts[0]["routes"][0]
     assert route["last_status_code"] == 301 and route["baseline_blocker"] == "NON_2XX"

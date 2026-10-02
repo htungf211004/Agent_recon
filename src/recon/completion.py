@@ -6,6 +6,27 @@ from src.recon.web_models import SourceStatus
 
 
 def completion(agent, task_id, result):
+    if getattr(agent, "execution_mode", "deterministic_fallback") == "llm":
+        task = agent.repository.get_task(task_id)
+        rows = agent.coverage_evaluator.project(task)
+        from src.recon.residual_signals import may_stop, residual_signals
+
+        stop = agent.store.status(task_id)
+        runs = agent.repository.list_tool_runs(task_id)
+        pending = any(run.state in {ToolRunState.RUNNING, ToolRunState.QUEUED} for run in runs)
+        rounds = agent.store.rounds(task_id)
+        terminal = bool(stop) and not pending and all(row["state"] in {"EXECUTED", "FAILED"} for row in rounds)
+        signals = residual_signals(task, agent.repository, agent.service)
+        if may_stop(rows, signals):
+            outcome = "COMPLETE"
+        elif stop in {"request_limit", "round_limit", "action_limit", "context_limit", "model_error",
+                      "model_outcome_unknown"}:
+            outcome = "LIMITED"
+        else:
+            outcome = "PARTIAL"
+        return {"terminal": terminal, "run_status": "COMPLETED" if terminal else "RUNNING",
+                "handoff_ready": any(e.status == "FUZZ_READY" for e in result.attack_surface_inventory.entries),
+                "coverage_outcome": outcome if terminal else None}
     rounds = agent.store.rounds(task_id)
     runs = agent.repository.list_tool_runs(task_id)
     pending = any(run.state in {ToolRunState.RUNNING, ToolRunState.QUEUED} for run in runs)

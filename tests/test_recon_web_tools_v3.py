@@ -276,8 +276,8 @@ def test_crawl_failed_attempt_reserves_output_limit_independently_of_request_lim
     assert calls == ["crawl-1"]
 
 
-@pytest.mark.parametrize("grant", [False, True])
-def test_bare_target_cli_grants_parameter_discovery_only_explicitly(tmp_path, monkeypatch, grant):
+@pytest.mark.parametrize("legacy_flag", [False, True])
+def test_bare_target_cli_grants_bounded_recon_r2_by_default(tmp_path, monkeypatch, legacy_flag):
     from scripts import run_recon_live
     from src.recon.scope.admission import admit_target
 
@@ -290,18 +290,18 @@ def test_bare_target_cli_grants_parameter_discovery_only_explicitly(tmp_path, mo
         captured.append(task)
         raise TaskCapturedError
 
-    monkeypatch.setattr(run_recon_live, "admit_target", lambda root, task_id:
+    monkeypatch.setattr(run_recon_live, "admit_target", lambda root, task_id, **_kwargs:
                         admit_target(root, task_id, pinned_addresses=("127.0.0.1",)))
     monkeypatch.setattr(run_recon_live, "get_settings", lambda: SimpleNamespace(
-        openai_api_key="", model_name="fixture", openai_base_url=None))
+        openai_api_key="fixture-key", model_name="fixture", openai_base_url=None))
     monkeypatch.setattr(run_recon_live, "create_recon_agent", lambda *_args: (
         SimpleNamespace(get_task=lambda _id: None, save_task=save_task), SimpleNamespace()))
     arguments = ["--target", "example.com", "--task-id", "grant", "--output-root", str(tmp_path)]
-    if grant:
+    if legacy_flag:
         arguments.append("--parameter-discovery")
     with pytest.raises(TaskCapturedError):
         run_recon_live.main(arguments)
-    assert (Capability.PARAMETER_DISCOVERY in captured[0].scope.capabilities) == grant
+    assert Capability.PARAMETER_DISCOVERY in captured[0].scope.capabilities
 
 
 def test_cli_resume_cannot_upgrade_existing_task_to_r2(tmp_path):
@@ -310,6 +310,8 @@ def test_cli_resume_cannot_upgrade_existing_task_to_r2(tmp_path):
     from src.recon.storage import ReconRepository
 
     task, boundary = admit_target("example.com", "resume", pinned_addresses=("127.0.0.1",))
+    task = task.model_copy(update={"scope": task.scope.model_copy(update={"capabilities": tuple(
+        cap for cap in task.scope.capabilities if cap != Capability.PARAMETER_DISCOVERY)})})
     repository = ReconRepository(tmp_path / "resume" / "recon.db")
     repository.save_task(task)
     repository.save_authorization(boundary)

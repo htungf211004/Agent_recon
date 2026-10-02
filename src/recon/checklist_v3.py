@@ -131,14 +131,15 @@ def project_checklist_v3(task, repository, service, *, finalize=False) -> tuple[
             ran = "scm-small-v1" in executed_profiles
         if item.id == "PT_01-STT-07":
             ran = bool(verified_origins) and verified_origins <= api_checked_origins
-        if (item.id == "PT_01-STT-08" and Capability.GRAPHQL_DISCOVERY in verified
-                and Capability.GRAPHQL_INTROSPECTION not in task.scope.capabilities):
+        if item.id == "PT_01-STT-08" and Capability.GRAPHQL_DISCOVERY in verified:
             found = any(row.observations for row in verified[Capability.GRAPHQL_DISCOVERY])
-            status = ("MANUAL_REVIEW" if found else "COMPLETE" if len(graphql_paths) == 4
-                      else "BLOCKED" if finalize else "PENDING")
-            finding = "FOUND" if found else "NOT_FOUND" if len(graphql_paths) == 4 else "NOT_TESTED"
-            reason = ("GraphQL endpoint found; R2 introspection requires explicit scope" if found
-                      else "bounded GraphQL discovery checked without indicator")
+            if found and Capability.GRAPHQL_INTROSPECTION in verified:
+                status, finding, reason = "COMPLETE", "FOUND", "verified GraphQL discovery and schema evidence"
+            elif not found and len(graphql_paths) == 4:
+                status, finding, reason = "NOT_APPLICABLE", "NOT_FOUND", "bounded GraphQL paths checked without indicator"
+            else:
+                status, finding, reason = ("BLOCKED" if finalize else "PENDING"), "NOT_TESTED", \
+                    "GraphQL indication needs typed Recon follow-up" if found else "GraphQL paths remain unchecked"
         elif infrastructure_partial and ran:
             status, finding, reason = "MANUAL_REVIEW", "NOT_TESTED", \
                 "passive infrastructure profile returned no IP/ASN-capable metadata; provider coverage remains incomplete"
@@ -152,8 +153,6 @@ def project_checklist_v3(task, repository, service, *, finalize=False) -> tuple[
             reason = "verified capability evidence" if ran else old.reason
             if item.id == "PT_01-STT-02" and domain_root and ran:
                 reason = "verified domain web coverage; IP-wide Nmap is not authorized by a domain root"
-                if Capability.PARAMETER_DISCOVERY not in task.scope.capabilities:
-                    reason += "; R2 parameter discovery not authorized"
         elif missing:
             status, finding, reason = "UNSUPPORTED", "NOT_TESTED", "capability outside task scope: " + ", ".join(
                 cap.value for cap in missing)

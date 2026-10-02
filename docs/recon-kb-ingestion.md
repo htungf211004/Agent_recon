@@ -68,10 +68,10 @@ returns the historical manifests. Evidence, scope, approvals, and findings are n
 
 `SnapshotKnowledgeRetriever(store, {source_id: snapshot_id})` implements the existing bounded retriever
 interface. It accepts only PROMOTED VECTOR_RAG records. Before returning references, it filters phase,
-category, asset types, technologies, available capabilities, risk ceiling, and active-testing eligibility.
+checklist-linked category, asset types, technologies, available capabilities, risk ceiling, and active-testing eligibility.
 It pins its manifests in the Run repository when used by the existing planning context, which now persists
-source version, commit and snapshot ID on knowledge references. v1 provides deterministic reference
-selection; it does not add an embedding provider or change the Recon Planner prompt.
+source version, commit and snapshot ID on knowledge references. Selection is deterministic and ranked for
+pending checklist goals; the LLM receives only bounded safe references.
 
 The live runner selects promoted VECTOR_RAG `CURRENT` snapshots automatically. A resumed run reconstructs
 the retriever from its immutable `recon_kb_bindings` instead of following a newer `CURRENT`. Both the
@@ -81,14 +81,11 @@ retriever implementation ID and full snapshot manifests (`kb_snapshots`) are exp
 `RunnerDataResolver(store, source_id, snapshot_id).resolve(runner_data_id)` resolves an operator-pinned
 catalog by ID, verifies its byte digest and normalization, and returns the existing `TrustedWordlist` shape.
 It accepts no caller-supplied local path or payload. Technology-aware lists require a matching
-`TechnologyObservation` with evidence. Automatic resolution is forbidden, including API-route datasets.
-Ingested IDs are not automatically added to the runtime `TRUSTED` catalog. After reviewing and promoting a
-RUNNER_DATA snapshot, an operator can select an exact entry for one live run with
-`--runner-data SOURCE_ID:runner_data_id`. Selection verifies the snapshot, record and bytes, pins the
-manifest to the Run, and installs only that ID in the process-local catalog. The deterministic coverage
-stage then sends it through the existing typed request, policy and gateway path. A resume reloads the
-same pinned snapshot only when the operator repeats the exact `--runner-data` option; the exported manifest
-is informational and is never trusted as selection authority. Existing action fingerprints bind
+`TechnologyObservation` with evidence. The live LLM runner selects approved automatic entries from
+promoted `RUNNER_DATA` snapshots and pins the manifest to the Run; an operator can override selection
+with `--runner-data SOURCE_ID:runner_data_id`. Selection verifies the snapshot, record and bytes and
+installs only approved IDs in the process-local catalog. The LLM may propose a typed discovery action,
+subject to the validator, Policy and Gateway. A resume uses the same pinned snapshot. Existing action fingerprints bind
 `wordlist_id`, so changing a dataset cannot reuse an earlier execution identity.
 
 KEV joins only exact uppercase CVE IDs and returns reference metadata. IANA port helpers return

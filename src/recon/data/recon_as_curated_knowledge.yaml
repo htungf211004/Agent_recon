@@ -932,7 +932,7 @@ records:
   delivery: AUTOMATIC
   requires:
   - operator_authorized_scope
-  - verified_http_origin_and_operator_selected_runner_id
+  - verified_http_origin_and_approved_runner_id
   produces: &id022
   - PATH
   - ENDPOINT_CANDIDATE
@@ -943,8 +943,8 @@ records:
     - The authorized inventory has an unresolved content_discovery coverage gap and
       the required inputs exist.
     safe_actions:
-    - Select only an existing approved runner_data_id/profile through the existing
-      policy catalog. Use bounded non-recursive candidates; each FFUF candidate requires
+    - Select only an approved runner_data_id/profile from the run-pinned catalog.
+      Use bounded non-recursive candidates; each FFUF candidate requires
       a separate HTTP baseline before becoming observed.
     expected_observations: *id022
     evidence_required:
@@ -1149,10 +1149,10 @@ records:
   capabilities:
   - graphql_introspection
   risk: R2
-  delivery: MANUAL_HITL
+  delivery: AUTOMATIC
   requires:
   - operator_authorized_scope
-  - explicit_R2_scope_and_operator_review
+  - authorized_R2_scope_and_verified_GET_baseline
   produces: &id027
   - PROTOCOL
   api_related: true
@@ -1163,8 +1163,8 @@ records:
     - The authorized inventory has an unresolved graphql_schema_review coverage gap
       and the required inputs exist.
     safe_actions:
-    - Treat the existing R2 introspection contract as explicit operator-controlled
-      schema review. Advisory knowledge does not authorize it and does not add GraphQL
+    - Treat the bounded R2 introspection contract as autonomous within task scope.
+      Advisory knowledge does not authorize it and does not add GraphQL
       attacks or mutations.
     expected_observations: *id027
     evidence_required:
@@ -1547,7 +1547,7 @@ records:
   capabilities:
   - parameter_discovery
   risk: R2
-  delivery: MANUAL_HITL
+  delivery: AUTOMATIC
   requires:
   - operator_authorized_scope
   - explicit_R2_scope_and_operator_review
@@ -1560,9 +1560,8 @@ records:
     - The authorized inventory has an unresolved parameter_review coverage gap and
       the required inputs exist.
     safe_actions:
-    - Document the existing R2 parameter-discovery boundary for explicit operator
-      review only. This dataset keeps Arjun ingestion disabled and supplies no probing
-      dictionaries or arbitrary payloads.
+    - Propose bounded R2 parameter discovery only for a verified GET baseline
+      and approved runner profile. This dataset supplies no arbitrary payloads.
     expected_observations: *id036
     evidence_required:
     - tool_output with gateway evidence_ref, origin or input identity, timestamp and
@@ -1570,8 +1569,8 @@ records:
     follow_up:
     - Submit candidates to existing scope admission and policy; knowledge grants no
       authority.
-    completion_rule: Record an explicit operator decision or manual/policy-disabled
-      limitation; this knowledge never initiates parameter testing.
+    completion_rule: Record the bounded attempt or policy/runtime limitation;
+      knowledge itself never authorizes parameter testing.
   source_paths:
   - src/recon/models.py
   - src/recon/capability_catalog.py

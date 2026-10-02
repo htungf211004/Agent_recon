@@ -33,6 +33,7 @@ class TrustedWordlist:
     category: str
     intended_phase: str
     entries: tuple[str, ...]
+    source_id: str = "packaged"
 
 
 def install_external_wordlist(wordlist: TrustedWordlist):
